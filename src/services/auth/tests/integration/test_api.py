@@ -306,6 +306,31 @@ async def test_switching_workspace_rotates_the_refresh_token(client: httpx.Async
     assert replayed.status_code == 401
 
 
+async def test_refreshing_a_switched_session_keeps_the_switched_workspace(
+    client: httpx.AsyncClient,
+) -> None:
+    """The workspace belongs to the session, not to wherever sign-in first landed.
+
+    A renewal that fell back to the default workspace would bounce the user out
+    of the one they chose every fifteen minutes.
+    """
+    tokens = await sign_in(client)
+    demo = await workspace_id(client, tokens, DEMO_WORKSPACE)
+    switched = renewed(
+        await client.post(
+            "/api/v1/auth/switch-workspace",
+            json={"workspaceId": demo},
+            headers=session_cookie(tokens),
+        )
+    )
+
+    resp = await client.post("/api/v1/auth/refresh", headers=session_cookie(switched))
+
+    assert resp.status_code == 200
+    assert claims(resp.json())["wsp"] == demo
+    assert claims(resp.json())["roles"] == ["member"]
+
+
 async def test_switching_to_a_workspace_you_are_not_in_is_refused(
     client: httpx.AsyncClient,
 ) -> None:

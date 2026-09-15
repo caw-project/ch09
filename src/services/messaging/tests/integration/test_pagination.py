@@ -12,6 +12,11 @@ last one is short — the boundary where an off-by-one in `fetch_limit` shows up
 
 from __future__ import annotations
 
+import httpx
+import pytest
+
+from shared import encode_cursor, uuid7
+
 TOTAL = 120
 
 
@@ -151,3 +156,41 @@ async def test_a_limit_over_the_maximum_is_a_400(client, ada):
     )
 
     assert response.status_code == 400
+
+
+# --- a cursor that decodes but is not one we wrote ----------------------------
+
+
+@pytest.mark.parametrize(
+    ("route", "cursor"),
+    [
+        pytest.param("history", encode_cursor(str(uuid7()), "extra"), id="history-two-parts"),
+        pytest.param("history", encode_cursor("not-a-uuid"), id="history-not-a-uuid"),
+        pytest.param("channels", encode_cursor("general"), id="channels-one-part"),
+        pytest.param("channels", encode_cursor("general", "not-a-uuid"), id="channels-not-a-uuid"),
+        pytest.param("members", encode_cursor(str(uuid7()), "extra"), id="members-two-parts"),
+        pytest.param("members", encode_cursor("not-a-uuid"), id="members-not-a-uuid"),
+    ],
+)
+async def test_a_cursor_that_decodes_but_is_not_ours_is_a_400(realtime_url, tokens, route, cursor):
+    """Valid base64, the wrong shape inside: still the client's mistake, not ours.
+
+    `decode_cursor` only knows the string is base64; how many parts a route
+    expects, and that they are UUIDs, is known only where the cursor is
+    unpacked. Three routes, because each unpacks its own.
+
+    Against the real server rather than `client`: `ASGITransport` re-raises an
+    unhandled exception into the test, and what this holds is the response.
+    """
+    async with httpx.AsyncClient(base_url=realtime_url, headers=tokens.header()) as http:
+        channel = await make_channel(http, {})
+        path = {
+            "history": f"/api/v1/channels/{channel['id']}/messages",
+            "channels": "/api/v1/channels",
+            "members": f"/api/v1/channels/{channel['id']}/members",
+        }[route]
+
+        response = await http.get(path, params={"cursor": cursor})
+
+    assert response.status_code == 400
+    assert response.json()["errors"]["cursor"] == ["Malformed cursor"]

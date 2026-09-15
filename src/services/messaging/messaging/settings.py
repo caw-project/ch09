@@ -35,4 +35,10 @@ class Settings(BaseSettings):
     messaging_max_body_chars: int = 8000
     messaging_max_attachments: int = 10
 
+    # Engine.IO heartbeat. python-socketio's own defaults: a dropped connection
+    # is noticed within interval + timeout, ~45s. Only the BDD stack shortens
+    # them, so a "connection drops" journey does not wait that long.
+    messaging_socket_ping_interval_seconds: float = 25
+    messaging_socket_ping_timeout_seconds: float = 20
+
     otel_exporter_otlp_endpoint: str | None = None

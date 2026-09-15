@@ -9,11 +9,38 @@ should be free to change without breaking a test about channels.
 
 Only what a kept journey uses is here. The suite is key journeys only (register
 D32), so a method nothing calls is deleted with the scenario that used it.
+
+**A question about the screen is answered by a retrying expectation**, not by
+reading the DOM once. `count()` and `inner_text()` report whatever is there at
+the instant they run, and in an app that renders from a cache which a socket
+event, a refetch or an ack can change a moment later, that instant is a race.
+The `has_*` and `is_*` methods wrap Playwright's `expect`, which polls until the
+condition holds or its timeout runs out, and return whether it held — so the
+steps still read `assert ada.has_tombstone()`. The plain readers
+(`channel_names`, `message_bodies`, `count_of`) are kept for failure messages.
 """
 
 from __future__ import annotations
 
-from playwright.sync_api import Page, expect
+from collections.abc import Callable
+
+from playwright.sync_api import Locator, Page, expect
+
+#: How long `appears_once` keeps checking the count after it first reads 1.
+#: The sender's own broadcast lands after her ack, and a blind append turns
+#: one row into two only when it does — so a count taken the instant the
+#: confirmed row appears proves nothing about duplicates.
+_ONCE_HOLD_MS = 1_500
+_ONCE_POLL_MS = 100
+
+
+def _holds(check: Callable[[], None]) -> bool:
+    """Whether a retrying expectation passed within its timeout."""
+    try:
+        check()
+    except AssertionError:
+        return False
+    return True
 
 
 class ChatPage:
@@ -33,13 +60,39 @@ class ChatPage:
         self.page.goto(self.base_url)
         self.page.wait_for_load_state("networkidle")
 
+    # --- session ----------------------------------------------------------
+
+    def sign_out(self) -> None:
+        """Sign out, and wait until the app has let go of the session.
+
+        Waiting on the sign-in page rather than on the click: the SPA shows it
+        only after `/auth/logout` has answered, so a reload straight after this
+        cannot race the revocation and spend a cookie the server was about to
+        clear.
+        """
+        self.page.get_by_test_id("sign-out").click()
+        expect(self.page.get_by_test_id("sign-in")).to_be_visible()
+
+    def switch_workspace(self, name: str) -> None:
+        """Move to another workspace and wait until the shell says so.
+
+        Double quotes in the attribute selector, because a personal workspace is
+        called "ada's Workspace" and a single quote would end the value.
+        """
+        self.page.locator(f'[data-testid="workspace-option"][data-workspace-name="{name}"]').click()
+        expect(self.page.get_by_test_id("workspace-name")).to_have_text(name)
+
     # --- reading ----------------------------------------------------------
 
     def workspace_name(self) -> str:
         return self.page.get_by_test_id("workspace-name").inner_text()
 
     def channel_names(self) -> list[str]:
-        """Every channel in the sidebar, in the order it is displayed."""
+        """Every channel in the sidebar, in the order it is displayed.
+
+        A single read, for failure messages — assert with `has_channel` and
+        `lacks_channel`, which wait.
+        """
         self._settle()
         items = self.page.get_by_test_id("channel-list-item")
         return [
@@ -47,10 +100,24 @@ class ChatPage:
             for i in range(items.count())
         ]
 
+    def has_channel(self, name: str) -> bool:
+        """Whether a channel is in the sidebar, waiting for it to arrive."""
+        self._settle()
+        return _holds(lambda: expect(self._channel_item(name)).to_have_count(1))
+
+    def lacks_channel(self, name: str) -> bool:
+        """Whether a channel is *not* in the sidebar, once the list has loaded.
+
+        Settling first is what stops this passing vacuously: a list still
+        loading has no channels in it at all.
+        """
+        self._settle()
+        return _holds(lambda: expect(self._channel_item(name)).to_have_count(0))
+
     def open_channel(self, name: str) -> None:
         """Click a channel in the sidebar and wait until it is the open one."""
         self._settle()
-        self.page.locator(f"[data-testid='channel-list-item'][data-channel-name='{name}']").click()
+        self._channel_item(name).click()
         expect(
             self.page.locator(f"[data-testid='channel-view'][data-channel-name='{name}']")
         ).to_be_visible()
@@ -77,6 +144,9 @@ class ChatPage:
         error = self.page.get_by_test_id("channel-error")
         error.wait_for(state="visible", timeout=10_000)
         return error.inner_text()
+
+    def _channel_item(self, name: str) -> Locator:
+        return self.page.locator(f"[data-testid='channel-list-item'][data-channel-name='{name}']")
 
     def _settle(self) -> None:
         """Wait for the channel list to finish its first load.
@@ -116,30 +186,48 @@ class ChatPage:
         self.page.get_by_test_id("message-composer-send").click()
 
     def send_message_and_wait(self, text: str) -> None:
-        """Send, and wait until the message is on screen — mirrors create.
+        """Send, and wait until the server has the message — not just the screen.
 
-        `.first`, because for a moment there are legitimately two: the
-        optimistic row and the confirmed one, while the ack is being reconciled.
-        A strict locator turns that overlap into a hard failure rather than
-        waiting through it — and the overlap is correct behaviour, not the bug.
+        The optimistic row is on screen the moment the button is clicked, so
+        waiting for the text alone passes before anything has left the browser,
+        and a send the server refused would pass too. `MessageItem` marks the
+        optimistic row `data-pending="true"` until the ack replaces it, so this
+        waits for a confirmed row and then for the optimistic one to be gone:
+        a send that settles leaves nothing pending behind.
+
+        `.first` on the confirmed row, because a duplicate is `appears_once`'s
+        failure to report, not a strict-mode error here.
         """
         self.send_message(text)
-        expect(self._message(text).first).to_be_visible()
+        expect(self._confirmed(text).first).to_be_visible()
+        expect(self._pending(text)).to_have_count(0)
 
     def draft(self) -> str:
         return self.page.get_by_test_id("message-composer-input").input_value()
 
     def message_bodies(self) -> list[str]:
+        """Every message body on screen — a single read, for failure messages."""
         self._settle_messages()
         bodies = self.page.get_by_test_id("message-body")
         return [(bodies.nth(i).inner_text() or "").strip() for i in range(bodies.count())]
 
     def has_message(self, text: str) -> bool:
         self._settle_messages()
-        return self._message(text).count() > 0
+        return _holds(lambda: expect(self._message(text).first).to_be_visible())
 
     def author_of(self, text: str) -> str:
+        """Whatever the author label says right now — for failure messages."""
         return self._item_for(text).get_by_test_id("message-author").inner_text().strip()
+
+    def has_author(self, text: str, name: str) -> bool:
+        """Whether a message is shown as written by `name`, waiting for it.
+
+        The label is resolved from the workspace directory, which loads on its
+        own schedule; until it does the row shows a shortened id. A single read
+        would race that load.
+        """
+        author = self._item_for(text).get_by_test_id("message-author")
+        return _holds(lambda: expect(author).to_have_text(name))
 
     def edit_message(self, old: str, new: str) -> None:
         """Rewrite a message and wait until the new text is on screen.
@@ -159,17 +247,30 @@ class ChatPage:
         expect(self.page.get_by_test_id("message-deleted").first).to_be_visible()
 
     def has_edited_marker(self, text: str) -> bool:
-        return self._item_for(text).get_by_test_id("message-edited").count() > 0
+        marker = self._item_for(text).get_by_test_id("message-edited")
+        return _holds(lambda: expect(marker).to_be_visible())
 
     def has_tombstone(self) -> bool:
         self._settle_messages()
-        return self.page.get_by_test_id("message-deleted").count() > 0
+        return _holds(
+            lambda: expect(self.page.get_by_test_id("message-deleted").first).to_be_visible()
+        )
 
-    def _message(self, text: str):
+    def _message(self, text: str) -> Locator:
         return self.page.get_by_test_id("message-body").filter(has_text=text)
 
-    def _item_for(self, text: str):
+    def _item_for(self, text: str) -> Locator:
         return self.page.get_by_test_id("message-item").filter(has_text=text).first
+
+    def _confirmed(self, text: str) -> Locator:
+        return self.page.locator("[data-testid='message-item'][data-pending='false']").filter(
+            has=self._message(text)
+        )
+
+    def _pending(self, text: str) -> Locator:
+        return self.page.locator("[data-testid='message-item'][data-pending='true']").filter(
+            has=self._message(text)
+        )
 
     def _settle_messages(self) -> None:
         """Wait for the history's first load, as `_settle` does for the sidebar.
@@ -198,25 +299,46 @@ class ChatPage:
         expect(self.page.get_by_test_id("message-deleted").first).to_be_visible(timeout=timeout)
 
     def count_of(self, text: str) -> int:
-        """How many times a message is on screen.
-
-        The sender receives its own broadcast — there is no `sid` to skip it by,
-        because the REST write is not a socket — so "exactly once" is the
-        assertion that a blind append would fail.
-        """
+        """How many times a message is on screen — a single read, for failure messages."""
         self._settle_messages()
         return self._message(text).count()
 
-    def is_absent(self, text: str) -> bool:
-        """Whether a message is *not* on screen, after giving it time to arrive.
+    def appears_once(self, text: str) -> bool:
+        """Whether a message is on screen exactly once, and stays that way.
 
-        Proving an absence needs a wait, and there is no event to wait for — the
-        claim is that nothing happens. So this is the one deliberate pause in
-        the suite: long enough that a broadcast on a healthy stack would have
-        landed, short enough not to dominate the run.
+        The sender receives her own broadcast — there is no `sid` to skip it by,
+        because the REST write is not a socket — so "exactly once" is the
+        assertion that a blind append would fail. But the broadcast lands
+        *after* the ack, so a count taken as soon as the confirmed row shows is
+        1 whether or not the bug is there.
+
+        So: wait for the confirmed row, wait for the count to be 1, then keep
+        checking for a short window in which the broadcast has had time to land.
+        That window is the one fixed interval in this file, and it is bounded
+        by a claim — "it does not become 2" — rather than by a guess at how
+        long something takes to appear.
         """
-        self.page.wait_for_timeout(1_000)
-        return self._message(text).count() == 0
+        self._settle_messages()
+        expect(self._confirmed(text).first).to_be_visible()
+        messages = self._message(text)
+        if not _holds(lambda: expect(messages).to_have_count(1)):
+            return False
+        for _ in range(_ONCE_HOLD_MS // _ONCE_POLL_MS):
+            self.page.wait_for_timeout(_ONCE_POLL_MS)
+            if messages.count() != 1:
+                return False
+        return True
+
+    def is_absent(self, text: str) -> bool:
+        """Whether a message is *not* on screen, waiting for it to go.
+
+        Used after the change that removes it has already been seen to land —
+        an edit's new words, a tombstone — so what is being waited out is the
+        old row lingering, and a retrying count of zero says so without a fixed
+        pause.
+        """
+        self._settle_messages()
+        return _holds(lambda: expect(self._message(text)).to_have_count(0))
 
     def wait_for_channel_joined(self, timeout: int = 30_000) -> None:
         """Wait until the server has put this connection in the open channel's room.
@@ -233,6 +355,21 @@ class ChatPage:
         """
         expect(self.page.get_by_test_id("connection-status")).to_have_attribute(
             "data-joined-channel", self.current_channel_id(), timeout=timeout
+        )
+
+    def wait_for_disconnected(self, timeout: int = 60_000) -> None:
+        """Wait until the SPA reports that its socket has gone down.
+
+        Without this a "connection drops" scenario proves nothing about
+        recovery: if the socket stayed up through the outage, the message would
+        simply arrive live and the scenario would pass for the wrong reason.
+
+        Generous, because a silently dead transport is only noticed when the
+        server's heartbeat goes missing — python-socketio's defaults allow up to
+        25s between pings and 20s more for the answer.
+        """
+        expect(self.page.get_by_test_id("connection-status")).to_have_attribute(
+            "data-status", "disconnected", timeout=timeout
         )
 
     def go_offline(self) -> None:

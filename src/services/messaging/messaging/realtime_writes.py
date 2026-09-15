@@ -7,8 +7,8 @@ called once from `build_asgi_app`.
 
 Four rules run through every write handler here — `send_message`,
 `edit_message`, `delete_message` and `mark_read`. `typing` persists nothing
-and acks nothing, and of these rules it keeps only the expiry half of the token
-check.
+and acks nothing, and of these rules it keeps the visibility check and only the
+expiry half of the token check.
 
 **Nothing raises.** A python-socketio handler that raises never sends its
 acknowledgement, so the client's callback simply never fires and the optimistic
@@ -336,13 +336,23 @@ def register_write_handlers(  # noqa: C901 — a registry of handlers; mccabe co
         browser already resolves every other name from the workspace directory;
         a second source for the same name invites drift, even on an event too
         short-lived to go stale.
+
+        **Authorized on channel visibility**, like every write, with the
+        workspace from the principal. The fan-out is to a room, and a room says
+        nothing about who may *send* to it: without this, anyone could put their
+        name into another workspace's channel, or a private one they are not in.
+        It costs one query per typing event, which the client's 2s throttle keeps
+        cheap. The denylist is still skipped — see `check_revoked`.
         """
         try:
             event = _parse(TypingPayload, payload)
             principal = await principal_of(sid)
+            async with context.sessions() as session:
+                await authorized_channel(session, principal, event.channel_id)
         except ProblemException:
             # Nothing to ack, so nothing to tell. A malformed or expired typing
-            # event is simply not fanned out.
+            # event, or one for a channel the sender cannot see, is simply not
+            # fanned out.
             return
 
         await sio.emit(

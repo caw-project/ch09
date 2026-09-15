@@ -307,6 +307,69 @@ async def test_deleting_someone_elses_message_as_a_non_admin_acks_a_403(realtime
     await grace.disconnect()
 
 
+# --- writes on a channel the caller cannot see -----------------------------
+
+WRITES_ON_A_MESSAGE = ("edit_message", "delete_message", "mark_read")
+
+
+def write_payload(event: str, channel: dict, message: dict) -> dict:
+    return {
+        "edit_message": {
+            "messageId": message["id"],
+            "body": "hijacked",
+            "version": message["version"],
+        },
+        "delete_message": {"messageId": message["id"]},
+        "mark_read": {"channelId": channel["id"], "messageId": message["id"]},
+    }[event]
+
+
+@pytest.mark.parametrize("event", WRITES_ON_A_MESSAGE)
+async def test_a_write_from_another_workspace_acks_a_404(realtime_url, tokens, event):
+    """Ada's own message, from Ada's own token for a different workspace.
+
+    Everything but the `wsp` claim lines up — she wrote the message and is the
+    channel's admin — so the claim is the only thing left to refuse her.
+    """
+    channel = await make_channel(realtime_url, tokens.header())
+    ada = await connected(realtime_url, tokens.mint())
+    sent = (
+        await ada.call(
+            "send_message", {"channelId": channel["id"], "body": "q3 numbers"}, timeout=WAIT
+        )
+    )["data"]
+    elsewhere = await connected(realtime_url, tokens.mint(workspace_id=tokens.OTHER_WORKSPACE))
+
+    ack = await elsewhere.call(event, write_payload(event, channel, sent), timeout=WAIT)
+
+    assert ack["ok"] is False
+    assert ack["problem"]["status"] == 404
+
+    await ada.disconnect()
+    await elsewhere.disconnect()
+
+
+@pytest.mark.parametrize("event", WRITES_ON_A_MESSAGE)
+async def test_a_write_in_a_private_channel_you_are_not_in_acks_a_404(realtime_url, tokens, event):
+    """404 and never 403 — not "only the author can edit", which confirms the message."""
+    channel = await make_channel(realtime_url, tokens.header(), "launch-plans", kind="private")
+    ada = await connected(realtime_url, tokens.mint())
+    sent = (
+        await ada.call(
+            "send_message", {"channelId": channel["id"], "body": "launch is friday"}, timeout=WAIT
+        )
+    )["data"]
+    grace = await connected(realtime_url, tokens.mint(user_id=tokens.GRACE))
+
+    ack = await grace.call(event, write_payload(event, channel, sent), timeout=WAIT)
+
+    assert ack["ok"] is False
+    assert ack["problem"]["status"] == 404
+
+    await ada.disconnect()
+    await grace.disconnect()
+
+
 # --- the token behind the connection ---------------------------------------
 
 
@@ -384,11 +447,64 @@ async def test_typing_reaches_the_room_but_not_the_sender(realtime_url, tokens, 
 
 
 async def test_a_typing_event_for_an_unknown_channel_is_simply_dropped(realtime_url, tokens):
-    """No ack to give, so nothing to report — and nothing to crash on either."""
+    """No ack to give, so nothing to report — nothing to crash on, and nobody to tell.
+
+    Grace is in a real channel's room, so a fan-out any wider than the channel
+    the event named would reach her.
+    """
+    channel = await make_channel(realtime_url, tokens.header())
     ada = await connected(realtime_url, tokens.mint())
+    grace = await connected(realtime_url, tokens.mint(user_id=tokens.GRACE))
+    assert (await grace.call("join_channel", channel["id"], timeout=WAIT))["ok"]
 
     await ada.emit("typing", {"channelId": str(uuid.uuid4())})
 
+    with pytest.raises(socketio.exceptions.TimeoutError):
+        await grace.receive(timeout=2)
     assert ada.connected
 
     await ada.disconnect()
+    await grace.disconnect()
+
+
+async def test_typing_from_another_workspace_does_not_reach_the_room(realtime_url, tokens):
+    """The one write-shaped event with no visibility check, and so a tenancy leak.
+
+    Alan's token is for another workspace, where Ada's channel does not exist.
+    Every other event would 404 him; `typing` has no ack to 404, so what must
+    hold is that nothing is fanned out.
+    """
+    channel = await make_channel(realtime_url, tokens.header())
+    ada = await connected(realtime_url, tokens.mint())
+    assert (await ada.call("join_channel", channel["id"], timeout=WAIT))["ok"]
+    alan = await connected(
+        realtime_url,
+        tokens.mint(user_id=uuid.uuid4(), workspace_id=tokens.OTHER_WORKSPACE, name="Alan Turing"),
+    )
+
+    await alan.emit("typing", {"channelId": channel["id"]})
+
+    with pytest.raises(socketio.exceptions.TimeoutError):
+        await ada.receive(timeout=2)
+
+    await ada.disconnect()
+    await alan.disconnect()
+
+
+async def test_typing_in_a_private_channel_you_are_not_in_does_not_reach_the_room(
+    realtime_url, tokens
+):
+    channel = await make_channel(realtime_url, tokens.header(), "launch-plans", kind="private")
+    ada = await connected(realtime_url, tokens.mint())
+    assert (await ada.call("join_channel", channel["id"], timeout=WAIT))["ok"]
+    grace = await connected(realtime_url, tokens.mint(user_id=tokens.GRACE))
+
+    await grace.emit("typing", {"channelId": channel["id"]})
+
+    # A `user_typing` here would tell Ada nothing new, but it tells the server's
+    # rules everything: Grace could put her name into a channel she cannot see.
+    with pytest.raises(socketio.exceptions.TimeoutError):
+        await ada.receive(timeout=2)
+
+    await ada.disconnect()
+    await grace.disconnect()

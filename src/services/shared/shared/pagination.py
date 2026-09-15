@@ -28,7 +28,7 @@ import base64
 import binascii
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, Query
 
@@ -48,23 +48,54 @@ def encode_cursor(*parts: str) -> str:
     return base64.urlsafe_b64encode(joined).rstrip(b"=").decode()
 
 
-def decode_cursor(cursor: str) -> tuple[str, ...]:
-    """Unpack a cursor, or raise a 400 if it is not one we wrote."""
+CursorPart = Callable[[str], Any]
+"""Turns one decoded cursor part into what the query needs — `uuid.UUID`,
+`datetime.fromisoformat`, `str`. It refuses a part by raising `ValueError` or
+`TypeError`."""
+
+
+def _malformed() -> ProblemException:
+    return ProblemException.validation_error(
+        "The cursor is not valid.", errors={"cursor": ["Malformed cursor"]}
+    )
+
+
+def decode_cursor(cursor: str, *, parts: Sequence[CursorPart] | None = None) -> tuple[Any, ...]:
+    """Unpack a cursor, or raise a 400 if it is not one we wrote.
+
+    Base64 is only the envelope, so a cursor can decode cleanly and still be
+    nothing this route wrote: another route's cursor, one part too many, a part
+    that is not a UUID. Pass `parts` — one parser per sort-key part, in order —
+    and those are the same 400 as bad base64, raised here, rather than a 500 from
+    wherever the route unpacks the tuple. Without `parts` the raw strings come
+    back unchecked.
+    """
     try:
         padded = cursor + "=" * (-len(cursor) % 4)
-        return tuple(base64.urlsafe_b64decode(padded).decode().split(_SEPARATOR))
+        raw = tuple(base64.urlsafe_b64decode(padded).decode().split(_SEPARATOR))
     except (binascii.Error, UnicodeDecodeError, ValueError):
-        raise ProblemException.validation_error(
-            "The cursor is not valid.", errors={"cursor": ["Malformed cursor"]}
-        ) from None
+        raise _malformed() from None
+
+    if parts is None:
+        return raw
+    if len(raw) != len(parts):
+        raise _malformed()
+    try:
+        return tuple(parse(part) for parse, part in zip(parts, raw, strict=True))
+    except (ValueError, TypeError):
+        raise _malformed() from None
 
 
 @dataclass(frozen=True)
 class PageRequest:
-    """A validated `?limit=`/`?cursor=` pair."""
+    """A validated `?limit=`/`?cursor=` pair.
+
+    `cursor` holds whatever the route's part parsers produced — typed values
+    from `page_request_for`, raw strings from the untyped `page_request`.
+    """
 
     limit: int
-    cursor: tuple[str, ...] | None
+    cursor: tuple[Any, ...] | None
 
     @property
     def fetch_limit(self) -> int:
@@ -89,6 +120,25 @@ def page_request(
 
 
 PageParams = Annotated[PageRequest, Depends(page_request)]
+
+
+def page_request_for(*parts: CursorPart) -> Callable[..., PageRequest]:
+    """A page dependency for a route whose cursor holds exactly these parts.
+
+    Prefer it to `PageParams` for any route that reads its cursor, which is
+    all of them: `page: Annotated[PageRequest, Depends(page_request_for(uuid.UUID))]`.
+    The route then gets typed parts, and a cursor of the wrong shape never
+    reaches it.
+    """
+
+    def dependency(
+        limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
+        cursor: Annotated[str | None, Query()] = None,
+    ) -> PageRequest:
+        decoded = decode_cursor(cursor, parts=parts) if cursor else None
+        return PageRequest(limit=limit, cursor=decoded)
+
+    return dependency
 
 
 @dataclass(frozen=True)

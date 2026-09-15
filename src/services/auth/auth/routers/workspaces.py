@@ -20,6 +20,8 @@ whenever R1 blinks would buy very little for an outage.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,14 +38,18 @@ from auth.schemas import (
     WorkspaceResponse,
 )
 from shared import (
-    PageParams,
+    PageRequest,
     ProblemException,
     UserPrincipal,
+    page_request_for,
     require_user,
     require_user_sensitive,
 )
 
 router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces"])
+
+# `(joined_at, user_id)` — the keyset `identities.members_page` seeks on.
+MembersPage = Annotated[PageRequest, Depends(page_request_for(datetime.fromisoformat, uuid.UUID))]
 
 
 def _same_workspace(principal: UserPrincipal, workspace_id: uuid.UUID) -> None:
@@ -108,7 +114,7 @@ async def list_workspaces(
 @router.get("/{workspace_id}/members", response_model=MemberListResponse)
 async def list_members(
     workspace_id: uuid.UUID,
-    page: PageParams,
+    page: MembersPage,
     principal: UserPrincipal = Depends(require_user),
     session: AsyncSession = Depends(db_session),
 ) -> MemberListResponse:

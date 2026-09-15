@@ -112,7 +112,10 @@ Response shape:
 ```
 
 Cursors encode the sort key of the last returned row (e.g. `(created_at, id)`) and MUST
-be stable across requests. Never use OFFSET for user-facing lists.
+be stable across requests. Never use OFFSET for user-facing lists. A cursor that is not
+valid base64, or that decodes to the wrong number of parts or a part of the wrong type,
+is a 400 `validation-error` with `errors.cursor`: each route declares its cursor's parts
+to `shared` (`page_request_for(uuid.UUID)`), which validates them before the route runs.
 
 ### 4.2 Error Envelope (RFC 7807 Problem Details)
 
@@ -150,7 +153,10 @@ other service. There is no per-request call to the Auth Service to validate a to
 - **Algorithm:** RS256. Auth Service publishes its public keys at
   `GET https://auth/.well-known/jwks.json`. Services fetch and cache the JWKS
   (refresh on `kid` miss; hard refresh hourly). Verification uses PyJWT (with its
-  `PyJWKClient`) or Authlib's JWT support.
+  `PyJWKClient`) or Authlib's JWT support. When a JWKS fetch fails, the cached keys keep
+  verifying tokens and the fetch is retried after a short floor, not an hour later; a token
+  whose `kid` no held key matches, while the fetch is failing, is a **503**, not a 401,
+  because Auth being down is an outage and not a bad token.
 - **Lifetime:** access token 15 minutes; refresh token 30 days, **rotating** (each refresh
   invalidates the previous refresh token).
 - **Delivery:** the access token is a `Bearer` header. The refresh token is **never in a
@@ -192,6 +198,9 @@ operation:
   cannot be checked. The sensitive set is: workspace membership changes, role grants and
   revocations, and asset deletion. Services mark these routes explicitly; the default is
   fail-open.
+- **Logout degrades rather than refuses** — it is not in the sensitive set. When the denylist
+  write fails it still revokes the refresh token and clears the cookie, and logs a warning
+  that the access token stays usable until it expires (doc 01 §3).
 
 The split keeps availability where request volume is and correctness where the damage is.
 Adding to the sensitive set is cheap; discovering it was needed after the fact is not.

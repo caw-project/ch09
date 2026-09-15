@@ -44,7 +44,7 @@ def grace_sees_author(grace: ChatPage, body: str) -> None:
     appearing here at all is the browser having joined the two services
     together.
     """
-    assert grace.author_of(body) == ADA_NAME
+    assert grace.has_author(body, ADA_NAME), grace.author_of(body)
 
 
 @then(parsers.parse('Ada sees "{body}" marked as edited'))

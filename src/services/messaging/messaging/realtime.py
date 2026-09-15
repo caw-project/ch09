@@ -168,6 +168,8 @@ def build_server(context: RealtimeContext) -> socketio.AsyncServer:
         # promises that — so the server refuses polling rather than trusting
         # each client not to try it.
         transports=["websocket"],
+        ping_interval=context.settings.messaging_socket_ping_interval_seconds,
+        ping_timeout=context.settings.messaging_socket_ping_timeout_seconds,
     )
 
     async def principal_for(sid: str):

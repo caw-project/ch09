@@ -20,7 +20,7 @@ unit `validate_name`, Messaging's integration tests, and the Vitest
 from __future__ import annotations
 
 import pytest
-from pytest_bdd import parsers, scenarios, then, when
+from pytest_bdd import parsers, scenarios, when
 
 from bdd.pages.chat_page import ChatPage
 
@@ -35,11 +35,3 @@ scenarios("../features/channels.feature")
 @when(parsers.parse('Ada creates a public channel named "{name}"'))
 def ada_creates(ada: ChatPage, name: str) -> None:
     ada.create_channel_and_wait(name)
-
-
-# --- then -----------------------------------------------------------------
-
-
-@then(parsers.parse('Ada sees the "{name}" workspace'))
-def ada_sees_workspace(ada: ChatPage, name: str) -> None:
-    assert ada.workspace_name() == name

@@ -26,7 +26,7 @@ import jwt
 from fastapi import FastAPI, Request
 
 from shared.denylist import Denylist, TokenState
-from shared.keys import KeySource, UnknownKeyError
+from shared.keys import KeySource, KeySourceUnavailableError, UnknownKeyError
 from shared.problems import ProblemException
 
 ALGORITHM = "RS256"
@@ -124,6 +124,13 @@ async def decode_claims(context: SecurityContext, token: str, *, audience: str) 
 
     try:
         key = await context.key_source.key_for(kid)
+    except KeySourceUnavailableError:
+        # Auth is down and no key that could verify this token is held. That
+        # is an outage, not a bad token: a 401 would send the client to sign in
+        # again against an Auth that cannot answer that either.
+        raise ProblemException.service_unavailable(
+            "Access tokens cannot be verified right now; try again shortly."
+        ) from None
     except UnknownKeyError:
         raise _unauthorized("The access token was signed with an unknown key.") from None
 

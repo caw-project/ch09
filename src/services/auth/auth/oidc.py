@@ -187,7 +187,15 @@ class OidcClient:
             # an outage.
             raise IdentityRejectedError(f"provider refused the code ({response.status_code})")
 
-        body = response.json()
+        # A 200 is not a promise of JSON: a proxy's HTML error page arrives with
+        # one too. Either way the provider is misbehaving, which is not a crash.
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise ProviderError("token response was not JSON") from exc
+        if not isinstance(body, dict):
+            raise ProviderError("token response was not a JSON object")
+
         id_token = body.get("id_token")
         if not id_token:
             raise ProviderError("token response carried no id_token")
@@ -233,7 +241,10 @@ class OidcClient:
             provider=self._provider.name,
             subject=str(subject),
             email=str(email),
-            email_verified=bool(claims.get("email_verified", False)),
+            # A JSON boolean in OIDC Core §5.1. `bool()` would make the string
+            # "false" verified, and a verified email is what links an identity to
+            # an existing account — so only a real `true` counts.
+            email_verified=claims.get("email_verified") is True,
             # Providers vary on which of these they send; the local part of the
             # email is a better placeholder than a blank name.
             display_name=str(

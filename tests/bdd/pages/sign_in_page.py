@@ -59,5 +59,20 @@ class SignInPage:
 
         expect(self.page.get_by_test_id("workspace-name")).to_have_text(name)
 
+    def is_shown(self) -> bool:
+        """Whether this browser is on the sign-in page with no session in it.
+
+        Retrying, because getting here is a redirect that follows a failed
+        session restore. The URL is checked as well as the button, so a signed-in
+        shell that happened to render a sign-in control somewhere would not pass.
+        """
+        try:
+            expect(self.page).to_have_url(f"{self.base_url}/sign-in")
+            expect(self.page.get_by_test_id("sign-in")).to_be_visible()
+            expect(self.page.get_by_test_id("workspace-name")).to_have_count(0)
+        except AssertionError:
+            return False
+        return True
+
     def error(self) -> str:
         return self.page.get_by_test_id("sign-in-error").inner_text()

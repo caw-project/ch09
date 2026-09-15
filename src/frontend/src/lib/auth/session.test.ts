@@ -3,7 +3,7 @@
  * Auth is stubbed at the network edge, exactly as the app calls it.
  */
 
-import { http, HttpResponse } from 'msw'
+import { delay, http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { auth, AUTH_URL, requests, server } from '../../test/api'
@@ -234,6 +234,78 @@ describe('renewal', () => {
     await vi.advanceTimersByTimeAsync(60_000)
 
     await vi.waitFor(() => expect(session.snapshot().status).toBe('signedOut'))
+  })
+})
+
+describe('concurrent renewal', () => {
+  const refreshes = () => requests().filter((r) => r.url.pathname === '/api/v1/auth/refresh')
+
+  it('spends the refresh cookie once when two renewals overlap', async () => {
+    // StrictMode runs the startup restore twice, and a timer renewal can fire
+    // while a restore is still in flight. Rotation makes the second POST a
+    // replay of a spent token, which the server treats as theft and answers by
+    // revoking the session — so overlapping callers must share one request.
+    auth.refresh(pair(HOME))
+
+    await Promise.all([session.restore(), session.restore()])
+
+    expect(refreshes()).toHaveLength(1)
+    expect(signedInSession(session).accessToken).toBe(tokenFor(HOME))
+  })
+
+  it('asks again for a renewal that starts after the last one settled', async () => {
+    auth.refresh(pair(HOME))
+
+    await session.restore()
+    await session.restore()
+
+    expect(refreshes()).toHaveLength(2)
+  })
+
+  describe('with a workspace switch', () => {
+    // Switching rotates the refresh cookie exactly as renewal does, so a switch
+    // and a renewal in flight together are the same replay by another route.
+
+    /** Answers both cookie-spending routes slowly, noting if two were ever open at once. */
+    function answerSlowly(): { overlapped: boolean } {
+      const seen = { overlapped: false }
+      let open = 0
+      const answer = (reply: TokenPair) => async () => {
+        open += 1
+        if (open > 1) seen.overlapped = true
+        await delay(20)
+        open -= 1
+        return HttpResponse.json(reply)
+      }
+      server.use(
+        http.post(`${AUTH_URL}/api/v1/auth/refresh`, answer(pair(HOME))),
+        http.post(`${AUTH_URL}/api/v1/auth/switch-workspace`, answer(pair(AWAY))),
+      )
+      return seen
+    }
+
+    beforeEach(async () => {
+      auth.refresh(pair(HOME))
+      await session.restore()
+    })
+
+    it('waits for a renewal in flight before switching', async () => {
+      const seen = answerSlowly()
+
+      await Promise.all([session.restore(), session.changeWorkspace(AWAY)])
+
+      expect(seen.overlapped).toBe(false)
+      expect(signedInSession(session).activeWorkspaceId).toBe(AWAY)
+    })
+
+    it('lets a renewal that starts mid-switch share the switch', async () => {
+      const seen = answerSlowly()
+
+      await Promise.all([session.changeWorkspace(AWAY), session.restore()])
+
+      expect(seen.overlapped).toBe(false)
+      expect(signedInSession(session).activeWorkspaceId).toBe(AWAY)
+    })
   })
 })
 

@@ -8,9 +8,14 @@ network back on under the outer test.
 
 from __future__ import annotations
 
+import inspect
 import textwrap
 
 import pytest
+from _pytest.fixtures import FixtureFunctionDefinition
+
+from testkit import containers
+from testkit.plugin import CONTAINER_FIXTURES
 
 DEMO = "src/services/demo/tests"
 
@@ -295,3 +300,33 @@ def test_a_unit_test_that_depends_on_a_container_stops_the_run(repo):
     result.stderr.fnmatch_lines(
         ["*test_a.py is a unit test but depends on a container fixture: redis_server*"]
     )
+
+
+def test_container_fixtures_names_every_root_fixture_in_testkit_containers():
+    """`CONTAINER_FIXTURES` is kept by hand, and the unit guard is only as good as it.
+
+    The guard checks a test's fixture closure, so listing the fixtures that
+    start a container is enough — `redis_cache` is caught through
+    `redis_server`. What must hold is that every fixture in the module either
+    is listed or depends on one that is: the *roots* of the module's fixture
+    graph are exactly the listed names.
+
+    Breaks if a container fixture is added to `testkit.containers` — a Garage
+    one, say — without being added to the set, or if a listed name no longer
+    exists.
+    """
+    definitions = {
+        value.name: value
+        for value in vars(containers).values()
+        if isinstance(value, FixtureFunctionDefinition)
+    }
+    assert definitions, "found no fixtures in testkit.containers to check"
+
+    roots = {
+        name
+        for name, definition in definitions.items()
+        if not set(inspect.signature(definition._get_wrapped_function()).parameters)
+        & definitions.keys()
+    }
+
+    assert roots == CONTAINER_FIXTURES

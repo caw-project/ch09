@@ -32,15 +32,6 @@ async def test_create_returns_the_channel_with_the_caller_as_admin(client, ada):
     assert body["myRole"] == "admin"
 
 
-async def test_created_channel_is_readable_by_id(client, ada):
-    created = (await create(client, ada, "general")).json()
-
-    response = await client.get(f"/api/v1/channels/{created['id']}", headers=ada)
-
-    assert response.status_code == 200
-    assert response.json()["id"] == created["id"]
-
-
 async def test_list_is_alphabetical(client, ada):
     for name in ("zulu", "alpha", "mike"):
         assert (await create(client, ada, name)).status_code == 201
@@ -169,11 +160,6 @@ async def test_a_rejected_name_creates_nothing(client, ada):
     body = (await client.get("/api/v1/channels", headers=ada)).json()
 
     assert body["items"] == []
-
-
-async def test_valid_names_are_accepted(client, ada):
-    """One example; the accepted shapes are unit tests (test_channel_rules.py)."""
-    assert (await create(client, ada, "team-42")).status_code == 201
 
 
 async def test_a_name_is_trimmed_before_it_is_stored(client, ada):

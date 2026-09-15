@@ -30,6 +30,7 @@ fire-and-forget, see `indexing.py`.
 from __future__ import annotations
 
 import uuid
+from typing import Annotated
 
 import socketio
 from fastapi import APIRouter, Depends, Request, status
@@ -45,12 +46,21 @@ from messaging.schemas import (
     SendMessageRequest,
 )
 from messaging.settings import Settings
-from shared import JobQueue, PageParams, ProblemException, UserPrincipal, require_user
+from shared import (
+    JobQueue,
+    PageRequest,
+    ProblemException,
+    UserPrincipal,
+    page_request_for,
+    require_user,
+)
 
 #: Two prefixes, one surface. History and sending hang off the channel that owns
 #: them; a single message is addressable on its own.
 channel_router = APIRouter(prefix="/api/v1/channels", tags=["messages"])
 router = APIRouter(prefix="/api/v1/messages", tags=["messages"])
+
+HistoryPage = Annotated[PageRequest, Depends(page_request_for(*messages.HISTORY_CURSOR))]
 
 #: One message per rule, so the composer can put it against the field rather
 #: than showing "invalid message" and leaving the user to guess.
@@ -117,7 +127,7 @@ async def _visible_message(
 @channel_router.get("/{channel_id}/messages", response_model=MessageListResponse)
 async def list_messages(
     channel_id: uuid.UUID,
-    page: PageParams,
+    page: HistoryPage,
     principal: UserPrincipal = Depends(require_user),
     session: AsyncSession = Depends(db_session),
 ) -> MessageListResponse:

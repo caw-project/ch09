@@ -100,6 +100,8 @@ components:
       AUTH_JWKS_URL: http://collabhub-auth:8000/.well-known/jwks.json
       MESSAGING_MAX_BODY_CHARS: "8000"
       MESSAGING_MAX_ATTACHMENTS: "10"
+      MESSAGING_SOCKET_PING_INTERVAL_SECONDS: "25"
+      MESSAGING_SOCKET_PING_TIMEOUT_SECONDS: "20"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       # See templates/messaging/migrate-job.yaml.
       RUN_MIGRATIONS: "false"

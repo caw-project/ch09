@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from http import HTTPStatus
 from typing import Any, Self
 
 from fastapi import FastAPI, Request
@@ -165,6 +166,14 @@ def problem_response(request: Request, problem: ProblemException) -> JSONRespons
     )
 
 
+def _status_phrase(status: int) -> str | None:
+    """The standard reason phrase Starlette uses as a default `detail`."""
+    try:
+        return HTTPStatus(status).phrase
+    except ValueError:
+        return None
+
+
 def _field_name(location: tuple[Any, ...]) -> str:
     """Pydantic reports ('body', 'name'); clients care about 'name'."""
     parts = [str(part) for part in location if part not in ("body", "query", "path", "header")]
@@ -187,9 +196,13 @@ def install_problem_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(StarletteHTTPException)
     async def _http(request: Request, exc: StarletteHTTPException) -> JSONResponse:
-        # `detail` on an HTTPException raised inside the framework is a generic
-        # phrase like "Not Found"; suppress it rather than repeat the title.
-        detail = exc.detail if exc.detail and exc.detail != TITLES.get(exc.status_code) else None
+        # `detail` on an HTTPException raised inside the framework is the bare
+        # HTTP status phrase, "Not Found" or "Method Not Allowed"; suppress it
+        # rather than repeat what the title already says. A detail of its own
+        # is kept.
+        detail = (
+            exc.detail if exc.detail and exc.detail != _status_phrase(exc.status_code) else None
+        )
         headers = dict(exc.headers) if exc.headers else None
         return problem_response(
             request,
