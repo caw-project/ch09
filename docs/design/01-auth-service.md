@@ -78,7 +78,9 @@ denylist checks (Conventions §5.2) — they return 503 rather than proceed when
 unreachable. All four member endpoints require the path workspace to *equal* the token's
 `wsp` claim: Conventions §5.4 says authorization never takes a workspace identifier from
 the request in place of the claim, and with a workspace in the path the strictest reading is
-the only safe one. `GET /users/{id}` is likewise restricted to users who share a workspace
+the only safe one. "Admin" in the table means `owner` or `admin`, and either may grant or remove
+any role, `owner` included (register D36); removing or demoting the last owner is still a 409.
+`GET /users/{id}` is likewise restricted to users who share a workspace
 with the caller, so a workspace-scoped token is not a directory of the whole installation.
 
 `GET /workspaces/{id}/members` is cursor-paginated (Conventions §4.1); `GET /workspaces` is
@@ -130,7 +132,10 @@ claims on the new access token. Rejects with 403 if the user is not a member of 
 ```
 
 `POST /auth/logout` — no body either. Revokes the access token's `jti` into the denylist,
-revokes the refresh token the cookie carries, and clears the cookie.
+revokes the refresh token the cookie carries, and clears the cookie. Logout is not in the
+fail-closed set (Conventions §5.2): when R1 is unreachable it degrades rather than refuses —
+it still revokes the refresh token, clears the cookie and returns 204, and logs a warning
+that the `jti` could not be denylisted, so the access token stays usable until it expires.
 
 `POST /auth/service-token` — internal callers only; not exposed through the public ingress.
 Issues a short-lived token with `aud: collabhub-internal` and the scopes granted to that
@@ -261,7 +266,8 @@ from its issuer, so they carry the public host) are rewritten onto the internal 
 upstream keeps their account. If there is no such identity but the email already has an
 account, link the two **only when the id_token asserts `email_verified`** — a provider that
 lets users set an arbitrary address would otherwise make this an account-takeover path.
-Otherwise provision: a new user, a workspace they own, and (locally only) the shared demo
+Only a JSON boolean `true` is honoured; the string `"true"` or any other value counts as
+unverified, as OIDC Core §5.1 defines the claim. Otherwise provision: a new user, a workspace they own, and (locally only) the shared demo
 workspace.
 
 ### 5.2 Refresh rotation

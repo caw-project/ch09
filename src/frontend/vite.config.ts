@@ -19,5 +19,18 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['src/test/setup.ts'],
     restoreMocks: true,
+    coverage: {
+      // Without an include, a source file no test imports is missing from the
+      // totals instead of counting as 0% — so the least-tested code is the code
+      // the figure never sees.
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: [
+        'src/**/*.test.{ts,tsx}',
+        'src/test/**',
+        'src/types/**',
+        'src/main.tsx',
+        'src/**/*.d.ts',
+      ],
+    },
   },
 })

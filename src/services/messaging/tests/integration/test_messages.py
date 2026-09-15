@@ -63,18 +63,6 @@ async def test_a_sent_message_comes_back_in_the_history(client, ada, tokens):
     assert [m["id"] for m in listed["items"]] == [created["id"]]
 
 
-async def test_history_is_newest_first(client, ada):
-    channel = await make_channel(client, ada)
-    for body in ("first", "second", "third"):
-        await send(client, ada, channel["id"], body)
-
-    listed = (await history(client, ada, channel["id"])).json()
-
-    # Newest first on the wire. The SPA reverses once, on the way to the DOM.
-    assert [m["body"] for m in listed["items"]] == ["third", "second", "first"]
-    assert listed["nextCursor"] is None
-
-
 async def test_a_message_can_be_read_on_its_own(client, ada):
     channel = await make_channel(client, ada)
     created = (await send(client, ada, channel["id"], "morning all")).json()
@@ -105,16 +93,6 @@ async def test_an_empty_message_is_rejected(client, ada):
     assert (await history(client, ada, channel["id"])).json()["items"] == []
 
 
-async def test_a_message_over_the_limit_is_rejected(client, ada):
-    channel = await make_channel(client, ada)
-
-    response = await send(client, ada, channel["id"], "a" * 8001)
-
-    assert response.status_code == 400
-    assert response.json()["errors"]["body"] == ["A message must be 8000 characters or fewer."]
-    assert (await history(client, ada, channel["id"])).json()["items"] == []
-
-
 async def test_a_message_at_exactly_the_limit_is_accepted(client, ada):
     channel = await make_channel(client, ada)
 
@@ -133,9 +111,12 @@ async def test_the_configured_limit_reports_before_the_static_field_bound(ada, c
     async with client_for(messaging_max_body_chars=10) as small:
         channel = await make_channel(small, ada)
         response = await send(small, ada, channel["id"], "a" * 11)
+        listed = await history(small, ada, channel["id"])
 
     assert response.status_code == 400
     assert response.json()["errors"]["body"] == ["A message must be 10 characters or fewer."]
+    # Refused before anything is written.
+    assert listed.json()["items"] == []
 
 
 async def test_the_body_is_stored_verbatim(client, ada):

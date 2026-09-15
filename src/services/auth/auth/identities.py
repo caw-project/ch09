@@ -257,14 +257,12 @@ async def members_page(
     query = _members_query(workspace_id)
 
     if page.cursor:
+        # Already parsed: the route's page dependency refused any other shape.
         joined_at, user_id = page.cursor
         # Seek straight past the last row of the previous page. The row
         # comparison is the keyset predicate: strictly later timestamp, or the
         # same timestamp and a higher id.
-        query = query.where(
-            tuple_(WorkspaceMember.joined_at, User.id)
-            > tuple_(datetime.fromisoformat(joined_at), uuid.UUID(user_id))
-        )
+        query = query.where(tuple_(WorkspaceMember.joined_at, User.id) > tuple_(joined_at, user_id))
 
     result = await session.execute(query.limit(page.fetch_limit))
     rows = [

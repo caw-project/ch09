@@ -79,11 +79,14 @@ def transport(
     document: dict[str, Any] | None = None,
     token_response: dict[str, Any] | None = None,
     token_status: int = 200,
+    token_content: str | None = None,
 ) -> tuple[httpx.MockTransport, list[str]]:
     """A stand-in provider that records every URL it is asked for.
 
     The recorded URLs are the assertion for the authority split: they show which
-    host each call actually went to.
+    host each call actually went to. `token_content` replaces the token
+    endpoint's JSON with a raw body, for a provider that answers with something
+    that is not JSON at all.
     """
     seen: list[str] = []
 
@@ -95,6 +98,8 @@ def transport(
         if path.endswith("/keys"):
             return httpx.Response(200, json=jwks())
         if path.endswith("/token"):
+            if token_content is not None:
+                return httpx.Response(token_status, text=token_content)
             return httpx.Response(
                 token_status,
                 json=token_response if token_response is not None else {"id_token": id_token()},
@@ -315,6 +320,33 @@ async def test_the_display_name_falls_back_to_the_local_part() -> None:
     assert identity.display_name == "ada"
 
 
+async def test_an_email_is_unverified_when_the_claim_is_absent() -> None:
+    """No claim is no assertion — and an unverified email is never linked."""
+    claims = jwt.decode(id_token(), options={"verify_signature": False})
+    del claims["email_verified"]
+
+    identity = await exchange_with(
+        jwt.encode(claims, _KEY, algorithm="RS256", headers={"kid": _KID})
+    )
+
+    assert identity.email_verified is False
+
+
+@pytest.mark.parametrize("claimed", ["false", "true", "False", "0", 1])
+async def test_only_a_json_true_verifies_an_email(claimed: Any) -> None:
+    """`email_verified` is a JSON boolean in OIDC Core §5.1; nothing else counts.
+
+    Reading it with `bool()` makes the string `"false"` — truthy, like every
+    non-empty string — a verified email, and a verified email is what lets a new
+    identity take over an existing account by naming its address. Refusing
+    `"true"` as well is the safe reading: a provider that sends strings has not
+    said what it means by them.
+    """
+    identity = await exchange_with(id_token(email_verified=claimed))
+
+    assert identity.email_verified is False
+
+
 async def test_a_refused_code_is_an_identity_rejection_not_an_outage() -> None:
     """A 4xx from the token endpoint is a bad code, not a broken provider."""
     client, _ = build(token_status=400, token_response={"error": "invalid_grant"})
@@ -323,6 +355,29 @@ async def test_a_refused_code_is_an_identity_rejection_not_an_outage() -> None:
         await client.exchange(
             code="spent", code_verifier="v", redirect_uri="http://x/cb", nonce="n"
         )
+
+
+async def test_a_token_response_that_is_not_json_is_a_provider_error() -> None:
+    """A 200 carrying an HTML error page is the provider misbehaving, not a crash.
+
+    As a `ProviderError` the callback sends the user back to the SPA with
+    `temporarily_unavailable`; as anything else it is a 500 in a bare browser tab.
+    """
+    client, _ = build(token_content="<html><body>Bad Gateway</body></html>")
+
+    with pytest.raises(ProviderError):
+        await client.exchange(code="c", code_verifier="v", redirect_uri="http://x/cb", nonce="n")
+
+
+@pytest.mark.parametrize("content", ["[]", '"id_token"', "null", "42"])
+async def test_a_token_response_that_is_json_but_not_an_object_is_a_provider_error(
+    content: str,
+) -> None:
+    """Parsing is not enough: RFC 6749 §5.1 makes the token response a JSON object."""
+    client, _ = build(token_content=content)
+
+    with pytest.raises(ProviderError):
+        await client.exchange(code="c", code_verifier="v", redirect_uri="http://x/cb", nonce="n")
 
 
 # --------------------------------------------------------------------------

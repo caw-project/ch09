@@ -53,6 +53,10 @@ Feature: Messages
     When Ada edits "the eagle has landed" to say "the eagle has landed safely"
     Then Ada sees "the eagle has landed safely" in the channel
     And Ada sees "the eagle has landed safely" marked as edited
+    When Ada reloads CollabHub
+    And Ada opens the "general" channel
+    Then Ada sees "the eagle has landed safely" in the channel
+    And Ada sees "the eagle has landed safely" marked as edited
 
   Scenario: Ada deletes her own message and a tombstone remains after reload
     Given Ada has created a public channel named "general"

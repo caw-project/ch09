@@ -17,7 +17,6 @@ import httpx
 
 from auth.cookies import COOKIE_NAME, COOKIE_PATH
 from testkit import dexflow
-from testkit.auth import DEMO_WORKSPACE
 from testkit.dex import ADA, DEX_PASSWORD
 from testkit.dexflow import session_cookie
 
@@ -114,28 +113,8 @@ async def test_the_cookie_expires_with_the_token(client: httpx.AsyncClient) -> N
 # --------------------------------------------------------------------------
 
 
-async def test_refreshing_rotates_the_cookie(client: httpx.AsyncClient) -> None:
-    tokens = await sign_in(client)
-
-    renewed = await client.post("/api/v1/auth/refresh", headers=session_cookie(tokens))
-
-    assert attributes(renewed)["value"] != tokens["refreshCookie"]
-
-
-async def test_switching_workspace_rotates_the_cookie(client: httpx.AsyncClient) -> None:
-    tokens = await sign_in(client)
-    listed = await client.get(
-        "/api/v1/workspaces", headers={"Authorization": f"Bearer {tokens['accessToken']}"}
-    )
-    demo = next(w["id"] for w in listed.json()["items"] if w["name"] == DEMO_WORKSPACE)
-
-    switched = await client.post(
-        "/api/v1/auth/switch-workspace",
-        json={"workspaceId": demo},
-        headers=session_cookie(tokens),
-    )
-
-    assert attributes(switched)["value"] != tokens["refreshCookie"]
+# Rotation and replay are asserted in `test_api.py` (`test_refresh_returns_a_new_pair`,
+# `test_switching_workspace_rotates_the_refresh_token`, `test_logout_revokes_…`).
 
 
 async def test_refreshing_without_a_cookie_is_a_401(client: httpx.AsyncClient) -> None:
@@ -177,20 +156,3 @@ async def test_signing_out_clears_the_cookie(client: httpx.AsyncClient) -> None:
     assert cleared["value"] == ""
     # Same path, or the browser treats it as a different cookie and keeps the original.
     assert cleared["path"] == COOKIE_PATH
-
-
-async def test_signing_out_revokes_the_session_the_cookie_named(
-    client: httpx.AsyncClient,
-) -> None:
-    tokens = await sign_in(client)
-
-    await client.post(
-        "/api/v1/auth/logout",
-        headers={
-            "Authorization": f"Bearer {tokens['accessToken']}",
-            **session_cookie(tokens),
-        },
-    )
-
-    resp = await client.post("/api/v1/auth/refresh", headers=session_cookie(tokens))
-    assert resp.status_code == 401

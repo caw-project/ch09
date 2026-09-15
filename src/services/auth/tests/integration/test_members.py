@@ -16,8 +16,10 @@ import uuid
 from typing import Any
 
 import httpx
+import jwt
 import pytest
 
+from shared.pagination import encode_cursor
 from testkit import dexflow
 from testkit.auth import DEMO_WORKSPACE
 from testkit.dex import ADA, ALAN, DEX_PASSWORD, GRACE
@@ -30,6 +32,10 @@ async def sign_in(client: httpx.AsyncClient, email: str) -> dict[str, Any]:
 
 def bearer(tokens: dict[str, Any]) -> dict[str, str]:
     return {"Authorization": f"Bearer {tokens['accessToken']}"}
+
+
+def claims(tokens: dict[str, Any]) -> dict[str, Any]:
+    return jwt.decode(tokens["accessToken"], options={"verify_signature": False})
 
 
 async def own_workspace(client: httpx.AsyncClient, tokens: dict[str, Any]) -> str:
@@ -134,16 +140,28 @@ async def test_members_are_paginated(client: httpx.AsyncClient, ada, grace) -> N
     assert len(set(seen)) == 3
 
 
-async def test_a_malformed_cursor_is_a_400(client: httpx.AsyncClient, ada) -> None:
+@pytest.mark.parametrize(
+    "parts",
+    [
+        pytest.param(("2026-09-15T10:00:00+00:00",), id="one-part"),
+        pytest.param(("not-a-time", str(uuid.uuid4())), id="not-a-timestamp"),
+        pytest.param(("2026-09-15T10:00:00+00:00", "not-a-uuid"), id="not-a-uuid"),
+    ],
+)
+async def test_a_cursor_that_decodes_but_is_not_ours_is_a_400(
+    client: httpx.AsyncClient, ada, parts: tuple[str, ...]
+) -> None:
+    """Base64 that unpacks is not a cursor we wrote — the shape is checked too."""
     workspace = await own_workspace(client, ada)
 
     resp = await client.get(
         f"/api/v1/workspaces/{workspace}/members",
         headers=bearer(ada),
-        params={"cursor": "not-a-cursor!!"},
+        params={"cursor": encode_cursor(*parts)},
     )
 
     assert resp.status_code == 400
+    assert "cursor" in resp.json()["errors"]
 
 
 async def test_an_oversized_limit_is_refused(client: httpx.AsyncClient, ada) -> None:
@@ -318,6 +336,123 @@ async def test_changing_the_role_of_a_non_member_is_a_404(
     assert resp.status_code == 404
 
 
+async def test_a_plain_member_cannot_change_a_role(client: httpx.AsyncClient, ada, grace) -> None:
+    """Not even their own — a member promoting themselves is the obvious attempt."""
+    workspace = await own_workspace(client, ada)
+    graces_id = (await add(client, ada, workspace, email=GRACE, role="member")).json()["user"]["id"]
+    graces_token = await switch_to(client, grace, workspace)
+
+    resp = await client.patch(
+        f"/api/v1/workspaces/{workspace}/members/{graces_id}",
+        headers=bearer(graces_token),
+        json={"role": "owner"},
+    )
+
+    assert resp.status_code == 403
+
+
+async def test_changing_a_role_in_a_workspace_the_token_does_not_name_is_refused(
+    client: httpx.AsyncClient, ada, grace
+) -> None:
+    """Ada owns her own workspace; that makes her nobody in Grace's."""
+    graces_own = await own_workspace(client, grace)
+    graces_id = (await client.get("/api/v1/users/me", headers=bearer(grace))).json()["id"]
+
+    resp = await client.patch(
+        f"/api/v1/workspaces/{graces_own}/members/{graces_id}",
+        headers=bearer(ada),
+        json={"role": "owner"},
+    )
+
+    assert resp.status_code == 403
+
+
+async def test_a_refresh_after_a_demotion_carries_the_new_role(
+    client: httpx.AsyncClient, ada, grace
+) -> None:
+    """`roles` is read from membership at every renewal, never carried forward.
+
+    A demoted admin keeps their current access token for the rest of its fifteen
+    minutes (Conventions §5.2 accepts that), but the next one must say `member`.
+    """
+    workspace = await own_workspace(client, ada)
+    graces_id = (await add(client, ada, workspace, email=GRACE, role="admin")).json()["user"]["id"]
+    graces_session = await switch_to(client, grace, workspace)
+    assert claims(graces_session)["roles"] == ["admin"]
+
+    demoted = await client.patch(
+        f"/api/v1/workspaces/{workspace}/members/{graces_id}",
+        headers=bearer(ada),
+        json={"role": "member"},
+    )
+    assert demoted.status_code == 200
+
+    resp = await client.post("/api/v1/auth/refresh", headers=session_cookie(graces_session))
+
+    assert resp.status_code == 200
+    assert claims(resp.json())["wsp"] == workspace
+    assert claims(resp.json())["roles"] == ["member"]
+
+
+# --------------------------------------------------------------------------
+# Admins manage owners too (register D36)
+# --------------------------------------------------------------------------
+
+
+async def admin_in(
+    client: httpx.AsyncClient, owner: dict[str, Any], admin: dict[str, Any], email: str
+) -> tuple[str, dict[str, Any]]:
+    """The owner's workspace, and a session there for someone added as admin."""
+    workspace = await own_workspace(client, owner)
+    added = await add(client, owner, workspace, email=email, role="admin")
+    assert added.status_code == 201, added.text
+    return workspace, await switch_to(client, admin, workspace)
+
+
+async def test_an_admin_can_make_someone_an_owner(client: httpx.AsyncClient, ada, grace) -> None:
+    await sign_in(client, ALAN)
+    workspace, graces_token = await admin_in(client, ada, grace, GRACE)
+    alans_id = (await add(client, ada, workspace, email=ALAN, role="member")).json()["user"]["id"]
+
+    resp = await client.patch(
+        f"/api/v1/workspaces/{workspace}/members/{alans_id}",
+        headers=bearer(graces_token),
+        json={"role": "owner"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["role"] == "owner"
+
+
+async def test_an_admin_can_demote_an_owner_who_is_not_the_last(
+    client: httpx.AsyncClient, ada, grace
+) -> None:
+    """The last-owner 409 still applies; D36 only changes who may ask."""
+    await sign_in(client, ALAN)
+    workspace, graces_token = await admin_in(client, ada, grace, GRACE)
+    alans_id = (await add(client, ada, workspace, email=ALAN, role="owner")).json()["user"]["id"]
+
+    resp = await client.patch(
+        f"/api/v1/workspaces/{workspace}/members/{alans_id}",
+        headers=bearer(graces_token),
+        json={"role": "member"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["role"] == "member"
+
+
+async def test_a_guest_cannot_manage_members(client: httpx.AsyncClient, ada, grace) -> None:
+    workspace = await own_workspace(client, ada)
+    await add(client, ada, workspace, email=GRACE, role="guest")
+    await sign_in(client, ALAN)
+    graces_token = await switch_to(client, grace, workspace)
+
+    resp = await add(client, graces_token, workspace, email=ALAN, role="member")
+
+    assert resp.status_code == 403
+
+
 # --------------------------------------------------------------------------
 # Removing
 # --------------------------------------------------------------------------
@@ -388,6 +523,22 @@ async def test_removing_a_non_member_is_a_404(client: httpx.AsyncClient, ada) ->
     )
 
     assert resp.status_code == 404
+
+
+async def test_removing_from_a_workspace_the_token_does_not_name_is_refused(
+    client: httpx.AsyncClient, ada, grace
+) -> None:
+    graces_own = await own_workspace(client, grace)
+    await sign_in(client, ALAN)
+    alans_id = (await add(client, grace, graces_own, email=ALAN, role="member")).json()["user"][
+        "id"
+    ]
+
+    resp = await client.delete(
+        f"/api/v1/workspaces/{graces_own}/members/{alans_id}", headers=bearer(ada)
+    )
+
+    assert resp.status_code == 403
 
 
 async def test_a_plain_member_cannot_remove_anyone(client: httpx.AsyncClient, ada, grace) -> None:

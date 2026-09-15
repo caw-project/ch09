@@ -55,7 +55,8 @@ Feature: Real-time delivery
     Given Ada has created a public channel named "general"
     And Grace is looking at the "general" channel
     When Grace's network drops
-    And Ada sends "sent while Grace was away"
+    Then Grace's connection is lost
+    When Ada sends "sent while Grace was away"
     And Grace's network comes back
     Then Grace's connection is restored
     And Grace sees "sent while Grace was away" in the channel without reloading

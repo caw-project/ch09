@@ -8,11 +8,22 @@ pages or repeats one.
 
 from __future__ import annotations
 
+import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import pytest
 
-from shared import DEFAULT_LIMIT, MAX_LIMIT, PageRequest, build_page, decode_cursor, encode_cursor
+from shared import (
+    DEFAULT_LIMIT,
+    MAX_LIMIT,
+    PageRequest,
+    build_page,
+    decode_cursor,
+    encode_cursor,
+    page_request_for,
+)
 from shared.problems import ProblemException
 
 
@@ -62,6 +73,78 @@ def test_a_malformed_cursor_is_a_validation_error() -> None:
 
     assert raised.value.status == 400
     assert "cursor" in (raised.value.errors or {})
+
+
+# --- the parts a route expects ---------------------------------------------
+#
+# Base64 is only the envelope. A cursor that decodes cleanly can still hold the
+# wrong number of parts, or a part the query cannot use, and that is the same
+# client mistake as bad base64 — never a 500 from wherever the part is unpacked.
+
+AT = "2026-07-28T10:00:00+00:00"
+ID = "0198f1a2-7b3c-7d4e-8f50-6a7b8c9d0e1f"
+
+
+def _refusal(cursor: str, *parts: Callable[[str], object]) -> ProblemException:
+    with pytest.raises(ProblemException) as raised:
+        decode_cursor(cursor, parts=parts)
+    return raised.value
+
+
+def test_a_cursor_decodes_into_the_types_its_parts_name() -> None:
+    at, id_ = decode_cursor(encode_cursor(AT, ID), parts=(datetime.fromisoformat, uuid.UUID))
+
+    assert at == datetime(2026, 7, 28, 10, 0, tzinfo=UTC)
+    assert id_ == uuid.UUID(ID)
+
+
+@pytest.mark.parametrize(
+    "cursor",
+    [
+        pytest.param(encode_cursor(ID, "extra"), id="too-many"),
+        pytest.param(encode_cursor(AT), id="too-few"),
+    ],
+)
+def test_a_cursor_with_the_wrong_number_of_parts_is_a_validation_error(cursor: str) -> None:
+    problem = _refusal(cursor, datetime.fromisoformat, uuid.UUID)
+
+    assert problem.status == 400
+    assert problem.errors == {"cursor": ["Malformed cursor"]}
+
+
+@pytest.mark.parametrize(
+    ("cursor", "parts"),
+    [
+        pytest.param(encode_cursor("not-a-uuid"), (uuid.UUID,), id="uuid"),
+        pytest.param(encode_cursor("yesterday", ID), (datetime.fromisoformat, uuid.UUID), id="ts"),
+    ],
+)
+def test_a_part_its_parser_refuses_is_a_validation_error(
+    cursor: str, parts: tuple[Callable[[str], object], ...]
+) -> None:
+    problem = _refusal(cursor, *parts)
+
+    assert problem.status == 400
+    assert problem.errors == {"cursor": ["Malformed cursor"]}
+
+
+def test_the_page_dependency_for_a_route_returns_typed_parts() -> None:
+    page = page_request_for(uuid.UUID)(limit=10, cursor=encode_cursor(ID))
+
+    assert page.limit == 10
+    assert page.cursor == (uuid.UUID(ID),)
+
+
+def test_the_page_dependency_for_a_route_refuses_a_cursor_of_the_wrong_shape() -> None:
+    with pytest.raises(ProblemException) as raised:
+        page_request_for(uuid.UUID)(limit=10, cursor=encode_cursor("general", ID))
+
+    assert raised.value.status == 400
+    assert raised.value.errors == {"cursor": ["Malformed cursor"]}
+
+
+def test_the_page_dependency_for_a_route_allows_no_cursor() -> None:
+    assert page_request_for(uuid.UUID)(limit=10, cursor=None).cursor is None
 
 
 # --- paging ----------------------------------------------------------------

@@ -14,7 +14,15 @@ from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from shared import JwksClient, StaticKeySource, UnknownKeyError, jwks_document
+from shared import (
+    JwksClient,
+    KeySourceUnavailableError,
+    StaticKeySource,
+    UnknownKeyError,
+    jwks_document,
+    keys,
+)
+from shared.keys import DEFAULT_HARD_REFRESH_SECONDS, DEFAULT_MIN_REFRESH_SECONDS
 
 
 @pytest.fixture(scope="module")
@@ -120,3 +128,123 @@ async def test_jwks_client_does_not_refetch_faster_than_its_floor(
             await client.key_for("bogus")
 
     assert server.fetches == 2
+
+
+# --- Auth is down -----------------------------------------------------------
+#
+# Stateless verification exists so that Auth is not on the critical path of
+# every request (Conventions §5.1). The hourly refresh must not put it back
+# there: a refresh that fails while valid keys are cached keeps serving them, and
+# a fetch that fails with no usable key is `KeySourceUnavailableError` — an
+# `UnknownKeyError`, so no caller is left with nothing to catch, but one that
+# verification turns into a 503 rather than a 401. Never a raw `httpx`
+# exception, which reaches the client as a 500.
+
+JWKS_URL = "http://auth/.well-known/jwks.json"
+OUTAGES = pytest.mark.parametrize("outage", ["unreachable", "erroring"])
+
+
+class _Clock:
+    """Stands in for the `time` module inside `shared.keys`, so an hour passes at once."""
+
+    def __init__(self) -> None:
+        self.now = 10_000.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> _Clock:
+    fake = _Clock()
+    # The name inside `shared.keys` only. Patching `time.monotonic` itself would
+    # stop the event loop's own clock too.
+    monkeypatch.setattr(keys, "time", fake)
+    return fake
+
+
+class _FlakyAuth:
+    """A stand-in Auth whose JWKS endpoint can be taken down."""
+
+    def __init__(self, document: dict) -> None:
+        self.document = document
+        self.state = "up"
+        self.requests = 0
+
+    def _handle(self, request: httpx.Request) -> httpx.Response:
+        self.requests += 1
+        if self.state == "unreachable":
+            raise httpx.ConnectError("connection refused", request=request)
+        if self.state == "erroring":
+            return httpx.Response(503)
+        return httpx.Response(200, json=self.document)
+
+    def client(self, **kwargs) -> JwksClient:
+        http = httpx.AsyncClient(transport=httpx.MockTransport(self._handle))
+        return JwksClient(JWKS_URL, http_client=http, **kwargs)
+
+
+@OUTAGES
+async def test_jwks_client_keeps_serving_cached_keys_when_the_hourly_refresh_fails(
+    key_pair: rsa.RSAPrivateKey, clock: _Clock, outage: str
+) -> None:
+    auth = _FlakyAuth(jwks_document({"key-1": key_pair.public_key()}))
+    client = auth.client()
+    cached = await client.key_for("key-1")
+
+    clock.advance(DEFAULT_HARD_REFRESH_SECONDS + 1)
+    auth.state = outage
+
+    assert await client.key_for("key-1") is cached
+    assert auth.requests == 2, "the scheduled refresh should still have been attempted"
+
+
+@OUTAGES
+async def test_jwks_client_retries_a_failed_hourly_refresh_on_a_later_call(
+    key_pair: rsa.RSAPrivateKey, clock: _Clock, outage: str
+) -> None:
+    """A failure must not count as a refresh, or the next one is an hour away."""
+    auth = _FlakyAuth(jwks_document({"key-1": key_pair.public_key()}))
+    client = auth.client()
+    await client.key_for("key-1")
+    clock.advance(DEFAULT_HARD_REFRESH_SECONDS + 1)
+    auth.state = outage
+    await client.key_for("key-1")
+
+    auth.state = "up"
+    clock.advance(DEFAULT_MIN_REFRESH_SECONDS + 1)
+
+    assert await client.key_for("key-1") is not None
+    assert auth.requests == 3
+
+
+@OUTAGES
+async def test_jwks_client_reports_an_unknown_key_when_the_first_fetch_fails(
+    clock: _Clock, outage: str
+) -> None:
+    """Auth down while a service starts: no key is held, so no token can be verified."""
+    auth = _FlakyAuth({"keys": []})
+    auth.state = outage
+    client = auth.client()
+
+    with pytest.raises(KeySourceUnavailableError):
+        await client.key_for("key-1")
+
+
+@OUTAGES
+async def test_jwks_client_reports_an_unknown_key_when_a_kid_miss_fetch_fails(
+    key_pair: rsa.RSAPrivateKey, clock: _Clock, outage: str
+) -> None:
+    auth = _FlakyAuth(jwks_document({"key-1": key_pair.public_key()}))
+    client = auth.client()
+    await client.key_for("key-1")
+    auth.state = outage
+
+    with pytest.raises(KeySourceUnavailableError):
+        await client.key_for("key-2")
+
+    # The key it already holds is unaffected.
+    assert await client.key_for("key-1") is not None

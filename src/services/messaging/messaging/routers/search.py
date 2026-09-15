@@ -23,9 +23,11 @@ from messaging import search
 from messaging.db import session as db_session
 from messaging.routers.messages import _as_message
 from messaging.schemas import MessageListResponse
-from shared import PageParams, ProblemException, UserPrincipal, require_user
+from shared import PageRequest, ProblemException, UserPrincipal, page_request_for, require_user
 
 router = APIRouter(prefix="/api/v1/search", tags=["search"])
+
+SearchPage = Annotated[PageRequest, Depends(page_request_for(*search.CURSOR))]
 
 
 def _search_client(request: Request) -> AsyncElasticsearch:
@@ -36,7 +38,7 @@ def _search_client(request: Request) -> AsyncElasticsearch:
 @router.get("/messages", response_model=MessageListResponse)
 async def search_messages(
     q: Annotated[str, Query(max_length=search.MAX_QUERY_CHARS)],
-    page: PageParams,
+    page: SearchPage,
     principal: UserPrincipal = Depends(require_user),
     session: AsyncSession = Depends(db_session),
     es: AsyncElasticsearch = Depends(_search_client),
@@ -51,8 +53,6 @@ async def search_messages(
     except search.QueryRequiredError as exc:
         message = "Enter something to search for."
         raise ProblemException.validation_error(message, errors={"q": [message]}) from exc
-    if page.cursor is not None and len(page.cursor) != 1:
-        raise ProblemException.validation_error("The cursor is not valid.")
 
     try:
         found = await search.search_messages(

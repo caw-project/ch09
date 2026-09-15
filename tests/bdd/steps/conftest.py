@@ -77,19 +77,29 @@ def grace_is_looking_at(grace: ChatPage, name: str) -> None:
     assert grace.open_channel_name() == name
 
 
+@then(parsers.parse('Ada sees the "{name}" workspace'))
+def ada_sees_workspace(ada: ChatPage, name: str) -> None:
+    assert ada.workspace_name() == name
+
+
 @then(parsers.parse('"{name}" is in Ada\'s channel list'))
 def in_adas_list(ada: ChatPage, name: str) -> None:
-    assert name in ada.channel_names()
+    assert ada.has_channel(name), ada.channel_names()
+
+
+@then(parsers.parse('"{name}" is not in Ada\'s channel list'))
+def not_in_adas_list(ada: ChatPage, name: str) -> None:
+    assert ada.lacks_channel(name), ada.channel_names()
 
 
 @then(parsers.parse('"{name}" is in Grace\'s channel list'))
 def in_graces_list(grace: ChatPage, name: str) -> None:
-    assert name in grace.channel_names()
+    assert grace.has_channel(name), grace.channel_names()
 
 
 @then(parsers.parse('"{name}" is not in Grace\'s channel list'))
 def not_in_graces_list(grace: ChatPage, name: str) -> None:
-    assert name not in grace.channel_names()
+    assert grace.lacks_channel(name), grace.channel_names()
 
 
 @given(parsers.parse('Ada has sent "{body}" in "{channel}"'))
@@ -128,7 +138,7 @@ def grace_sees(grace: ChatPage, body: str) -> None:
 
 @then(parsers.parse('Ada does not see "{body}" in the channel'))
 def ada_does_not_see(ada: ChatPage, body: str) -> None:
-    assert not ada.has_message(body), ada.message_bodies()
+    assert ada.is_absent(body), ada.message_bodies()
 
 
 @then("Ada's message box is empty")

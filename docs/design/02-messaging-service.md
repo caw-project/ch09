@@ -505,7 +505,7 @@ the chart sets no session affinity. See Conventions §6.
 | `delete_message` | `{ messageId }` | Author/channel-admin delete + broadcast. Acks the **tombstoned `Message`**. |
 | `add_reaction` / `remove_reaction` | `{ messageId, emoji }` | Broadcast reaction change. |
 | `mark_read` | `{ channelId, messageId }` | Move the read marker forward; acks `{ ok: true }`. If it moved, broadcast `read_receipt_updated` to the reader's own room, skipping this connection — §3.1.7. |
-| `typing` | `{ channelId }` | Ephemeral; fan out `user_typing` (not persisted). |
+| `typing` | `{ channelId }` | Ephemeral; fan out `user_typing` (not persisted). Authorized on channel visibility, like every write — an event for a channel the sender cannot see is dropped silently, since there is no ack to carry a 404. |
 
 **Server → Client (events)**
 
@@ -675,6 +675,11 @@ timeout for the client that closed its laptop mid-word. So:
   because a trailing debounce would delay the indicator by its own window;
 - the receiver drops a user 4s after their last `user_typing` — two missed
   windows;
+- the server checks the channel is **visible** to the sender, workspace from the
+  token, before fanning out — one query per event, bounded by the throttle. An
+  event for a channel they cannot see (another workspace's, a private one they
+  are not in) is **dropped silently**: a room says who receives, not who may
+  send (corrected 2026-09-15);
 - fan-out uses `skip_sid`, so a sender never sees their own indicator, **and**
   the client discards any `user_typing` carrying its own `userId`, which also
   covers that person's second tab;

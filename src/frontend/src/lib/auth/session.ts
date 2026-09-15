@@ -99,15 +99,42 @@ function scheduleRenewal(expiresIn: number): void {
   renewalTimer = setTimeout(() => void renew(), delay)
 }
 
-async function renew(): Promise<void> {
-  try {
-    await adopt(await api.refresh())
-  } catch {
-    // Rotation means a refresh token is spent the moment it is used. A failure
-    // here is not retryable with the same cookie, so the only honest outcome is
-    // to sign out rather than loop.
-    signedOut()
-  }
+/**
+ * The request spending the refresh cookie right now, if any.
+ *
+ * Rotation spends a cookie the moment it is used, so a second request carrying
+ * the same one is a replay, and the server answers a replay by revoking the whole
+ * session. StrictMode's double restore or a timer firing mid-restore would do
+ * exactly that, so only one request may hold the cookie at a time. This is one
+ * tab's guard — two tabs still share a cookie and nothing coordinates them.
+ */
+let spending: Promise<void> | undefined
+
+/** Hold the cookie for `exchange`, releasing it however that settles. */
+function spend(exchange: () => Promise<void>): Promise<void> {
+  const settled = exchange().finally(() => {
+    if (spending === settled) spending = undefined
+  })
+  spending = settled
+  return settled
+}
+
+function renew(): Promise<void> {
+  // Whatever already holds the cookie — a renewal or a switch — leaves a fresh
+  // token behind, which is all a renewal wants. Join it rather than replay.
+  return (
+    spending ??
+    spend(async () => {
+      try {
+        await adopt(await api.refresh())
+      } catch {
+        // Rotation means a refresh token is spent the moment it is used. A failure
+        // here is not retryable with the same cookie, so the only honest outcome is
+        // to sign out rather than loop.
+        signedOut()
+      }
+    })
+  )
 }
 
 function signedOut(error?: string): void {
@@ -170,11 +197,18 @@ export async function completeSignIn(query: URLSearchParams): Promise<boolean> {
 }
 
 export async function changeWorkspace(workspaceId: string): Promise<void> {
-  try {
-    await adopt(await api.switchWorkspace(workspaceId))
-  } catch (caught) {
-    signedOut(caught instanceof Error ? caught.message : undefined)
-  }
+  // Switching rotates the cookie just as renewal does, but it cannot join a
+  // renewal — that would leave the user in the old workspace — so it waits its
+  // turn. The loop re-checks, because another caller may take the cookie in the
+  // moment this one wakes.
+  while (spending) await spending
+  await spend(async () => {
+    try {
+      await adopt(await api.switchWorkspace(workspaceId))
+    } catch (caught) {
+      signedOut(caught instanceof Error ? caught.message : undefined)
+    }
+  })
 }
 
 export async function signOut(): Promise<void> {

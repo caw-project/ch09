@@ -34,6 +34,10 @@ def _app() -> FastAPI:
     async def http_error() -> None:
         raise StarletteHTTPException(status_code=403)
 
+    @app.get("/custom-http-error")
+    async def custom_http_error() -> None:
+        raise StarletteHTTPException(status_code=409, detail="That name is already taken.")
+
     @app.get("/boom")
     async def boom() -> None:
         raise RuntimeError("password=hunter2 in the connection string")
@@ -103,6 +107,34 @@ async def test_plain_http_exceptions_are_mapped_to_the_matching_problem_class(
     assert resp.status_code == 403
     assert resp.json()["type"] == "https://collabhub.dev/problems/forbidden"
     assert resp.headers["content-type"] == "application/problem+json"
+    # An HTTPException raised with no detail carries the bare status phrase,
+    # "Forbidden", which says nothing the title does not.
+    assert "detail" not in resp.json()
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "status"),
+    [
+        pytest.param("GET", "/no-such-route", 404, id="route-not-found"),
+        pytest.param("DELETE", "/domain-error", 405, id="method-not-allowed"),
+    ],
+)
+async def test_a_framework_error_does_not_repeat_its_status_phrase_as_the_detail(
+    client: httpx.AsyncClient, method: str, path: str, status: int
+) -> None:
+    """Starlette raises these itself, with `detail` set to "Not Found" and the like."""
+    resp = await client.request(method, path)
+
+    assert resp.status_code == status
+    assert resp.headers["content-type"] == "application/problem+json"
+    assert "detail" not in resp.json()
+
+
+async def test_an_http_exception_with_its_own_detail_keeps_it(client: httpx.AsyncClient) -> None:
+    resp = await client.get("/custom-http-error")
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "That name is already taken."
 
 
 async def test_unhandled_exceptions_never_leak_the_internal_message(

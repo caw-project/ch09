@@ -34,7 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from messaging import channels
 from messaging.channels import VersionConflictError
 from messaging.models import Message
-from shared import Page, PageRequest, build_page, uuid7
+from shared import CursorPart, Page, PageRequest, build_page, uuid7
 
 __all__ = [
     "AlreadyDeletedError",
@@ -159,6 +159,10 @@ async def create(
     return message
 
 
+#: What a history cursor holds: the id of the oldest message on the last page.
+HISTORY_CURSOR: tuple[CursorPart, ...] = (uuid.UUID,)
+
+
 async def history_page(
     session: AsyncSession, *, channel_id: uuid.UUID, page: PageRequest
 ) -> Page[Message]:
@@ -183,8 +187,8 @@ async def history_page(
         .limit(page.fetch_limit)
     )
     if page.cursor:
-        (last_id,) = page.cursor
-        query = query.where(Message.id < uuid.UUID(last_id))
+        (last_id,) = page.cursor  # parsed and shape-checked by `HISTORY_CURSOR`
+        query = query.where(Message.id < last_id)
 
     rows = (await session.execute(query)).scalars().all()
     return build_page(rows, page, key=lambda m: (str(m.id),))

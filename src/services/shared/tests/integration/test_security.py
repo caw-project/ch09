@@ -250,17 +250,11 @@ async def test_verify_user_token_refuses_a_service_token(tokens, redis_cache) ->
     assert raised.value.status == 401
 
 
-@pytest.mark.parametrize(
-    "token_for",
-    [
-        pytest.param(lambda t: t.mint(lifetime=timedelta(minutes=-5)), id="expired"),
-        pytest.param(lambda t: "not-a-jwt", id="malformed"),
-        pytest.param(lambda t: t.mint(iss="https://elsewhere.test"), id="issuer"),
-    ],
-)
-async def test_verify_user_token_refuses_a_bad_token(tokens, redis_cache, token_for) -> None:
+async def test_verify_user_token_refuses_a_malformed_token(tokens, redis_cache) -> None:
+    """Expired and wrong-issuer tokens are refused through the same function over
+    HTTP (`test_an_expired_token_is_rejected`, `…_from_another_issuer_…`)."""
     with pytest.raises(ProblemException) as raised:
-        await verify_user_token(context(tokens, Denylist(redis_cache)), token_for(tokens))
+        await verify_user_token(context(tokens, Denylist(redis_cache)), "not-a-jwt")
 
     assert raised.value.status == 401
 

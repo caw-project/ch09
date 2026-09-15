@@ -27,6 +27,7 @@ terms — it can only be reached for a channel the caller can already read, wher
 from __future__ import annotations
 
 import uuid
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,9 +44,12 @@ from messaging.schemas import (
     CreateChannelRequest,
     UpdateChannelRequest,
 )
-from shared import PageParams, ProblemException, UserPrincipal, require_user
+from shared import PageRequest, ProblemException, UserPrincipal, page_request_for, require_user
 
 router = APIRouter(prefix="/api/v1/channels", tags=["channels"])
+
+ChannelListPage = Annotated[PageRequest, Depends(page_request_for(*channels.LIST_CURSOR))]
+MembersPage = Annotated[PageRequest, Depends(page_request_for(*channels.MEMBERS_CURSOR))]
 
 #: One message per rule, so the form can put it against the field rather than
 #: showing "invalid name" and leaving the user to guess which part was wrong.
@@ -122,7 +126,7 @@ def _admin_or_403(visible: channels.VisibleChannel) -> None:
 
 @router.get("", response_model=ChannelListResponse)
 async def list_channels(
-    page: PageParams,
+    page: ChannelListPage,
     principal: UserPrincipal = Depends(require_user),
     session: AsyncSession = Depends(db_session),
 ) -> ChannelListResponse:
@@ -264,7 +268,7 @@ async def archive_channel(
 @router.get("/{channel_id}/members", response_model=ChannelMemberListResponse)
 async def list_members(
     channel_id: uuid.UUID,
-    page: PageParams,
+    page: MembersPage,
     principal: UserPrincipal = Depends(require_user),
     session: AsyncSession = Depends(db_session),
 ) -> ChannelMemberListResponse:

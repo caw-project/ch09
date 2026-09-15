@@ -54,10 +54,12 @@ describe('ChannelList', () => {
     const confirm = screen.getByText(/Nobody will be able to open it again/).parentElement
     await user.click(within(confirm as HTMLElement).getByRole('button', { name: 'Archive' }))
 
-    await vi.waitFor(() =>
-      expect(screen.queryByRole('link', { name: 'random' })).not.toBeInTheDocument(),
-    )
+    // Wait on the path, not only the link: the list refetch removes the link
+    // first, and `navigate('/')` runs after it in the mutation's `onSuccess`.
+    await vi.waitFor(() => {
+      expect(location().pathname).toBe('/')
+      expect(screen.queryByRole('link', { name: 'random' })).not.toBeInTheDocument()
+    })
     expect(screen.getByRole('link', { name: 'general' })).toBeInTheDocument()
-    expect(location().pathname).toBe('/')
   })
 })

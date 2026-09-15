@@ -17,9 +17,11 @@ coming up:
 
 from __future__ import annotations
 
+import logging
 import secrets
 
 from fastapi import APIRouter, Depends, Request, Response, status
+from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import cookies, identities, sessions
@@ -36,6 +38,8 @@ from auth.settings import Settings
 from shared import ProblemException, UserPrincipal, require_user
 
 CLIENT_CREDENTIALS = "client_credentials"
+
+_log = logging.getLogger("collabhub.auth.sessions")
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -184,12 +188,23 @@ async def logout(
     The access token stays cryptographically valid until it expires — that is
     what stateless verification means — so revocation is the denylist entry
     every service checks (Conventions §5.2).
+
+    Logout is not in the fail-closed set. With R1 unreachable the denylist
+    write is lost and the access token lives out its short lifetime, but the
+    refresh token and the cookie need no R1 — refusing here would leave a
+    session that renews for weeks after the user pressed "sign out".
     """
-    await sessions.revoke_access_token(
-        request.app.state.denylist,
-        token_id=principal.token_id,
-        expires_at=principal.expires_at,
-    )
+    try:
+        await sessions.revoke_access_token(
+            request.app.state.denylist,
+            token_id=principal.token_id,
+            expires_at=principal.expires_at,
+        )
+    except RedisError as exc:
+        _log.warning(
+            "denylist unavailable at logout; access token stays valid until it expires",
+            extra={"userId": str(principal.user_id), "jti": principal.token_id, "error": str(exc)},
+        )
 
     presented = cookies.read(request)
     if presented:

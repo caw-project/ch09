@@ -17,6 +17,7 @@ import uuid
 
 import pytest
 
+from shared import encode_cursor
 from testkit.search import MessagesIndex
 
 SEARCH = "/api/v1/search/messages"
@@ -186,3 +187,28 @@ async def test_a_blank_query_is_a_400(client, ada, index):
 
     assert response.status_code == 400
     assert "q" in response.json()["errors"]
+
+
+@pytest.mark.parametrize(
+    "cursor",
+    [
+        pytest.param(encode_cursor(str(uuid.uuid4()), "extra"), id="two-parts"),
+        pytest.param(encode_cursor("not-a-uuid"), id="not-a-uuid"),
+    ],
+)
+async def test_a_cursor_that_decodes_but_is_not_ours_is_a_400(client, ada, tokens, index, cursor):
+    """The same 400, with the same field error, as a cursor that is not base64 at all.
+
+    A part that is not a UUID is handed to Elasticsearch as `search_after`,
+    which sorts it against the ids as a string and answers — a page from
+    nowhere in particular rather than an error.
+    """
+    channel = await make_channel(client, ada)
+    await index.index(
+        await send(client, ada, channel["id"], "standup notes"), workspace_id=tokens.WORKSPACE
+    )
+
+    response = await search(client, ada, "standup", cursor=cursor)
+
+    assert response.status_code == 400
+    assert response.json().get("errors", {}).get("cursor") == ["Malformed cursor"]

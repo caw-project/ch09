@@ -31,9 +31,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contracts import MESSAGES_ALIAS
 from messaging import channels
 from messaging.models import Message
-from shared import Page, PageRequest, encode_cursor
+from shared import CursorPart, Page, PageRequest, encode_cursor
 
 __all__ = [
+    "CURSOR",
     "MAX_QUERY_CHARS",
     "QueryRequiredError",
     "SearchUnavailableError",
@@ -43,6 +44,11 @@ __all__ = [
 ]
 
 MAX_QUERY_CHARS = 200
+
+#: What a search cursor holds: the last hit's message id. Parsed as a UUID
+#: before it becomes `search_after`, because Elasticsearch would take any string
+#: and sort it against the ids — a page from nowhere rather than an error.
+CURSOR: tuple[CursorPart, ...] = (uuid.UUID,)
 
 
 class QueryRequiredError(Exception):
@@ -118,7 +124,7 @@ def candidate_query(
         "track_total_hits": False,
     }
     if page.cursor:
-        request["search_after"] = list(page.cursor)
+        request["search_after"] = [str(part) for part in page.cursor]
     return request
 
 

@@ -18,6 +18,7 @@ Two implementations of the same protocol:
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from typing import Any, Protocol, runtime_checkable
 
@@ -28,9 +29,23 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 DEFAULT_HARD_REFRESH_SECONDS = 3600.0
 DEFAULT_MIN_REFRESH_SECONDS = 60.0
 
+_log = logging.getLogger("collabhub.keys")
+
 
 class UnknownKeyError(LookupError):
     """No verification key matches the token's `kid`."""
+
+
+class KeySourceUnavailableError(UnknownKeyError):
+    """No key matches, and that is because the JWKS could not be fetched.
+
+    A subclass on purpose. From `key_for`'s side it is still "no key for this
+    kid", so a caller that only knows `UnknownKeyError` still refuses the token
+    rather than letting an exception escape. Verification catches this first,
+    because the right answer differs: a kid that a *successful* fetch did not
+    produce is a bad token (401), while a kid nobody could look up is an outage
+    (503).
+    """
 
 
 @runtime_checkable
@@ -89,26 +104,44 @@ class JwksClient:
         self._hard_refresh_seconds = hard_refresh_seconds
         self._min_refresh_seconds = min_refresh_seconds
         self._keys: dict[str, Any] = {}
-        self._fetched_at = 0.0
+        self._fetched_at: float | None = None
         self._miss_refreshed_at = 0.0
+        # When the last fetch failed, the earliest a scheduled refresh retries.
+        # Without it every request during an Auth outage would wait on its own
+        # doomed fetch.
+        self._retry_at = 0.0
+        self._last_fetch_failed = False
         self._lock = asyncio.Lock()
 
     async def key_for(self, kid: str | None) -> Any:
+        # One fetch per call at most: if the scheduled refresh ran, a kid it did
+        # not produce would not appear on an immediate second attempt either.
         if self._is_stale():
             await self._refresh(reason="scheduled")
-        if kid not in self._keys:
+        elif kid not in self._keys:
             await self._refresh(reason="kid-miss")
 
         try:
             return self._keys[kid]  # type: ignore[index]
         except KeyError:
+            if self._last_fetch_failed:
+                raise KeySourceUnavailableError(
+                    f"could not fetch the JWKS at {self._url}"
+                ) from None
             raise UnknownKeyError(f"no key with kid {kid!r} at {self._url}") from None
 
     def _is_stale(self) -> bool:
-        return time.monotonic() - self._fetched_at >= self._hard_refresh_seconds
+        now = time.monotonic()
+        if now < self._retry_at:
+            return False
+        return self._fetched_at is None or now - self._fetched_at >= self._hard_refresh_seconds
 
     async def _refresh(self, *, reason: str) -> None:
         async with self._lock:
+            if reason == "scheduled" and not self._is_stale():
+                # Another caller refreshed, or failed and set a retry time,
+                # while this one waited for the lock.
+                return
             if reason == "kid-miss":
                 # A kid we have never seen is what key rotation looks like from
                 # here, so refetch — but at most once per window, or a stream of
@@ -121,11 +154,34 @@ class JwksClient:
                     return
                 self._miss_refreshed_at = time.monotonic()
 
-            response = await self._http.get(self._url)
-            response.raise_for_status()
-            key_set = jwt.PyJWKSet.from_dict(response.json())
+            try:
+                response = await self._http.get(self._url)
+                response.raise_for_status()
+                key_set = jwt.PyJWKSet.from_dict(response.json())
+            except (httpx.HTTPError, ValueError, jwt.PyJWTError) as exc:
+                # Auth unreachable, erroring, or serving something that is not
+                # a usable key set. Keep whatever keys are held: they verified
+                # tokens a moment ago and still do, and stateless verification
+                # exists so that Auth is not on every request's critical path.
+                # Not a refresh, so the next attempt comes after the retry
+                # floor rather than an hour from now.
+                self._last_fetch_failed = True
+                self._retry_at = time.monotonic() + self._min_refresh_seconds
+                _log.warning(
+                    "JWKS fetch failed; serving cached keys",
+                    extra={
+                        "reason": reason,
+                        "jwksUrl": self._url,
+                        "error": type(exc).__name__,
+                        "cachedKeys": len(self._keys),
+                    },
+                )
+                return
+
             self._keys = {key.key_id: key.key for key in key_set.keys if key.key_id}
             self._fetched_at = time.monotonic()
+            self._last_fetch_failed = False
+            self._retry_at = 0.0
 
     async def aclose(self) -> None:
         await self._http.aclose()

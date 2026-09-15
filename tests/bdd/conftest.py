@@ -287,3 +287,27 @@ def grace(grace_context: BrowserContext, base_url: str) -> Iterator[ChatPage]:
     page = grace_context.new_page()
     yield ChatPage(page, base_url)
     _restore(grace_context, page)
+
+
+@pytest.fixture
+def ada_own_context(browser: Browser, base_url: str, stack_ready: None) -> Iterator[BrowserContext]:
+    """Ada, signed in to a browser no other scenario shares.
+
+    For scenarios that change the session itself. Signing out revokes the
+    refresh token the context holds, and switching workspace rewrites which
+    workspace its cookie restores into — done in `ada_context`, either one
+    would break every scenario that ran after it. A fresh sign-in starts a
+    refresh chain of its own, so revoking it leaves the shared one alone.
+
+    Function-scoped, and so a full trip through Dex per scenario. That is the
+    price, and it is why only the session scenarios pay it.
+    """
+    yield from _signed_in_context(browser, base_url, ADA)
+
+
+@pytest.fixture
+def signed_out_context(browser: Browser, stack_ready: None) -> Iterator[BrowserContext]:
+    """A browser that has never signed in: no cookie, no session to restore."""
+    context = browser.new_context()
+    yield context
+    context.close()

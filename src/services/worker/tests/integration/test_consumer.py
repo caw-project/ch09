@@ -17,6 +17,9 @@ handlers, and the idempotency they give, are in `test_message_index.py`.
 from __future__ import annotations
 
 import asyncio
+import logging
+
+import pytest
 
 from shared import JobEnvelope
 from worker.consumer import PermanentJobError
@@ -152,3 +155,58 @@ async def test_the_consumer_recovers_when_its_stream_and_group_are_lost(run_cons
         await jobs.drained(within=15)
 
     assert handled == [before.job_id, after.job_id]
+
+
+# --- no job content in the logs (CH008) --------------------------------------
+#
+# An index job carries a message body (doc 05 §8). The consumer logs job ids,
+# types and exception class names only — so a body must not reach a log line
+# directly, through a handler's exception text, or through a record's extras.
+
+#: The consumer's own logger.
+CONSUMER_LOG = "collabhub.worker.consumer"
+SECRET_BODY = "the launch code is tangerine-42"
+
+
+def assert_no_job_content(caplog: pytest.LogCaptureFixture) -> None:
+    assert SECRET_BODY not in caplog.text
+    for record in caplog.records:
+        # `vars` covers the message, its args, any extras and exc_info.
+        assert SECRET_BODY not in repr(vars(record)), record.getMessage()
+
+
+def consumer_messages(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [record.getMessage() for record in caplog.records if record.name == CONSUMER_LOG]
+
+
+async def test_the_retry_and_dead_letter_logs_carry_no_job_content(run_consumer, jobs, caplog):
+    caplog.set_level(logging.DEBUG)
+
+    async def always_fails(envelope):
+        raise RuntimeError(f"could not index {envelope.payload['body']}")
+
+    async with run_consumer({JOB: always_fails}, visibility_timeout_seconds=1, max_attempts=1):
+        await jobs.enqueue(JOB, {"body": SECRET_BODY})
+        await jobs.drained(within=30)
+
+    messages = consumer_messages(caplog)
+    assert any("failed on delivery" in message for message in messages), messages
+    assert any("dead-lettering" in message for message in messages), messages
+    assert_no_job_content(caplog)
+
+
+async def test_a_permanent_failure_logs_no_job_content(run_consumer, jobs, caplog):
+    caplog.set_level(logging.DEBUG)
+
+    async def refuses(envelope):
+        try:
+            raise ValueError(envelope.payload["body"])
+        except ValueError as exc:
+            raise PermanentJobError("unindexable") from exc
+
+    async with run_consumer({JOB: refuses}):
+        await jobs.enqueue(JOB, {"body": SECRET_BODY})
+        await jobs.drained()
+
+    assert any("dead-lettering" in message for message in consumer_messages(caplog))
+    assert_no_job_content(caplog)

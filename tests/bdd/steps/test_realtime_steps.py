@@ -94,7 +94,18 @@ def appears_once_for_ada(ada: ChatPage, body: str) -> None:
     socket — so the cache helper has to be idempotent on the message id. A blind
     append passes every other scenario in this file and fails this one.
     """
-    assert ada.count_of(body) == 1
+    assert ada.appears_once(body), ada.count_of(body)
+
+
+@then("Grace's connection is lost")
+def graces_connection_lost(grace: ChatPage) -> None:
+    """The outage has to be real before anything is sent into it.
+
+    If Grace's socket stayed up through `set_offline`, Ada's message would
+    simply arrive live and the recovery scenario would pass without anything
+    having recovered.
+    """
+    grace.wait_for_disconnected()
 
 
 @then("Grace's connection is restored")

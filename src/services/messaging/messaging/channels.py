@@ -35,7 +35,7 @@ from messaging.models import (
     ChannelRead,
     Message,
 )
-from shared import Page, PageRequest, build_page, uuid7
+from shared import CursorPart, Page, PageRequest, build_page, uuid7
 
 MIN_NAME_LENGTH = 3
 MAX_NAME_LENGTH = 80
@@ -252,6 +252,10 @@ async def archive(session: AsyncSession, *, channel_id: uuid.UUID) -> None:
     )
 
 
+#: What a members cursor holds: the last `user_id` on the page.
+MEMBERS_CURSOR: tuple[CursorPart, ...] = (uuid.UUID,)
+
+
 async def members_page(
     session: AsyncSession, *, channel_id: uuid.UUID, page: PageRequest
 ) -> Page[ChannelMember]:
@@ -269,8 +273,8 @@ async def members_page(
         .order_by(ChannelMember.user_id)
     )
     if page.cursor:
-        (last_user_id,) = page.cursor
-        query = query.where(ChannelMember.user_id > uuid.UUID(last_user_id))
+        (last_user_id,) = page.cursor  # parsed and shape-checked by `MEMBERS_CURSOR`
+        query = query.where(ChannelMember.user_id > last_user_id)
 
     rows = (await session.execute(query.limit(page.fetch_limit))).scalars().all()
     return build_page(rows, page, key=lambda m: (str(m.user_id),))
@@ -410,6 +414,10 @@ def _visible_from(row: Row) -> VisibleChannel:
     )
 
 
+#: What a channel-list cursor holds: the last row's `(name, id)`.
+LIST_CURSOR: tuple[CursorPart, ...] = (str, uuid.UUID)
+
+
 async def list_page(
     session: AsyncSession,
     *,
@@ -421,10 +429,10 @@ async def list_page(
     query = _with_read_state(_visible_query(workspace_id, user_id), user_id)
 
     if page.cursor:
-        name, channel_id = page.cursor
+        name, channel_id = page.cursor  # parsed and shape-checked by `LIST_CURSOR`
         # Seek straight past the last row of the previous page: a later name, or
         # the same name and a higher id.
-        query = query.where(tuple_(Channel.name, Channel.id) > tuple_(name, uuid.UUID(channel_id)))
+        query = query.where(tuple_(Channel.name, Channel.id) > tuple_(name, channel_id))
 
     result = await session.execute(query.limit(page.fetch_limit))
     rows = [_visible_from(row) for row in result.all()]

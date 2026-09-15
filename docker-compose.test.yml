@@ -64,6 +64,11 @@ services:
     environment:
       AUTH_ISSUER: http://localhost:${BDD_AUTH_PORT:-8011}
       CORS_ALLOWED_ORIGINS: '["http://localhost:${BDD_FRONTEND_PORT:-5183}"]'
+      # Short heartbeat, so "the stream recovers after the connection drops"
+      # sees the disconnect in seconds rather than the default ~45s — Playwright's
+      # offline mode does not close an open WebSocket, only a missed ping does.
+      MESSAGING_SOCKET_PING_INTERVAL_SECONDS: "2"
+      MESSAGING_SOCKET_PING_TIMEOUT_SECONDS: "2"
     ports: !override
       - "${BDD_MESSAGING_PORT:-8012}:8000"
 

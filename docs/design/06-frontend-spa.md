@@ -113,6 +113,13 @@ and do not exist yet.
    on a timer**, not reactive on a 401: waiting for a failure means every call site needs
    retry logic, whereas renewing early means they only ever see a valid token. Rotation makes
    a failed renewal non-retryable, so it signs the user out rather than looping.
+
+   Rotation also means two requests carrying the same cookie look like theft, and the server
+   revokes the session. So **within one tab, spending the cookie is single-flight**: callers
+   that ask for a renewal while one is in flight share it, and a workspace switch waits for
+   any renewal in flight to settle (a renewal that starts during a switch shares the switch).
+   **Cross-tab coordination is not handled yet** — two tabs of the same session hold the same
+   rotating cookie, and a renewal in each at once still spends it twice.
 6. Socket.IO connections pass the access token in the handshake `auth` payload (per Conventions
    §6) and re-acquire it on reconnect.
 

@@ -126,11 +126,20 @@ export const messaging = {
   patch: stub('patch', 200),
   delete: stub('delete', 200),
 
-  /** A 204 with no body, for the routes that declare no success content. */
-  noContent(method: Method, path: keyof paths): void {
+  /**
+   * A 204 with no body, for the routes that declare no success content.
+   * `onRequest` sees the path parameters, so a stub can change what a later
+   * read returns — a removal the next list no longer includes.
+   */
+  noContent(
+    method: Method,
+    path: keyof paths,
+    onRequest?: (params: Record<string, string>) => void,
+  ): void {
     server.use(
-      http[method](route(MESSAGING_URL, path), async ({ request }) => {
+      http[method](route(MESSAGING_URL, path), async ({ request, params: raw }) => {
         await record(request)
+        onRequest?.(params(raw))
         return new HttpResponse(null, { status: 204 })
       }),
     )
