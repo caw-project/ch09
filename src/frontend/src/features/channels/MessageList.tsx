@@ -63,7 +63,10 @@ export function MessageList({ accessToken, workspaceId, channelId, userId, myRol
     const element = scroller.current
     if (!element) return
 
-    wasAtBottom.current = element.scrollHeight - element.scrollTop < STICK_THRESHOLD
+    // The gap below the viewport, not the gap below the top edge: at the very
+    // bottom `scrollTop` stops a whole `clientHeight` short of `scrollHeight`.
+    const fromBottom = element.scrollHeight - element.scrollTop - element.clientHeight
+    wasAtBottom.current = fromBottom < STICK_THRESHOLD
 
     if (element.scrollTop < LOAD_THRESHOLD && hasNextPage && !isFetchingNextPage) {
       // Remember where the content started so the prepend can be undone.

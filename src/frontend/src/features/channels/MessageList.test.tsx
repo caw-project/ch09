@@ -1,10 +1,12 @@
-import { fireEvent, screen } from '@testing-library/react'
+import { act, fireEvent, screen } from '@testing-library/react'
+import type { QueryClient } from '@tanstack/react-query'
 import { describe, expect, it } from 'vitest'
 
 import { auth, messaging, requests } from '../../test/api'
 import { aMessage, aMessagePage, aWorkspaceMember, WORKSPACE_ID } from '../../test/factories'
 import { renderWithProviders } from '../../test/render'
 import { MessageList } from './MessageList'
+import { messageKeys, upsertMessage } from './useMessages'
 
 const CHANNEL = 'channel-general'
 const ADA = 'user-ada'
@@ -39,6 +41,40 @@ const shownBodies = () =>
   screen.getAllByRole('article').map((article) => article.querySelector('p')?.textContent)
 
 const historyRequests = () => requests().filter((r) => r.url.pathname.endsWith('/messages'))
+
+const scrollerElement = () => screen.getAllByRole('article')[0].parentElement as HTMLElement
+
+type Layout = Record<'clientHeight' | 'scrollHeight' | 'scrollTop', number>
+
+/**
+ * jsdom does no layout, so every scroll dimension reads 0 and the scroller
+ * looks pinned to the top of nothing. Give the element the geometry a browser
+ * would: a viewport inside a taller content box, with a `scrollTop` that
+ * remembers what the component writes to it.
+ */
+function giveLayout(element: HTMLElement, { clientHeight, scrollHeight, scrollTop }: Layout) {
+  let top = scrollTop
+  Object.defineProperty(element, 'clientHeight', { configurable: true, get: () => clientHeight })
+  Object.defineProperty(element, 'scrollHeight', { configurable: true, get: () => scrollHeight })
+  Object.defineProperty(element, 'scrollTop', {
+    configurable: true,
+    get: () => top,
+    set: (value: number) => {
+      top = value
+    },
+  })
+}
+
+/** What a `message_received` event does to the cache, without the socket. */
+function messageArrives(queryClient: QueryClient, body: string) {
+  act(() =>
+    upsertMessage(
+      queryClient,
+      messageKeys.list(WORKSPACE_ID, CHANNEL),
+      aMessage({ channelId: CHANNEL, authorId: ADA, body }),
+    ),
+  )
+}
 
 describe('MessageList', () => {
   it('shows the newest page oldest-first, as a conversation reads', async () => {
@@ -82,6 +118,38 @@ describe('MessageList', () => {
     fireEvent.scroll(scroller)
 
     expect(historyRequests()).toHaveLength(2)
+  })
+
+  it('scrolls a new message into view for a reader watching the live end', async () => {
+    stubHistory()
+    const { queryClient } = renderList()
+    await screen.findByText('the latest message')
+
+    const scroller = scrollerElement()
+    // Sat at the bottom: 1000 of content, a 500 viewport, scrolled fully down.
+    giveLayout(scroller, { clientHeight: 500, scrollHeight: 1000, scrollTop: 500 })
+    fireEvent.scroll(scroller)
+
+    messageArrives(queryClient, 'a message that just arrived')
+
+    await screen.findByText('a message that just arrived')
+    expect(scroller.scrollTop).toBe(scroller.scrollHeight)
+  })
+
+  it('leaves a reader who has scrolled back where they are', async () => {
+    stubHistory()
+    const { queryClient } = renderList()
+    await screen.findByText('the latest message')
+
+    const scroller = scrollerElement()
+    // Scrolled up: 400px of history still below the viewport.
+    giveLayout(scroller, { clientHeight: 500, scrollHeight: 1200, scrollTop: 300 })
+    fireEvent.scroll(scroller)
+
+    messageArrives(queryClient, 'a message that just arrived')
+
+    await screen.findByText('a message that just arrived')
+    expect(scroller.scrollTop).toBe(300)
   })
 
   it('invites the first message in an empty channel', async () => {
