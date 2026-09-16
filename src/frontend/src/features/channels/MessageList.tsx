@@ -63,8 +63,7 @@ export function MessageList({ accessToken, workspaceId, channelId, userId, myRol
     const element = scroller.current
     if (!element) return
 
-    wasAtBottom.current =
-      element.scrollHeight - element.scrollTop - element.clientHeight < STICK_THRESHOLD
+    wasAtBottom.current = element.scrollHeight - element.scrollTop < STICK_THRESHOLD
 
     if (element.scrollTop < LOAD_THRESHOLD && hasNextPage && !isFetchingNextPage) {
       // Remember where the content started so the prepend can be undone.
