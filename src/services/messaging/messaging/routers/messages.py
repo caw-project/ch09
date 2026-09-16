@@ -37,12 +37,14 @@ from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from messaging import channels, indexing, messages, realtime
+from messaging import reactions as reactions_domain
 from messaging.db import session as db_session
 from messaging.models import Message
 from messaging.schemas import (
     EditMessageRequest,
     MessageListResponse,
     MessageResponse,
+    ReactionSummary,
     SendMessageRequest,
 )
 from messaging.settings import Settings
@@ -79,19 +81,53 @@ def _body_problem(exc: Exception, *, max_chars: int) -> ProblemException:
     return ProblemException.validation_error(message, errors={"body": [message]})
 
 
-def _as_message(row: Message) -> MessageResponse:
+def _as_message(row: Message, *, reactions: list[reactions_domain.Summary]) -> MessageResponse:
     """The DTO, with a deleted row's body redacted here rather than in the query.
 
     Server-side, and `""` rather than `null`: the DTO types `body` as a non-null
     string, so a null would force a check at every render site in the SPA. The
     client renders the tombstone from `deletedAt`.
 
-    Nothing in this slice can set `deleted_at` — the delete arrives next — but
-    the read path ships complete, so that slice adds writes and changes no
-    reads.
+    **Built field by field rather than validated from the row.** `reactions` is
+    neither a column nor a relationship — it is an aggregate the caller has
+    already run for a whole page, and making it a relationship would turn it
+    into a query per message. So there is nothing on the row for
+    `model_validate` to read.
+
+    **`reactions` is required and keyword-only.** Every caller has to say what
+    this message's reactions are, including the ones that say `[]`, because a
+    default would make a forgotten aggregate look exactly like a message nobody
+    reacted to.
     """
-    response = MessageResponse.model_validate(row, from_attributes=True)
-    return response.model_copy(update={"body": ""}) if row.deleted_at else response
+    return MessageResponse(
+        id=row.id,
+        channel_id=row.channel_id,
+        author_id=row.author_id,
+        thread_root_id=row.thread_root_id,
+        body="" if row.deleted_at else row.body,
+        attachments=row.attachments,
+        reactions=[
+            ReactionSummary(emoji=s.emoji, count=s.count, reacted=s.reacted) for s in reactions
+        ],
+        created_at=row.created_at,
+        edited_at=row.edited_at,
+        deleted_at=row.deleted_at,
+        version=row.version,
+    )
+
+
+async def _one_with_reactions(
+    session: AsyncSession, principal: UserPrincipal, row: Message
+) -> MessageResponse:
+    """One message's DTO, with its own reactions loaded.
+
+    The single-message counterpart to the page-wide aggregate in
+    `list_messages`: same query, one id.
+    """
+    found = await reactions_domain.summaries_for(
+        session, message_ids=[row.id], user_id=principal.user_id
+    )
+    return _as_message(row, reactions=found.get(row.id, []))
 
 
 async def _visible_channel(
@@ -139,8 +175,13 @@ async def list_messages(
     await _visible_channel(session, principal, channel_id)
 
     found = await messages.history_page(session, channel_id=channel_id, page=page)
+    # One grouped query for the whole page, never one per message.
+    summaries = await reactions_domain.summaries_for(
+        session, message_ids=[m.id for m in found.items], user_id=principal.user_id
+    )
     return MessageListResponse(
-        items=[_as_message(m) for m in found.items], next_cursor=found.next_cursor
+        items=[_as_message(m, reactions=summaries.get(m.id, [])) for m in found.items],
+        next_cursor=found.next_cursor,
     )
 
 
@@ -177,7 +218,8 @@ async def send_message(
     except tuple(_BODY_PROBLEMS) as exc:
         raise _body_problem(exc, max_chars=max_chars) from exc
 
-    response = _as_message(created)
+    # A message nobody has seen yet has no reactions, so this one needs no query.
+    response = _as_message(created, reactions=[])
     await session.commit()
     await realtime.publish_message_received(sio, response)
     await indexing.enqueue_upsert(jobs, response, workspace_id=principal.workspace_id)
@@ -191,7 +233,8 @@ async def get_message(
     session: AsyncSession = Depends(db_session),
 ) -> MessageResponse:
     """One message, if the caller can see the channel it is in."""
-    return _as_message(await _visible_message(session, principal, message_id))
+    row = await _visible_message(session, principal, message_id)
+    return await _one_with_reactions(session, principal, row)
 
 
 @router.patch("/{message_id}", response_model=MessageResponse)
@@ -247,7 +290,8 @@ async def edit_message(
     if edited is None:
         raise ProblemException.not_found("No such channel.")
 
-    response = _as_message(edited)
+    # An edit changes the text and nothing else — the reactions stay.
+    response = await _one_with_reactions(session, principal, edited)
     await session.commit()
     await realtime.publish_message_edited(sio, response)
     await indexing.enqueue_upsert(jobs, response, workspace_id=principal.workspace_id)
@@ -290,7 +334,13 @@ async def delete_message(
     if result is None:
         raise ProblemException.not_found("No such channel.")
 
-    response = _as_message(result.message)
+    if result.deleted_now:
+        # No orphan counts, and a tombstone carries none. In the same
+        # transaction as the tombstone, so there is no window in which the
+        # message is deleted and its reactions are still being counted.
+        await reactions_domain.clear_for_message(session, message_id=message_id)
+
+    response = _as_message(result.message, reactions=[])
     await session.commit()
     # The redacted DTO, not an id: the row stays in the history and every
     # recipient has to render the tombstone.

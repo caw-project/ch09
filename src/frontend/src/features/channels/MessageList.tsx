@@ -21,7 +21,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import { ProblemBanner } from '../../components/ProblemBanner'
 import type { Message } from '../../lib/api/messaging'
 import { MessageItem } from './MessageItem'
-import { useDeleteMessage, useEditMessage, useMessages } from './useMessages'
+import { useDeleteMessage, useEditMessage, useMessages, useToggleReaction } from './useMessages'
 import { useWorkspaceMembers } from './useWorkspaceMembers'
 
 interface Props {
@@ -56,6 +56,7 @@ export function MessageList({ accessToken, workspaceId, channelId, userId, myRol
   // each `MessageItem` would mean a mutation object per rendered message.
   const edit = useEditMessage(accessToken, workspaceId, channelId)
   const remove = useDeleteMessage(accessToken, workspaceId, channelId)
+  const toggleReaction = useToggleReaction(accessToken, workspaceId, channelId, userId)
 
   const messages: Message[] = data ?? []
 
@@ -146,6 +147,7 @@ export function MessageList({ accessToken, workspaceId, channelId, userId, myRol
             editPending={edit.isPending && edit.variables?.messageId === message.id}
             onEdit={(body, version) => edit.mutate({ messageId: message.id, body, version })}
             onDelete={() => remove.mutate(message.id)}
+            onToggleReaction={(emoji) => toggleReaction.mutate({ message, emoji })}
           />
         ))
       )}

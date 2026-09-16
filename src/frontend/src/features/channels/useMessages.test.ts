@@ -4,10 +4,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ProblemError } from '../../lib/api/client'
 import type { Message, MessagePage } from '../../lib/api/messaging'
+import { messaging, requests } from '../../test/api'
 import { aMessage, aMessagePage } from '../../test/factories'
 import { createTestQueryClient, renderHookWithProviders } from '../../test/render'
 import { asSocket, FakeSocket } from '../../test/socket'
-import { isPending, messageKeys, removeMessage, upsertMessage, useSendMessage } from './useMessages'
+import {
+  applyReaction,
+  isPending,
+  messageKeys,
+  removeMessage,
+  upsertMessage,
+  useSendMessage,
+  useToggleReaction,
+  type ReactionEvent,
+} from './useMessages'
 
 const WORKSPACE = 'workspace-1'
 const CHANNEL = 'channel-1'
@@ -207,5 +217,170 @@ describe('useSendMessage', () => {
       expect(result.current.error?.message).toBe('Not connected. Try again in a moment.'),
     )
     expect(itemsIn(queryClient)).toEqual([])
+  })
+})
+
+describe('applyReaction', () => {
+  const MESSAGE = 'message-1'
+
+  function event(overrides: Partial<ReactionEvent> = {}): ReactionEvent {
+    return {
+      messageId: MESSAGE,
+      channelId: CHANNEL,
+      emoji: 'tada',
+      count: 1,
+      userId: 'someone-else',
+      reacted: true,
+      ...overrides,
+    }
+  }
+
+  it('sets the count on the message the event names', () => {
+    const queryClient = seeded(aMessagePage([aMessage({ id: MESSAGE })]))
+
+    applyReaction(queryClient, key, event({ count: 3 }), ADA)
+
+    expect(itemsIn(queryClient)[0].reactions).toEqual([{ emoji: 'tada', count: 3, reacted: false }])
+  })
+
+  it('is idempotent, because the count is authoritative and not a delta', () => {
+    // The person who clicked applies their own change three times: optimistically,
+    // from the REST response, and from their own echo of the broadcast.
+    const queryClient = seeded(aMessagePage([aMessage({ id: MESSAGE })]))
+
+    applyReaction(queryClient, key, event({ count: 2 }), ADA)
+    applyReaction(queryClient, key, event({ count: 2 }), ADA)
+    applyReaction(queryClient, key, event({ count: 2 }), ADA)
+
+    expect(itemsIn(queryClient)[0].reactions).toEqual([{ emoji: 'tada', count: 2, reacted: false }])
+  })
+
+  it('lights the chip only for the person who reacted', () => {
+    const queryClient = seeded(aMessagePage([aMessage({ id: MESSAGE })]))
+
+    applyReaction(queryClient, key, event({ userId: ADA, reacted: true }), ADA)
+
+    expect(itemsIn(queryClient)[0].reactions[0].reacted).toBe(true)
+  })
+
+  it('leaves my own lit state alone when somebody else reacts', () => {
+    const message = aMessage({
+      id: MESSAGE,
+      reactions: [{ emoji: 'tada', count: 1, reacted: true }],
+    })
+    const queryClient = seeded(aMessagePage([message]))
+
+    applyReaction(queryClient, key, event({ count: 2, userId: 'grace', reacted: true }), ADA)
+
+    expect(itemsIn(queryClient)[0].reactions).toEqual([{ emoji: 'tada', count: 2, reacted: true }])
+  })
+
+  it('drops the chip when the last reaction goes', () => {
+    const message = aMessage({
+      id: MESSAGE,
+      reactions: [{ emoji: 'tada', count: 1, reacted: true }],
+    })
+    const queryClient = seeded(aMessagePage([message]))
+
+    applyReaction(queryClient, key, event({ count: 0, userId: ADA, reacted: false }), ADA)
+
+    expect(itemsIn(queryClient)[0].reactions).toEqual([])
+  })
+
+  it('keeps chips in allowlist order however they arrive', () => {
+    const message = aMessage({
+      id: MESSAGE,
+      reactions: [{ emoji: 'heart', count: 1, reacted: false }],
+    })
+    const queryClient = seeded(aMessagePage([message]))
+
+    applyReaction(queryClient, key, event({ emoji: 'check', count: 1 }), ADA)
+    applyReaction(queryClient, key, event({ emoji: 'thumbsup', count: 1 }), ADA)
+
+    expect(itemsIn(queryClient)[0].reactions.map((r) => r.emoji)).toEqual([
+      'thumbsup',
+      'heart',
+      'check',
+    ])
+  })
+
+  it('touches no other message', () => {
+    const other = aMessage()
+    const queryClient = seeded(aMessagePage([aMessage({ id: MESSAGE }), other]))
+
+    applyReaction(queryClient, key, event(), ADA)
+
+    expect(itemsIn(queryClient)[1]).toEqual(other)
+  })
+
+  it('invents no history for a channel nothing has loaded', () => {
+    const queryClient = createTestQueryClient()
+
+    applyReaction(queryClient, key, event(), ADA)
+
+    expect(queryClient.getQueryData(key)).toBeUndefined()
+  })
+})
+
+describe('useToggleReaction', () => {
+  const MESSAGE = '0199a000-0000-7000-8000-00000000000a'
+
+  function renderToggle(queryClient: QueryClient) {
+    return renderHookWithProviders(() => useToggleReaction('token', WORKSPACE, CHANNEL, ADA), {
+      queryClient,
+    })
+  }
+
+  it('lights the chip before the server answers', async () => {
+    const message = aMessage({ id: MESSAGE, channelId: CHANNEL })
+    const queryClient = seeded(aMessagePage([message]))
+    messaging.post('/api/v1/messages/{message_id}/reactions', () => ({
+      ...message,
+      reactions: [{ emoji: 'tada', count: 1, reacted: true }],
+    }))
+    const { result } = renderToggle(queryClient)
+
+    act(() => result.current.mutate({ message, emoji: 'tada' }))
+
+    // Before any response has come back, the optimistic write is already there.
+    expect(itemsIn(queryClient)[0].reactions).toEqual([{ emoji: 'tada', count: 1, reacted: true }])
+
+    await vi.waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(itemsIn(queryClient)[0].reactions).toEqual([{ emoji: 'tada', count: 1, reacted: true }])
+  })
+
+  it('removes when the chip is already lit', async () => {
+    const message = aMessage({
+      id: MESSAGE,
+      channelId: CHANNEL,
+      reactions: [{ emoji: 'tada', count: 1, reacted: true }],
+    })
+    const queryClient = seeded(aMessagePage([message]))
+    messaging.delete('/api/v1/messages/{message_id}/reactions/{emoji}', () => ({
+      ...message,
+      reactions: [],
+    }))
+    const { result } = renderToggle(queryClient)
+
+    act(() => result.current.mutate({ message, emoji: 'tada' }))
+
+    await vi.waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(itemsIn(queryClient)[0].reactions).toEqual([])
+    expect(requests().at(-1)?.method).toBe('DELETE')
+  })
+
+  it('puts the chip back when the server refuses', async () => {
+    const message = aMessage({ id: MESSAGE, channelId: CHANNEL })
+    const queryClient = seeded(aMessagePage([message]))
+    messaging.problem('post', '/api/v1/messages/{message_id}/reactions', 409, {
+      title: 'Conflict',
+      detail: 'This message was deleted.',
+    })
+    const { result } = renderToggle(queryClient)
+
+    act(() => result.current.mutate({ message, emoji: 'tada' }))
+
+    await vi.waitFor(() => expect(result.current.isError).toBe(true))
+    expect(itemsIn(queryClient)[0].reactions).toEqual([])
   })
 })

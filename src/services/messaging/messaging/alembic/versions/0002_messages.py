@@ -21,8 +21,9 @@ recorded in that doc:
   `archived_at`.
 * **`ix_messages_thread` is not created.** Nothing queries `thread_root_id` in
   this scope. An index supporting a query no code makes is dead weight, and
-  adding it with the threading feature is one line and no table rewrite. Same
-  reasoning that leaves `reactions` uncreated.
+  adding it with the threading feature is one line and no table rewrite — the
+  same reasoning that kept `message_reactions` out of this revision until `0004`
+  built the feature that needed it.
 
 Revision ID: 0002
 """

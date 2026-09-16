@@ -154,16 +154,48 @@ class ChannelMemberListResponse(CamelModel):
     next_cursor: str | None = None
 
 
+class ReactionSummary(CamelModel):
+    """One emoji on a message: how many people, and whether you are one of them.
+
+    **Counts, never user ids.** A "who reacted" list is a second feature with a
+    privacy question of its own, and shipping the ids to every client now would
+    decide it silently.
+
+    `reacted` is computed for the caller on every request, which is also why it
+    can never be broadcast: a room emit delivers one payload to everyone, so
+    every recipient would receive whoever acted last. `reaction_changed` carries
+    the actor's id instead, and each client decides its own lit state.
+    """
+
+    emoji: str
+    count: int
+    reacted: bool
+
+
+class ReactionRequest(CamelRequest):
+    """React with one emoji.
+
+    The shortcode only — the message is in the path and the person is the
+    token's `sub`. Validated against the server's allowlist in the domain rather
+    than by a Pydantic `Literal`, so a rejected value gets a message under
+    `errors.emoji` like every other broken rule instead of an opaque enum error
+    from the wrong layer. `max_length` is the column width, an outer bound and
+    not the rule.
+    """
+
+    emoji: str = Field(max_length=32)
+
+
 class MessageResponse(CamelModel):
     """A message as the API reports it (spec §3.1.3).
 
-    Two absences and one presence are all deliberate.
+    One absence and two presences are all deliberate.
 
-    No `reactions`. The design doc has the key; the table does not exist and no
-    query makes it, and a field that is always `[]` is a claim the service does
-    not honour. `attachments` looks like the same case and is not — it is a real
-    column read off a real row that happens to be empty, because the Asset
-    service is a skeleton rather than because nothing was built.
+    `reactions` is a summary — one entry per emoji anyone used, with the count
+    and whether the caller is one of them — and it is `[]` rather than absent
+    when nobody has reacted. `attachments` is a real column read off a real row
+    that happens to be empty, because the Asset service is a skeleton rather
+    than because nothing was built.
 
     No `workspaceId`, for the reason `ChannelResponse` gives: it is the token's
     `wsp` claim, and echoing it invites a client to start sending it.
@@ -186,6 +218,7 @@ class MessageResponse(CamelModel):
     thread_root_id: uuid.UUID | None
     body: str
     attachments: list[uuid.UUID]
+    reactions: list[ReactionSummary]
     created_at: datetime
     edited_at: datetime | None
     deleted_at: datetime | None

@@ -245,6 +245,55 @@ export interface paths {
         patch: operations["edit_message_api_v1_messages__message_id__patch"];
         trace?: never;
     };
+    "/api/v1/messages/{message_id}/reactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Reaction
+         * @description React to a message. Reacting again with the same emoji changes nothing.
+         *
+         *     **200 rather than 201.** The useful answer is the message's new counts, and
+         *     a repeat is not a creation — there is no new resource to point at either
+         *     time, because a reaction is not addressable on its own.
+         */
+        post: operations["add_reaction_api_v1_messages__message_id__reactions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/messages/{message_id}/reactions/{emoji}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove Reaction
+         * @description Take a reaction back.
+         *
+         *     **No tombstone check, unlike the add.** Deleting a message clears its
+         *     reactions, so there is never anything on one to remove — and a second tab
+         *     that has already removed it must not be told the message is in the wrong
+         *     state for what is a no-op.
+         */
+        delete: operations["remove_reaction_api_v1_messages__message_id__reactions__emoji__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/search/messages": {
         parameters: {
             query?: never;
@@ -501,13 +550,13 @@ export interface components {
          * MessageResponse
          * @description A message as the API reports it (spec §3.1.3).
          *
-         *     Two absences and one presence are all deliberate.
+         *     One absence and two presences are all deliberate.
          *
-         *     No `reactions`. The design doc has the key; the table does not exist and no
-         *     query makes it, and a field that is always `[]` is a claim the service does
-         *     not honour. `attachments` looks like the same case and is not — it is a real
-         *     column read off a real row that happens to be empty, because the Asset
-         *     service is a skeleton rather than because nothing was built.
+         *     `reactions` is a summary — one entry per emoji anyone used, with the count
+         *     and whether the caller is one of them — and it is `[]` rather than absent
+         *     when nobody has reacted. `attachments` is a real column read off a real row
+         *     that happens to be empty, because the Asset service is a skeleton rather
+         *     than because nothing was built.
          *
          *     No `workspaceId`, for the reason `ChannelResponse` gives: it is the token's
          *     `wsp` claim, and echoing it invites a client to start sending it.
@@ -552,10 +601,48 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Reactions */
+            reactions: components["schemas"]["ReactionSummary"][];
             /** Threadrootid */
             threadRootId: string | null;
             /** Version */
             version: number;
+        };
+        /**
+         * ReactionRequest
+         * @description React with one emoji.
+         *
+         *     The shortcode only — the message is in the path and the person is the
+         *     token's `sub`. Validated against the server's allowlist in the domain rather
+         *     than by a Pydantic `Literal`, so a rejected value gets a message under
+         *     `errors.emoji` like every other broken rule instead of an opaque enum error
+         *     from the wrong layer. `max_length` is the column width, an outer bound and
+         *     not the rule.
+         */
+        ReactionRequest: {
+            /** Emoji */
+            emoji: string;
+        };
+        /**
+         * ReactionSummary
+         * @description One emoji on a message: how many people, and whether you are one of them.
+         *
+         *     **Counts, never user ids.** A "who reacted" list is a second feature with a
+         *     privacy question of its own, and shipping the ids to every client now would
+         *     decide it silently.
+         *
+         *     `reacted` is computed for the caller on every request, which is also why it
+         *     can never be broadcast: a room emit delivers one payload to everyone, so
+         *     every recipient would receive whoever acted last. `reaction_changed` carries
+         *     the actor's id instead, and each client decides its own lit state.
+         */
+        ReactionSummary: {
+            /** Count */
+            count: number;
+            /** Emoji */
+            emoji: string;
+            /** Reacted */
+            reacted: boolean;
         };
         /**
          * SendMessageRequest
@@ -1058,6 +1145,73 @@ export interface operations {
                 "application/json": components["schemas"]["EditMessageRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_reaction_api_v1_messages__message_id__reactions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReactionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_reaction_api_v1_messages__message_id__reactions__emoji__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: string;
+                emoji: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

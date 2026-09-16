@@ -7,12 +7,14 @@ import { useChatStore } from '../../stores/chat'
 import { aMessage, aMessagePage } from '../../test/factories'
 import { createTestQueryClient, renderHookWithProviders } from '../../test/render'
 import { latestSocket, type FakeSocket } from '../../test/socket'
-import type { MessagePage } from '../api/messaging'
+import type { Message, MessagePage } from '../api/messaging'
 import { useChannelSocket } from './useChannelSocket'
 
 const WORKSPACE = 'workspace-1'
 const CHANNEL = 'channel-1'
 const OTHER = 'channel-2'
+/** The signed-in user, so a reaction event knows whose lit state it changes. */
+const ADA = 'user-ada'
 
 interface JoinAck {
   ok: boolean
@@ -98,7 +100,7 @@ describe('useChannelSocket', () => {
       pageParams: [undefined],
     })
 
-    renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL), { queryClient })
+    renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL, ADA), { queryClient })
     const socket = latestSocket()
     const message = aMessage({ channelId: CHANNEL, body: 'hello from grace' })
 
@@ -113,7 +115,7 @@ describe('useChannelSocket', () => {
 
   describe('joining the open channel', () => {
     it('counts the channel as joined only once the server acknowledges the join', async () => {
-      renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL))
+      renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL, ADA))
       const socket = latestSocket()
       const joins = holdJoins(socket)
 
@@ -130,7 +132,7 @@ describe('useChannelSocket', () => {
     it('refetches the history on connect only after the join is acknowledged', async () => {
       const queryClient = createTestQueryClient()
       seedHistory(queryClient, CHANNEL)
-      renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL), { queryClient })
+      renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL, ADA), { queryClient })
       const socket = latestSocket()
       const joins = holdJoins(socket)
 
@@ -147,7 +149,7 @@ describe('useChannelSocket', () => {
     it('counts a channel opened on a live connection as joined once acknowledged', async () => {
       let channel: string | null = null
       const { rerender } = renderHookWithProviders(() =>
-        useChannelSocket('token', WORKSPACE, channel),
+        useChannelSocket('token', WORKSPACE, channel, ADA),
       )
       const socket = latestSocket()
       const joins = holdJoins(socket)
@@ -169,7 +171,7 @@ describe('useChannelSocket', () => {
       seedHistory(queryClient, OTHER)
       let channel: string | null = null
       const { rerender } = renderHookWithProviders(
-        () => useChannelSocket('token', WORKSPACE, channel),
+        () => useChannelSocket('token', WORKSPACE, channel, ADA),
         { queryClient },
       )
       const socket = latestSocket()
@@ -188,7 +190,7 @@ describe('useChannelSocket', () => {
     })
 
     it('does not count a refused join as joined', async () => {
-      renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL))
+      renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL, ADA))
       const socket = latestSocket()
       const joins = holdJoins(socket)
 
@@ -201,7 +203,7 @@ describe('useChannelSocket', () => {
     it('keeps a message that arrives while the channel’s history first loads', async () => {
       const queryClient = createTestQueryClient()
       const history = holdHistoryFetch(queryClient, CHANNEL)
-      renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL), { queryClient })
+      renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL, ADA), { queryClient })
       const socket = latestSocket()
       act(() => socket.serverConnect())
       const message = aMessage({ channelId: CHANNEL, body: 'the coffee has arrived' })
@@ -216,7 +218,7 @@ describe('useChannelSocket', () => {
       const queryClient = createTestQueryClient()
       seedHistory(queryClient, CHANNEL)
       const history = holdHistoryFetch(queryClient, CHANNEL)
-      renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL), { queryClient })
+      renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL, ADA), { queryClient })
       const socket = latestSocket()
       act(() => socket.serverConnect())
       const message = aMessage({ channelId: CHANNEL, body: 'the coffee has arrived' })
@@ -235,7 +237,7 @@ describe('useChannelSocket', () => {
         pageParams: [undefined],
       })
       const history = holdHistoryFetch(queryClient, CHANNEL)
-      renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL), { queryClient })
+      renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL, ADA), { queryClient })
       const socket = latestSocket()
       act(() => socket.serverConnect())
       const edited = { ...original, body: 'standup at five', version: original.version + 1 }
@@ -247,7 +249,7 @@ describe('useChannelSocket', () => {
     })
 
     it('forgets the joined channel when the connection drops', async () => {
-      renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL))
+      renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL, ADA))
       const socket = latestSocket()
       const joins = holdJoins(socket)
       act(() => socket.serverConnect())
@@ -256,6 +258,72 @@ describe('useChannelSocket', () => {
       act(() => socket.serverDisconnect())
 
       expect(joinedChannel()).toBeNull()
+    })
+  })
+
+  describe('reactions', () => {
+    function seedOne(queryClient: ReturnType<typeof createTestQueryClient>, message: Message) {
+      queryClient.setQueryData<InfiniteData<MessagePage>>(messageKeys.list(WORKSPACE, CHANNEL), {
+        pages: [aMessagePage([message])],
+        pageParams: [undefined],
+      })
+    }
+
+    it('applies a reaction event to the cached message', () => {
+      const queryClient = createTestQueryClient()
+      const message = aMessage({ channelId: CHANNEL })
+      seedOne(queryClient, message)
+
+      renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL, ADA), {
+        queryClient,
+      })
+      const socket = latestSocket()
+
+      act(() => socket.serverConnect())
+      act(() =>
+        socket.serverEmit('reaction_changed', {
+          messageId: message.id,
+          channelId: CHANNEL,
+          emoji: 'tada',
+          count: 2,
+          userId: 'grace',
+          reacted: true,
+        }),
+      )
+
+      // Grace's `reacted`, not mine — the count is everyone's, the lit state is one person's.
+      expect(historyItems(queryClient, CHANNEL)?.[0].reactions).toEqual([
+        { emoji: 'tada', count: 2, reacted: false },
+      ])
+    })
+
+    it('keeps a reaction that arrives while the history is being refetched', async () => {
+      const queryClient = createTestQueryClient()
+      const message = aMessage({ channelId: CHANNEL })
+      seedOne(queryClient, message)
+      const history = holdHistoryFetch(queryClient, CHANNEL)
+      renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL, ADA), {
+        queryClient,
+      })
+      const socket = latestSocket()
+      act(() => socket.serverConnect())
+
+      act(() =>
+        socket.serverEmit('reaction_changed', {
+          messageId: message.id,
+          channelId: CHANNEL,
+          emoji: 'tada',
+          count: 1,
+          userId: 'grace',
+          reacted: true,
+        }),
+      )
+      // That fetch read the channel before the reaction existed.
+      await history.answer(aMessagePage([message]))
+
+      expect(historyItems(queryClient, CHANNEL)?.[0].reactions).toEqual([
+        { emoji: 'tada', count: 1, reacted: false },
+      ])
     })
   })
 })

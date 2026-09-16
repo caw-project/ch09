@@ -48,7 +48,7 @@ from typing import Any
 import socketio
 from pydantic import Field, ValidationError
 
-from messaging import channels, indexing, messages, read_state, realtime
+from messaging import channels, indexing, messages, reactions, read_state, realtime
 from messaging.realtime import NAMESPACE, RealtimeContext, _acked, _ok
 from messaging.routers.messages import _as_message
 from messaging.schemas import MAX_BODY_FIELD_LENGTH, CamelRequest
@@ -197,7 +197,8 @@ def register_write_handlers(  # noqa: C901 — a registry of handlers; mccabe co
                     "characters or fewer."
                 ) from exc
 
-            response = _as_message(created)
+            # A message nobody has seen yet has no reactions, so no query.
+            response = _as_message(created, reactions=[])
             await session.commit()
 
         # Commit, then publish. A broadcast for a row whose transaction failed
@@ -243,7 +244,13 @@ def register_write_handlers(  # noqa: C901 — a registry of handlers; mccabe co
             if edited is None:
                 raise ProblemException.not_found("No such channel.")
 
-            response = _as_message(edited)
+            # An edit changes the text and nothing else — the reactions stay.
+            summaries = (
+                await reactions.summaries_for(
+                    session, message_ids=[edited.id], user_id=principal.user_id
+                )
+            ).get(edited.id, [])
+            response = _as_message(edited, reactions=summaries)
             await session.commit()
 
         await realtime.publish_message_edited(sio, response)
@@ -273,7 +280,11 @@ def register_write_handlers(  # noqa: C901 — a registry of handlers; mccabe co
             if result is None:
                 raise ProblemException.not_found("No such channel.")
 
-            response = _as_message(result.message)
+            if result.deleted_now:
+                # The REST delete clears them too: one rule, both transports.
+                await reactions.clear_for_message(session, message_id=event.message_id)
+
+            response = _as_message(result.message, reactions=[])
             await session.commit()
 
         await realtime.publish_message_deleted(sio, response)

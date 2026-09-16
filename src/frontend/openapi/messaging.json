@@ -317,7 +317,7 @@
         "type": "object"
       },
       "MessageResponse": {
-        "description": "A message as the API reports it (spec \u00a73.1.3).\n\nTwo absences and one presence are all deliberate.\n\nNo `reactions`. The design doc has the key; the table does not exist and no\nquery makes it, and a field that is always `[]` is a claim the service does\nnot honour. `attachments` looks like the same case and is not \u2014 it is a real\ncolumn read off a real row that happens to be empty, because the Asset\nservice is a skeleton rather than because nothing was built.\n\nNo `workspaceId`, for the reason `ChannelResponse` gives: it is the token's\n`wsp` claim, and echoing it invites a client to start sending it.\n\n`authorId` is a bare id and there is no user expansion. Messaging owns no\nuser records and must not read Auth's tables (Conventions \u00a72); the browser\nresolves the name from Auth's own workspace directory, holding a token that\nalready entitles it to both.\n\n**`body` is `\"\"` on a deleted message, never `null` and never the original\ntext.** The redaction is server-side and the type stays non-null, so the\ngenerated TypeScript does not force a null check at every render site. The\nclient renders \"this message was deleted\" from `deletedAt`, not from an\nempty body.",
+        "description": "A message as the API reports it (spec \u00a73.1.3).\n\nOne absence and two presences are all deliberate.\n\n`reactions` is a summary \u2014 one entry per emoji anyone used, with the count\nand whether the caller is one of them \u2014 and it is `[]` rather than absent\nwhen nobody has reacted. `attachments` is a real column read off a real row\nthat happens to be empty, because the Asset service is a skeleton rather\nthan because nothing was built.\n\nNo `workspaceId`, for the reason `ChannelResponse` gives: it is the token's\n`wsp` claim, and echoing it invites a client to start sending it.\n\n`authorId` is a bare id and there is no user expansion. Messaging owns no\nuser records and must not read Auth's tables (Conventions \u00a72); the browser\nresolves the name from Auth's own workspace directory, holding a token that\nalready entitles it to both.\n\n**`body` is `\"\"` on a deleted message, never `null` and never the original\ntext.** The redaction is server-side and the type stays non-null, so the\ngenerated TypeScript does not force a null check at every render site. The\nclient renders \"this message was deleted\" from `deletedAt`, not from an\nempty body.",
         "properties": {
           "attachments": {
             "items": {
@@ -375,6 +375,13 @@
             "title": "Id",
             "type": "string"
           },
+          "reactions": {
+            "items": {
+              "$ref": "#/components/schemas/ReactionSummary"
+            },
+            "title": "Reactions",
+            "type": "array"
+          },
           "threadRootId": {
             "anyOf": [
               {
@@ -399,12 +406,52 @@
           "threadRootId",
           "body",
           "attachments",
+          "reactions",
           "createdAt",
           "editedAt",
           "deletedAt",
           "version"
         ],
         "title": "MessageResponse",
+        "type": "object"
+      },
+      "ReactionRequest": {
+        "description": "React with one emoji.\n\nThe shortcode only \u2014 the message is in the path and the person is the\ntoken's `sub`. Validated against the server's allowlist in the domain rather\nthan by a Pydantic `Literal`, so a rejected value gets a message under\n`errors.emoji` like every other broken rule instead of an opaque enum error\nfrom the wrong layer. `max_length` is the column width, an outer bound and\nnot the rule.",
+        "properties": {
+          "emoji": {
+            "maxLength": 32,
+            "title": "Emoji",
+            "type": "string"
+          }
+        },
+        "required": [
+          "emoji"
+        ],
+        "title": "ReactionRequest",
+        "type": "object"
+      },
+      "ReactionSummary": {
+        "description": "One emoji on a message: how many people, and whether you are one of them.\n\n**Counts, never user ids.** A \"who reacted\" list is a second feature with a\nprivacy question of its own, and shipping the ids to every client now would\ndecide it silently.\n\n`reacted` is computed for the caller on every request, which is also why it\ncan never be broadcast: a room emit delivers one payload to everyone, so\nevery recipient would receive whoever acted last. `reaction_changed` carries\nthe actor's id instead, and each client decides its own lit state.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "emoji": {
+            "title": "Emoji",
+            "type": "string"
+          },
+          "reacted": {
+            "title": "Reacted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "emoji",
+          "count",
+          "reacted"
+        ],
+        "title": "ReactionSummary",
         "type": "object"
       },
       "SendMessageRequest": {
@@ -1225,6 +1272,113 @@
         "summary": "Edit Message",
         "tags": [
           "messages"
+        ]
+      }
+    },
+    "/api/v1/messages/{message_id}/reactions": {
+      "post": {
+        "description": "React to a message. Reacting again with the same emoji changes nothing.\n\n**200 rather than 201.** The useful answer is the message's new counts, and\na repeat is not a creation \u2014 there is no new resource to point at either\ntime, because a reaction is not addressable on its own.",
+        "operationId": "add_reaction_api_v1_messages__message_id__reactions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReactionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Reaction",
+        "tags": [
+          "reactions"
+        ]
+      }
+    },
+    "/api/v1/messages/{message_id}/reactions/{emoji}": {
+      "delete": {
+        "description": "Take a reaction back.\n\n**No tombstone check, unlike the add.** Deleting a message clears its\nreactions, so there is never anything on one to remove \u2014 and a second tab\nthat has already removed it must not be told the message is in the wrong\nstate for what is a no-op.",
+        "operationId": "remove_reaction_api_v1_messages__message_id__reactions__emoji__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "emoji",
+            "required": true,
+            "schema": {
+              "title": "Emoji",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Reaction",
+        "tags": [
+          "reactions"
         ]
       }
     },

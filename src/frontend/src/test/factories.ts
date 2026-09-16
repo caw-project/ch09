@@ -44,6 +44,7 @@ export function aMessage(overrides: Partial<Message> = {}): Message {
     threadRootId: null,
     body: 'hello',
     attachments: [],
+    reactions: [],
     createdAt: AT,
     editedAt: null,
     deletedAt: null,

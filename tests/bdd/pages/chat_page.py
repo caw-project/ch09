@@ -280,6 +280,40 @@ class ChatPage:
         """
         self.page.get_by_test_id("message-list-loading").wait_for(state="detached", timeout=10_000)
 
+    # --- reactions --------------------------------------------------------
+
+    def react_to(self, text: str, emoji: str) -> None:
+        """Open a message's picker and choose an emoji, waiting for the chip.
+
+        Hovering first because the controls live behind `group-hover`. Playwright
+        would click through the transparency anyway — opacity is not visibility
+        to it — but a hover is what a person does, and it costs nothing.
+
+        Waiting on the chip rather than on the request covers the cache write
+        too: a reaction the server accepted and the SPA never applied would
+        leave nothing on screen, and that is worth failing for.
+        """
+        item = self._item_for(text)
+        item.hover()
+        item.get_by_test_id("reaction-picker").click()
+        self.page.locator(f"[data-testid='reaction-option'][data-emoji='{emoji}']").click()
+        expect(self._chip(text, emoji)).to_be_visible()
+
+    def has_reaction_count(self, text: str, emoji: str, count: int) -> bool:
+        """Whether a message shows `count` of one emoji, waiting for it to get there.
+
+        The count is read from an attribute rather than the chip's text, so the
+        assertion does not depend on how the number is rendered beside the
+        glyph.
+        """
+        self._settle_messages()
+        return _holds(
+            lambda: expect(self._chip(text, emoji)).to_have_attribute("data-count", str(count))
+        )
+
+    def _chip(self, text: str, emoji: str) -> Locator:
+        return self._item_for(text).locator(f"[data-testid='reaction-chip'][data-emoji='{emoji}']")
+
     # --- live delivery ----------------------------------------------------
 
     def wait_for_message(self, text: str, timeout: int = 10_000) -> None:

@@ -25,6 +25,7 @@ export type ChannelMemberPage = components['schemas']['ChannelMemberListResponse
 export type ChannelMemberRole = components['schemas']['AddChannelMemberRequest']['role']
 export type Message = components['schemas']['MessageResponse']
 export type MessagePage = components['schemas']['MessageListResponse']
+export type Reaction = components['schemas']['ReactionSummary']
 
 const MESSAGING_URL: string = import.meta.env.VITE_MESSAGING_URL ?? 'http://localhost:8002'
 
@@ -227,6 +228,48 @@ export async function deleteMessage(accessToken: string, messageId: string): Pro
     headers: { Authorization: `Bearer ${accessToken}` },
     params: { path: { message_id: messageId } },
   })
+  if (error !== undefined) throw problem(response.status, error)
+  return data
+}
+
+/**
+ * React to a message, and get the message back with its new counts.
+ *
+ * Idempotent: reacting again with the same emoji leaves one reaction and still
+ * answers 200. The whole message comes back rather than the reactions alone, so
+ * the caller writes it through `upsertMessage` like any other change instead of
+ * keeping a second cache keyed by message.
+ *
+ * `emoji` is a shortcode from the server's allowlist — `thumbsup`, never `👍`.
+ * An unknown one is a 400 with the reason under `errors.emoji`.
+ */
+export async function addReaction(
+  accessToken: string,
+  messageId: string,
+  emoji: string,
+): Promise<Message> {
+  const { data, error, response } = await client.POST('/api/v1/messages/{message_id}/reactions', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    params: { path: { message_id: messageId } },
+    body: { emoji },
+  })
+  if (error !== undefined) throw problem(response.status, error)
+  return data
+}
+
+/** Take a reaction back. Removing one that is not there is a 200, not an error. */
+export async function removeReaction(
+  accessToken: string,
+  messageId: string,
+  emoji: string,
+): Promise<Message> {
+  const { data, error, response } = await client.DELETE(
+    '/api/v1/messages/{message_id}/reactions/{emoji}',
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      params: { path: { message_id: messageId, emoji } },
+    },
+  )
   if (error !== undefined) throw problem(response.status, error)
   return data
 }

@@ -1,9 +1,9 @@
 """Channels and channel membership.
 
 Slice 1 of messaging: `channels` and `channel_members` only. `messages` arrives
-in its own revision with the feature that needs it, and `reactions` is not
-created until reactions are built — an empty table is a claim about what the
-service does that is not yet true.
+in its own revision with the feature that needs it, and `message_reactions`
+arrived the same way in `0004` — an empty table would have been a claim about
+what the service does that was not yet true.
 
 Columns whose features land later ship with their table (`last_read_id`,
 `topic`, `version`) so no later revision has to alter one.

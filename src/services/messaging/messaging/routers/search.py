@@ -19,6 +19,7 @@ from elasticsearch import AsyncElasticsearch
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from messaging import reactions as reactions_domain
 from messaging import search
 from messaging.db import session as db_session
 from messaging.routers.messages import _as_message
@@ -66,6 +67,11 @@ async def search_messages(
     except search.SearchUnavailableError as exc:
         raise ProblemException.service_unavailable("Search is unavailable.") from exc
 
+    # One grouped query for the hydrated page, exactly as history does it.
+    summaries = await reactions_domain.summaries_for(
+        session, message_ids=[m.id for m in found.items], user_id=principal.user_id
+    )
     return MessageListResponse(
-        items=[_as_message(m) for m in found.items], next_cursor=found.next_cursor
+        items=[_as_message(m, reactions=summaries.get(m.id, [])) for m in found.items],
+        next_cursor=found.next_cursor,
     )

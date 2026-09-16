@@ -32,10 +32,11 @@ from testkit.databases import PostgresServer, service_database
 from testkit.db import truncate
 from testkit.tokens import ISSUER, USER_AUDIENCE, Tokens
 
-#: Child tables first — `messages` and `channel_members` both reference
-#: `channels`. `CASCADE` would reach them anyway; being explicit is what stops
-#: the next person wondering whether the order matters.
-TABLES = ("messages", "channel_reads", "channel_members", "channels")
+#: Child tables first — `message_reactions` references `messages`, and `messages`
+#: and `channel_members` both reference `channels`. `CASCADE` would reach them
+#: anyway; being explicit is what stops the next person wondering whether the
+#: order matters.
+TABLES = ("message_reactions", "messages", "channel_reads", "channel_members", "channels")
 
 
 @pytest.fixture(scope="session")
