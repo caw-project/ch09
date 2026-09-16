@@ -48,7 +48,12 @@ import { hashKey, useQueryClient, type QueryClient } from '@tanstack/react-query
 import { useEffect, useRef, useState } from 'react'
 
 import type { Message } from '../api/messaging'
-import { messageKeys, upsertMessage } from '../../features/channels/useMessages'
+import {
+  applyReaction,
+  messageKeys,
+  upsertMessage,
+  type ReactionEvent,
+} from '../../features/channels/useMessages'
 import { useChatStore } from '../../stores/chat'
 import { connect, type Socket } from './socket'
 
@@ -73,14 +78,14 @@ function joinChannel(socket: Socket, channelId: string, onJoined: () => void): v
  * way it is gone until a reload. Re-applying is safe: `upsertMessage` replaces
  * by id, and the event is never older than what that fetch returned.
  */
-function reapplyAfterFetch(queryClient: QueryClient, key: readonly unknown[], message: Message) {
+function reapplyAfterFetch(queryClient: QueryClient, key: readonly unknown[], apply: () => void) {
   const hash = hashKey(key)
   const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
     if (event.type !== 'updated' || event.query.queryHash !== hash) return
     if (event.query.state.fetchStatus !== 'idle') return
 
     unsubscribe()
-    if (event.query.state.status === 'success') upsertMessage(queryClient, key, message)
+    if (event.query.state.status === 'success') apply()
   })
 }
 
@@ -88,6 +93,7 @@ export function useChannelSocket(
   accessToken: string,
   workspaceId: string | null,
   channelId: string | null,
+  userId: string,
 ): Socket | null {
   const queryClient = useQueryClient()
   const setConnectionStatus = useChatStore((state) => state.setConnectionStatus)
@@ -133,9 +139,19 @@ export function useChannelSocket(
 
     function onMessage(message: Message) {
       const key = messageKeys.list(workspaceId, message.channelId)
-      upsertMessage(queryClient, key, message)
+      const apply = () => upsertMessage(queryClient, key, message)
+      apply()
       if (queryClient.isFetching({ queryKey: key, exact: true }) > 0) {
-        reapplyAfterFetch(queryClient, key, message)
+        reapplyAfterFetch(queryClient, key, apply)
+      }
+    }
+
+    function onReaction(event: ReactionEvent) {
+      const key = messageKeys.list(workspaceId, event.channelId)
+      const apply = () => applyReaction(queryClient, key, event, userId)
+      apply()
+      if (queryClient.isFetching({ queryKey: key, exact: true }) > 0) {
+        reapplyAfterFetch(queryClient, key, apply)
       }
     }
 
@@ -147,6 +163,9 @@ export function useChannelSocket(
     live.on('message_received', onMessage)
     live.on('message_edited', onMessage)
     live.on('message_deleted', onMessage)
+    // Its own handler, because it carries facts rather than a `Message`: the
+    // DTO's `reacted` is computed for one caller and cannot be broadcast.
+    live.on('reaction_changed', onReaction)
 
     return () => {
       live.close()
@@ -154,7 +173,7 @@ export function useChannelSocket(
       setConnectionStatus('disconnected')
       setJoinedChannel(null)
     }
-  }, [accessToken, workspaceId, queryClient, setConnectionStatus, setJoinedChannel])
+  }, [accessToken, workspaceId, userId, queryClient, setConnectionStatus, setJoinedChannel])
 
   // Joining and leaving follow the open channel, and are separate from the
   // connection's own lifecycle: navigating between channels must not reconnect.

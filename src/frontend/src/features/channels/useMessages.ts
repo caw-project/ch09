@@ -31,13 +31,17 @@ import {
 
 import { problemFromBody } from '../../lib/api/client'
 import {
+  addReaction,
   deleteMessage,
   editMessage,
   listMessages,
+  removeReaction,
   type Message,
   type MessagePage,
+  type Reaction,
 } from '../../lib/api/messaging'
 import type { Socket } from '../../lib/realtime/socket'
+import { inAllowlistOrder } from './reactions'
 
 /**
  * How long to wait for an acknowledgement before rolling a send back.
@@ -176,6 +180,8 @@ function optimistic(channelId: string, authorId: string, body: string): Message 
     threadRootId: null,
     body,
     attachments: [],
+    // Nothing the server has not seen can have been reacted to.
+    reactions: [],
     createdAt: new Date().toISOString(),
     editedAt: null,
     deletedAt: null,
@@ -282,5 +288,148 @@ export function useDeleteMessage(
   return useMutation<Message, Error, string>({
     mutationFn: (messageId) => deleteMessage(accessToken, messageId),
     onSuccess: (message) => upsertMessage(queryClient, key, message),
+  })
+}
+
+/** What a `reaction_changed` broadcast carries (doc 02 §3.2). */
+export interface ReactionEvent {
+  messageId: string
+  channelId: string
+  emoji: string
+  /** The authoritative count after the change — never a delta. */
+  count: number
+  /** Who changed it, so each client can decide its own lit state. */
+  userId: string
+  /** Whether **that** person now reacts with this emoji. */
+  reacted: boolean
+}
+
+/**
+ * Replace one message's reactions outright — the primitive the writers share.
+ *
+ * No-ops when nothing is cached, like `upsertMessage`: an event for a channel
+ * nobody has opened must not invent a history for it.
+ */
+export function setMessageReactions(
+  queryClient: QueryClient,
+  key: readonly unknown[],
+  messageId: string,
+  reactions: Reaction[],
+): void {
+  queryClient.setQueryData<InfiniteMessages>(key, (cached) => {
+    if (!cached) return cached
+    return {
+      ...cached,
+      pages: cached.pages.map((page) => ({
+        ...page,
+        items: page.items.map((m) => (m.id === messageId ? { ...m, reactions } : m)),
+      })),
+    }
+  })
+}
+
+/**
+ * Apply a reaction event to the cached message.
+ *
+ * **An idempotent set, not a delta**, which is what makes it safe to run three
+ * times for one change: the person who clicked applies it optimistically, then
+ * again from the REST response, then again from their own echo of the
+ * broadcast. `count` is whatever the database holds, so whichever runs last is
+ * still right.
+ *
+ * **`reacted` belongs to `event.userId` and nobody else.** Applying it to
+ * everyone is the bug that made this event carry facts instead of a whole
+ * message: the DTO's `reacted` is computed for one caller, and a room emit
+ * delivers one payload to the whole channel.
+ */
+export function applyReaction(
+  queryClient: QueryClient,
+  key: readonly unknown[],
+  event: ReactionEvent,
+  myUserId: string,
+): void {
+  queryClient.setQueryData<InfiniteMessages>(key, (cached) => {
+    if (!cached) return cached
+    return {
+      ...cached,
+      pages: cached.pages.map((page) => ({
+        ...page,
+        items: page.items.map((m) =>
+          m.id === event.messageId ? { ...m, reactions: merged(m.reactions, event, myUserId) } : m,
+        ),
+      })),
+    }
+  })
+}
+
+function merged(current: Reaction[], event: ReactionEvent, myUserId: string): Reaction[] {
+  const others = current.filter((r) => r.emoji !== event.emoji)
+  // Zero is how a chip disappears, rather than rendering a nought.
+  if (event.count === 0) return inAllowlistOrder(others)
+
+  const existing = current.find((r) => r.emoji === event.emoji)
+  const reacted = event.userId === myUserId ? event.reacted : (existing?.reacted ?? false)
+  return inAllowlistOrder([...others, { emoji: event.emoji, count: event.count, reacted }])
+}
+
+/** What the cache should show the instant a chip is clicked, before the server answers. */
+function predict(
+  message: Message,
+  emoji: string,
+  channelId: string,
+  myUserId: string,
+): ReactionEvent {
+  const existing = message.reactions.find((r) => r.emoji === emoji)
+  const reacted = !(existing?.reacted ?? false)
+  return {
+    messageId: message.id,
+    channelId,
+    emoji,
+    count: (existing?.count ?? 0) + (reacted ? 1 : -1),
+    userId: myUserId,
+    reacted,
+  }
+}
+
+/**
+ * Toggle a reaction, lighting the chip before the server has heard about it.
+ *
+ * **The first optimistic REST mutation in this app**, and deliberately so: a
+ * toggle that waits for a round trip feels broken, and the cache writer it needs
+ * already exists for the broadcast. The neighbouring mutations are *not*
+ * optimistic because an edit and a delete both change text somebody has to
+ * read, and showing the wrong words is worse than showing the right ones half a
+ * second late.
+ *
+ * **Rollback is a snapshot restore, not an inverse event.** There is no correct
+ * inverse of "set the count to 3" once a second change has landed in between.
+ */
+export function useToggleReaction(
+  accessToken: string,
+  workspaceId: string | null,
+  channelId: string,
+  userId: string,
+) {
+  const queryClient = useQueryClient()
+  const key = messageKeys.list(workspaceId, channelId)
+
+  return useMutation<
+    Message,
+    Error,
+    { message: Message; emoji: string },
+    { messageId: string; previous: Reaction[] }
+  >({
+    mutationFn: ({ message, emoji }) =>
+      message.reactions.some((r) => r.emoji === emoji && r.reacted)
+        ? removeReaction(accessToken, message.id, emoji)
+        : addReaction(accessToken, message.id, emoji),
+    onMutate: ({ message, emoji }) => {
+      applyReaction(queryClient, key, predict(message, emoji, channelId, userId), userId)
+      return { messageId: message.id, previous: message.reactions }
+    },
+    onSuccess: (message) => upsertMessage(queryClient, key, message),
+    onError: (_error, _variables, context) => {
+      if (context) setMessageReactions(queryClient, key, context.messageId, context.previous)
+    },
   })
 }

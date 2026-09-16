@@ -31,6 +31,8 @@ import { useState } from 'react'
 
 import type { Message } from '../../lib/api/messaging'
 import { MessageEditor } from './MessageEditor'
+import { ReactionBar } from './ReactionBar'
+import { ReactionPicker } from './ReactionPicker'
 import { isPending } from './useMessages'
 
 interface Props {
@@ -44,6 +46,8 @@ interface Props {
   editPending: boolean
   onEdit: (body: string, version: number) => void
   onDelete: () => void
+  /** Add or take back one reaction — the row does not know which, the cache does. */
+  onToggleReaction: (emoji: string) => void
 }
 
 function timeOfDay(iso: string): string {
@@ -59,6 +63,7 @@ export function MessageItem({
   editPending,
   onEdit,
   onDelete,
+  onToggleReaction,
 }: Props) {
   const [editing, setEditing] = useState(false)
 
@@ -70,6 +75,9 @@ export function MessageItem({
   const isAuthor = message.authorId === userId
   const canEdit = !deleted && !pending && isAuthor
   const canDelete = !deleted && !pending && (isAuthor || myRole === 'admin')
+  // Anyone who can see the message may react to it — reacting is talking, not
+  // moderating. A tombstone takes none, and the server clears the ones it had.
+  const canReact = !deleted && !pending
 
   function save(body: string) {
     // The version the cache holds; the server refuses with a 409 if the row has
@@ -104,6 +112,7 @@ export function MessageItem({
         )}
 
         <span className="ml-auto flex gap-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+          {canReact && <ReactionPicker onPick={onToggleReaction} />}
           {canEdit && (
             <button
               type="button"
@@ -144,6 +153,8 @@ export function MessageItem({
           {message.body}
         </p>
       )}
+
+      {!deleted && <ReactionBar reactions={message.reactions} onToggle={onToggleReaction} />}
     </article>
   )
 }

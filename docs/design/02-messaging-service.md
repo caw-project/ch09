@@ -53,8 +53,8 @@ blobs; messages reference asset IDs).
 | PATCH | `/messages/{id}` | author only — see §3.1.4 | Edit message. Takes `body` and a required `version`. No time window. |
 | DELETE | `/messages/{id}` | author or channel admin — see §3.1.4 | Tombstone the message. Returns **200 with the tombstoned `Message`**, not 204. |
 | GET | `/messages/{id}/thread` | channel member | Replies in a thread (cursor paginated). |
-| POST | `/messages/{id}/reactions` | channel member | Add reaction `{ "emoji": ":+1:" }`. |
-| DELETE | `/messages/{id}/reactions/{emoji}` | channel member | Remove own reaction. |
+| POST | `/messages/{id}/reactions` | see §3.1.1 | Add a reaction `{ "emoji": "thumbsup" }` — a shortcode from the server's allowlist, not a character. Idempotent. Returns **200 with the updated `Message`**. See §3.1.5. |
+| DELETE | `/messages/{id}/reactions/{emoji}` | see §3.1.1 | Remove your own reaction. Idempotent — removing one that was never there is also a 200 with the `Message`. |
 | POST | `/channels/{id}/read` | see §3.1.7 | Mark read up to `{ "messageId": "..." }`. 204; the marker only moves forward. |
 | GET | `/search/messages?q=` | any workspace member — see §3.1.6 | Thin proxy to Elasticsearch (D8c). Newest first, only channels the caller can see. |
 
@@ -253,15 +253,22 @@ and no `version`, and neither was right for what the service actually is:
   "threadRootId": "uuid|null",     // always null in this scope (D8a 🟡)
   "body": "markdown text",         // "" when deletedAt is set — see §3.1.4
   "attachments": [],               // always empty; the Asset service is a skeleton
+  "reactions": [                   // [] when nobody has reacted — see §3.1.5
+    { "emoji": "thumbsup", "count": 3, "reacted": true }
+  ],
   "createdAt": "...", "editedAt": "...|null", "deletedAt": "...|null",
   "version": 0
 }
 ```
 
-- **No `reactions`.** The table is not created and no query makes it; a field
-  that is always `[]` is a claim the service does not honour. `attachments`
-  looks like the same case and is not — it is a real column read off a real row
-  that happens to be empty.
+- **`reactions` is a summary — added 2026-09-16** (register D39). One entry per
+  emoji anyone used, carrying the count and whether **the caller** is one of
+  them, built by a single grouped query over a whole page of messages rather
+  than one query per message. `[]` when nobody has reacted, never absent.
+  Counts only, no user ids: a "who reacted" list is a privacy decision nobody
+  has made. Because `reacted` is computed per request, this DTO is
+  caller-dependent — which is why `reaction_changed` cannot carry a `Message`
+  (§3.2).
 - **No `workspaceId`**, for the reason the `Channel` DTO gives.
 - **`version` is here**, because a `PATCH` sends it back for optimistic
   concurrency (§4).
@@ -403,7 +410,6 @@ design doc — rather than a plan or a service README — knows which is which.
 | Row | Why it is not built | Register |
 |---|---|---|
 | `GET /messages/{id}/thread` | threading is unbuilt; `thread_root_id` ships as a column and is always `null` | D8a 🟡 |
-| `POST` / `DELETE /messages/{id}/reactions*` | the `reactions` table is not created — an empty table claims a capability the service does not have | — |
 | `POST /internal/messages/sweep` | retention values are unset, and nothing hard-deletes a message | D16 🔴 |
 
 Two things the *columns* do ship for, ahead of their features, because adding a
@@ -503,7 +509,7 @@ the chart sets no session affinity. See Conventions §6.
 | `send_message` | `{ channelId, body }` — **narrowed 2026-08-16** | Persist + broadcast. Acks the created `Message`. |
 | `edit_message` | `{ messageId, body, version }` — **`version` added 2026-08-16** | Author-only edit + broadcast. Acks the edited `Message`. |
 | `delete_message` | `{ messageId }` | Author/channel-admin delete + broadcast. Acks the **tombstoned `Message`**. |
-| `add_reaction` / `remove_reaction` | `{ messageId, emoji }` | Broadcast reaction change. |
+| ~~`add_reaction` / `remove_reaction`~~ | — | **Not built (2026-09-16, D39).** Reactions are written over REST only. The socket writes that exist earn their place by needing ack-and-reconcile against an optimistic `temp:` id; a toggle does not. The server still broadcasts `reaction_changed`. |
 | `mark_read` | `{ channelId, messageId }` | Move the read marker forward; acks `{ ok: true }`. If it moved, broadcast `read_receipt_updated` to the reader's own room, skipping this connection — §3.1.7. |
 | `typing` | `{ channelId }` | Ephemeral; fan out `user_typing` (not persisted). Authorized on channel visibility, like every write — an event for a channel the sender cannot see is dropped silently, since there is no ack to carry a 404. |
 
@@ -514,7 +520,7 @@ the chart sets no session affinity. See Conventions §6.
 | `message_received` | `Message` |
 | `message_edited` | `Message` |
 | `message_deleted` | `Message`, redacted — **corrected 2026-08-16**, see below |
-| `reaction_changed` | `{ messageId, emoji, count, userId, added }` |
+| `reaction_changed` | `{ messageId, channelId, emoji, count, userId, reacted }` — **corrected 2026-09-16.** The **authoritative count**, not a delta: the person who clicked applies their own change up to three times (optimistically, from the response, from their own echo), so a delta would treble it. `userId` and `reacted` describe that one person; every other client ignores them. Deliberately **not** a `Message` — `reactions[].reacted` is per-caller and a room emit sends one payload to everybody |
 | `read_receipt_updated` | `{ channelId, userId, messageId }` — to room `user:{workspaceId}:{userId}` only, never the channel's |
 | `user_typing` | `{ channelId, userId }` — see §3.2.4 |
 
@@ -788,13 +794,23 @@ CREATE INDEX ix_messages_channel_time ON messages (channel_id, id DESC);
 -- Still the eventual shape, and deliberately **not created yet**: nothing
 -- queries `thread_root_id` in this scope. A *column* ships ahead of its feature
 -- because adding one later rewrites the table; an index does not, so it waits.
--- Same reasoning leaves `reactions` below uncreated.
 CREATE INDEX ix_messages_thread ON messages (thread_root_id, id) WHERE thread_root_id IS NOT NULL;
 
-CREATE TABLE reactions (
-    message_id   uuid NOT NULL REFERENCES messages(id),
+-- Built 2026-09-16 in migration 0004 (register D39), and named
+-- `message_reactions` rather than `reactions`: these are reactions *to
+-- messages*, and a canvas or a file may want their own later.
+--
+-- The composite primary key is the concurrency control. Adding is
+-- `ON CONFLICT DO NOTHING`, removing is a plain DELETE, so a double-click, a
+-- retried request and two tabs racing all converge — which is why there is no
+-- `version` column and nothing to conflict on. No `deleted_at` either:
+-- removing a reaction is a real delete, and a tombstone here would be a row
+-- nobody may ever read. No index beyond the key: every read groups by
+-- `message_id`, which leads it.
+CREATE TABLE message_reactions (
+    message_id   uuid NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
     user_id      uuid NOT NULL,
-    emoji        text NOT NULL,
+    emoji        varchar(32) NOT NULL,
     created_at   timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (message_id, user_id, emoji)
 );

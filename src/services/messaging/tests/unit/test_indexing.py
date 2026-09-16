@@ -7,6 +7,12 @@ or delete. The Worker's side of the same contract is
 
 `RecordingJobQueue` stands in for `shared.JobQueue` — a class of ours at the
 edge, not a fake Redis.
+
+`_as_message(..., reactions=[])` everywhere below: the index payload has no
+reactions field and never will — Elasticsearch holds text to search, not counts
+to render — so what this argument is does not matter here. It is passed
+explicitly because it is required and keyword-only, which is what stops a real
+read path from quietly reporting that nobody has reacted.
 """
 
 from __future__ import annotations
@@ -28,7 +34,9 @@ SECRET = "the launch is on friday"
 async def test_an_upsert_goes_to_the_index_stream_as_message_upsert(a_message):
     jobs = RecordingJobQueue()
 
-    await indexing.enqueue_upsert(jobs, _as_message(a_message()), workspace_id=WORKSPACE)
+    await indexing.enqueue_upsert(
+        jobs, _as_message(a_message(), reactions=[]), workspace_id=WORKSPACE
+    )
 
     [(stream, job_type, _payload)] = jobs.enqueued
     assert (stream, job_type) == (JOBS_INDEX, MESSAGE_UPSERT)
@@ -38,7 +46,7 @@ async def test_a_delete_goes_to_the_index_stream_as_message_delete(a_message):
     jobs = RecordingJobQueue()
 
     await indexing.enqueue_delete(
-        jobs, _as_message(a_message(deleted_at=DELETED_AT)), workspace_id=WORKSPACE
+        jobs, _as_message(a_message(deleted_at=DELETED_AT), reactions=[]), workspace_id=WORKSPACE
     )
 
     [(stream, job_type, _payload)] = jobs.enqueued
@@ -55,7 +63,7 @@ async def test_the_payload_carries_every_field_from_the_committed_message(a_mess
     message = a_message(body="hello", version=3)
     jobs = RecordingJobQueue()
 
-    await indexing.enqueue_upsert(jobs, _as_message(message), workspace_id=WORKSPACE)
+    await indexing.enqueue_upsert(jobs, _as_message(message, reactions=[]), workspace_id=WORKSPACE)
 
     [(_stream, _type, payload)] = jobs.enqueued
     assert isinstance(payload, MessageIndexPayload)
@@ -74,7 +82,9 @@ async def test_the_payload_is_camel_case_on_the_wire(a_message):
     """What the Worker validates is the JSON form, so the aliases are the contract."""
     jobs = RecordingJobQueue()
 
-    await indexing.enqueue_upsert(jobs, _as_message(a_message()), workspace_id=WORKSPACE)
+    await indexing.enqueue_upsert(
+        jobs, _as_message(a_message(), reactions=[]), workspace_id=WORKSPACE
+    )
 
     [(_stream, _type, payload)] = jobs.enqueued
     wire = payload.model_dump(mode="json", by_alias=True)
@@ -95,7 +105,9 @@ async def test_a_delete_job_carries_no_text(a_message):
     jobs = RecordingJobQueue()
 
     await indexing.enqueue_delete(
-        jobs, _as_message(a_message(body=SECRET, deleted_at=DELETED_AT)), workspace_id=WORKSPACE
+        jobs,
+        _as_message(a_message(body=SECRET, deleted_at=DELETED_AT), reactions=[]),
+        workspace_id=WORKSPACE,
     )
 
     [(_stream, _type, payload)] = jobs.enqueued
@@ -112,7 +124,9 @@ async def test_a_failed_enqueue_is_swallowed_and_logged_without_the_body(a_messa
     jobs = RecordingJobQueue(fail_with=ConnectionError(f"redis said no about {SECRET}"))
 
     with caplog.at_level(logging.WARNING, logger="collabhub.messaging.indexing"):
-        await indexing.enqueue_upsert(jobs, _as_message(message), workspace_id=WORKSPACE)
+        await indexing.enqueue_upsert(
+            jobs, _as_message(message, reactions=[]), workspace_id=WORKSPACE
+        )
 
     [record] = caplog.records
     assert record.levelno == logging.WARNING

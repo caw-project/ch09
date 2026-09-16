@@ -43,6 +43,9 @@ export function ChatLayout({ current, children }: Props) {
     current.accessToken,
     current.activeWorkspaceId,
     activeChannelId,
+    // Who "I" am, so a reaction event can tell my own lit state from everyone
+    // else's — the count is the channel's, the highlight is one person's.
+    current.profile.id,
   )
 
   return (

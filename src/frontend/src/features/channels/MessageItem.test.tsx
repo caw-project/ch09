@@ -18,6 +18,7 @@ const GRACE = '0199a000-0000-7000-8000-00000000000b'
 function renderItem(message: Message, viewer: { userId?: string; myRole?: string | null } = {}) {
   const onEdit = vi.fn()
   const onDelete = vi.fn()
+  const onToggleReaction = vi.fn()
   const view = renderWithProviders(
     <MessageItem
       message={message}
@@ -28,9 +29,10 @@ function renderItem(message: Message, viewer: { userId?: string; myRole?: string
       editPending={false}
       onEdit={onEdit}
       onDelete={onDelete}
+      onToggleReaction={onToggleReaction}
     />,
   )
-  return { ...view, onEdit, onDelete }
+  return { ...view, onEdit, onDelete, onToggleReaction }
 }
 
 const edit = () => screen.queryByRole('button', { name: 'Edit' })

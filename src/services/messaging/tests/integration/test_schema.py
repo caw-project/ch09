@@ -26,9 +26,7 @@ async def test_the_expected_tables_exist(engine):
     assert "channels" in names
     assert "channel_members" in names
     assert "messages" in names
-    # Still not created. An empty table claims the service does something it
-    # cannot, and nothing in this scope reads or writes a reaction.
-    assert "reactions" not in names
+    assert "message_reactions" in names
 
 
 async def test_timestamps_are_timestamptz(engine):
@@ -172,3 +170,45 @@ async def test_a_message_references_its_channel_but_not_its_author(engine):
 
     assert "REFERENCES channels(id)" in definitions
     assert "author_id" not in definitions
+
+
+async def test_a_reaction_references_its_message_but_not_its_user(engine):
+    """The Conventions §2 boundary again: a message is ours, a user is Auth's."""
+    rows = await _rows(
+        engine,
+        """
+        SELECT pg_get_constraintdef(oid)
+        FROM pg_constraint
+        WHERE contype = 'f' AND conrelid::regclass::text = 'message_reactions'
+        """,
+    )
+    definitions = " ".join(d for (d,) in rows)
+
+    assert "REFERENCES messages(id)" in definitions
+    assert "user_id" not in definitions
+
+
+async def test_the_reaction_key_is_message_user_and_emoji(engine):
+    """The primary key *is* the idempotency guarantee — a narrower one would allow duplicates."""
+    rows = await _rows(
+        engine,
+        """
+        SELECT pg_get_constraintdef(oid)
+        FROM pg_constraint
+        WHERE contype = 'p' AND conrelid::regclass::text = 'message_reactions'
+        """,
+    )
+
+    assert len(rows) == 1
+    assert rows[0][0] == "PRIMARY KEY (message_id, user_id, emoji)"
+
+
+async def test_a_reaction_has_no_soft_delete_and_no_version(engine):
+    """Removing a reaction is a real delete, and the key is the concurrency control."""
+    rows = await _rows(
+        engine,
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'message_reactions'",
+    )
+    names = {r[0] for r in rows}
+
+    assert names == {"message_id", "user_id", "emoji", "created_at"}

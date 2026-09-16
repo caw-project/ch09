@@ -189,3 +189,27 @@ class Message(Base):
     edited_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+
+
+class Reaction(Base):
+    """One person's one emoji on one message.
+
+    Keyed on all three columns, and that key *is* the idempotency guarantee:
+    adding is an `ON CONFLICT DO NOTHING` insert, so a double-click cannot
+    double-count and two tabs cannot collide. See `0004_reactions` for why there
+    is no `version` and no `deleted_at`.
+
+    `message_id` carries a foreign key and `user_id` does not — the Conventions
+    §2 boundary, the same way `Message` draws it.
+    """
+
+    __tablename__ = "message_reactions"
+
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    emoji: Mapped[str] = mapped_column(String(32), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        Timestamp, nullable=False, server_default=func.now()
+    )

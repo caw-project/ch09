@@ -349,6 +349,53 @@ async def publish_read_receipt(
     )
 
 
+async def publish_reaction_changed(
+    sio: socketio.AsyncServer | None,
+    *,
+    channel_id: uuid.UUID,
+    message_id: uuid.UUID,
+    emoji: str,
+    count: int,
+    user_id: uuid.UUID,
+    reacted: bool,
+) -> None:
+    """Tell the channel that one emoji's count on one message has changed.
+
+    **The authoritative count, never a delta.** The person who clicked applies
+    their own change up to three times — optimistically, from the REST response,
+    and from their own echo of this event — so a `+1` would treble it. A count
+    is an idempotent set, safe applied twice or out of order.
+
+    **`userId` and `reacted` describe one person**, because `count` alone says
+    nothing about direction and the actor's client cannot otherwise tell which
+    way its own toggle went. Every other recipient ignores them.
+
+    **Not a `MessageResponse`**, which is what `message_deleted` sends. The DTO's
+    `reactions[].reacted` is computed for one caller and a room emit delivers one
+    payload to everybody, so every recipient would receive the actor's own lit
+    state. Sending the whole message would also put its body back on the wire on
+    every click, and — since the cache replaces a message wholesale — a reaction
+    event built before a concurrent edit would silently revert that edit in every
+    client.
+    """
+    if sio is None:
+        return
+
+    await sio.emit(
+        "reaction_changed",
+        {
+            "messageId": str(message_id),
+            "channelId": str(channel_id),
+            "emoji": emoji,
+            "count": count,
+            "userId": str(user_id),
+            "reacted": reacted,
+        },
+        room=room(channel_id),
+        namespace=NAMESPACE,
+    )
+
+
 def server(request: Request) -> socketio.AsyncServer | None:
     """FastAPI dependency: `sio = Depends(realtime.server)`.
 
