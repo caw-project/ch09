@@ -1,0 +1,92 @@
+# charts/collabhub on the lab cluster: ingress-nginx and nothing else, so
+# charts/collabhub-deps provides the data stores, Dex and the Secrets. Layered
+# over values.yaml by scripts/deploy.sh when DEPLOY_ENV=lab.
+#
+# No hostname appears here. The origin is APP_ORIGIN, and deploy.sh sets
+# everything derived from it (register D40).
+
+# A build from a dirty worktree reuses its tag, and a lab deploy pushes the same
+# tag again, so never trust a cached image.
+imagePullPolicy: Always
+
+ingress:
+  enabled: true
+  className: nginx
+
+components:
+  auth:
+    env:
+      # `local` is the only APP_ENV the code distinguishes, and only Auth reads it:
+      # it creates the shared demo workspace every new account joins. The lab
+      # runs Dex's demo accounts, so it wants that. Anything else would only
+      # isolate users — it switches on no stricter behaviour (the signing-key
+      # check it also gates is satisfied by charts/collabhub-deps).
+      APP_ENV: local
+      # The lab is plain HTTP on a real hostname. Browsers exempt only
+      # http://localhost from `Secure`, so with it on the refresh cookie is
+      # dropped and every user is signed out at the first renewal. Off puts the
+      # refresh token on the wire in clear — acceptable only because the lab is
+      # a trusted network. Register D42; never copy this to an environment
+      # reachable from outside one.
+      AUTH_COOKIE_SECURE: "false"
+  messaging:
+    env:
+      APP_ENV: local
+  canvas:
+    env:
+      APP_ENV: local
+  asset:
+    env:
+      APP_ENV: local
+  worker:
+    env:
+      APP_ENV: local
+
+# ingressController keeps the values.yaml default — ingress-nginx in namespace
+# ingress-nginx — which is what the lab runs. Everything else is a pod from
+# charts/collabhub-deps in this namespace.
+networkPolicy:
+  peers:
+    postgres:
+      to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+    redisCache:
+      to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis-cache
+    redisRealtime:
+      to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis-rt
+    redisStreams:
+      to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis-streams
+    elasticsearch:
+      to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: elasticsearch
+    objectStore:
+      to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: garage
+    otelCollector:
+      to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: otel-collector
+    oidcProvider:
+      to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: dex
+      ports:
+        - port: 5556
+          protocol: TCP

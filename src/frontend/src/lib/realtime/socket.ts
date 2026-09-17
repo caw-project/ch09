@@ -20,7 +20,7 @@
 
 import { io, type Socket } from 'socket.io-client'
 
-const MESSAGING_URL: string = import.meta.env.VITE_MESSAGING_URL ?? 'http://localhost:8002'
+import { MESSAGING_URL } from '../config'
 
 export function connect(accessToken: string): Socket {
   return io(`${MESSAGING_URL}/messaging`, {

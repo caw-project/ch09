@@ -5,7 +5,7 @@ kind: ConfigMap
 metadata:
   name: otel-collector
   labels:
-    {{- include "collabhub-local.labels" $ctx | nindent 4 }}
+    {{- include "collabhub-deps.labels" $ctx | nindent 4 }}
 data:
   config.yaml: |
     {{- required "otelCollector.config is empty: pass --set-file otelCollector.config=docker/otel-collector/config.yaml, as scripts/deploy.sh does" .Values.otelCollector.config | nindent 4 }}
@@ -15,10 +15,10 @@ kind: Service
 metadata:
   name: otel-collector
   labels:
-    {{- include "collabhub-local.labels" $ctx | nindent 4 }}
+    {{- include "collabhub-deps.labels" $ctx | nindent 4 }}
 spec:
   selector:
-    {{- include "collabhub-local.selectorLabels" $ctx | nindent 4 }}
+    {{- include "collabhub-deps.selectorLabels" $ctx | nindent 4 }}
   ports:
     - name: otlp-grpc
       port: 4317
@@ -32,18 +32,18 @@ kind: Deployment
 metadata:
   name: otel-collector
   labels:
-    {{- include "collabhub-local.labels" $ctx | nindent 4 }}
+    {{- include "collabhub-deps.labels" $ctx | nindent 4 }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      {{- include "collabhub-local.selectorLabels" $ctx | nindent 6 }}
+      {{- include "collabhub-deps.selectorLabels" $ctx | nindent 6 }}
   template:
     metadata:
       annotations:
         checksum/config: {{ .Values.otelCollector.config | sha256sum }}
       labels:
-        {{- include "collabhub-local.selectorLabels" $ctx | nindent 8 }}
+        {{- include "collabhub-deps.selectorLabels" $ctx | nindent 8 }}
     spec:
       containers:
         - name: otel-collector

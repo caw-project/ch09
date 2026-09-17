@@ -1,0 +1,9 @@
+apiVersion: v2
+name: collabhub-deps
+description: >-
+  What CollabHub needs around it in an environment with nothing but an ingress
+  controller — data stores, Dex, Secrets and Dex's Ingress. Credentials have no
+  defaults; the environment supplies them.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

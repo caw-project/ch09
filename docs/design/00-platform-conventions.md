@@ -312,10 +312,11 @@ Real-time backplane (R2)** so that any pod can serve any client.
   to collide — `channel:{id}` against `doc:{id}` — which is what makes it worth
   fixing before it becomes a cross-service leak. Messaging uses
   `channel="messaging"`; Canvas needs the equivalent.
-- **CORS:** pass `cors_allowed_origins=<origins> or None`. §5.6 makes an empty
-  list mean "install no CORS at all"; engine.io reads an empty list as an
-  allow-list containing nothing and refuses every browser handshake with a 400.
-  `None` is its spelling of "same origin only".
+- **CORS:** pass `cors_allowed_origins=socket_allowed_origins(settings.cors_allowed_origins)`
+  from `shared`. An explicit list is used as-is; an empty one becomes an exact
+  same-origin check that treats `ws`/`wss` as `http`/`https` — a WebSocket
+  scheme is not a different site, only the upgraded form of one the browser
+  already trusted.
 
 ---
 

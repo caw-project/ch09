@@ -2,12 +2,20 @@
 # scripts/deploy.sh, which also sets image.registry and image.tag.
 #
 # The Secrets, data stores, Dex and the Ingress this expects come from
-# charts/collabhub-local, and KEDA from `deploy.sh infra`. The browser reaches
-# everything on one origin, http://localhost:8080, so CORS_ALLOWED_ORIGINS stays
-# unset.
+# charts/collabhub-deps, and KEDA from `deploy.sh infra`. The browser reaches
+# everything on one origin, so CORS_ALLOWED_ORIGINS stays unset. That origin is
+# APP_ORIGIN, and deploy.sh sets everything derived from it — AUTH_ISSUER,
+# SPA_REDIRECT_URI, the Ingress host — along with the namespace-qualified
+# REDIS_STREAMS_ADDRESS. None of it belongs here, so one file serves any number
+# of instances on the cluster.
 
 # A build from a dirty worktree reuses its tag, so never trust a cached image.
 imagePullPolicy: Always
+
+# k3s's bundled Traefik. The host comes from APP_ORIGIN (scripts/deploy.sh).
+ingress:
+  enabled: true
+  className: traefik
 
 components:
   auth:
@@ -18,8 +26,6 @@ components:
       # `local` gives every account the shared demo workspace.
       APP_ENV: local
       LOG_LEVEL: debug
-      AUTH_ISSUER: http://localhost:8080
-      SPA_REDIRECT_URI: http://localhost:8080/auth/callback
 
   messaging:
     # Two, so real-time delivery crosses pods through the R2 backplane.
@@ -27,21 +33,18 @@ components:
     env:
       APP_ENV: local
       LOG_LEVEL: debug
-      AUTH_ISSUER: http://localhost:8080
 
   canvas:
     replicaCount: 1
     env:
       APP_ENV: local
       LOG_LEVEL: debug
-      AUTH_ISSUER: http://localhost:8080
 
   asset:
     replicaCount: 1
     env:
       APP_ENV: local
       LOG_LEVEL: debug
-      AUTH_ISSUER: http://localhost:8080
 
   worker:
     # Autoscaling stays on: deploy.sh installs KEDA, so the pools' ScaledObjects
@@ -50,9 +53,6 @@ components:
     env:
       APP_ENV: local
       LOG_LEVEL: debug
-      # Fully qualified: KEDA's operator resolves this from its own namespace,
-      # `keda`, where a bare `redis-streams` does not exist.
-      REDIS_STREAMS_ADDRESS: redis-streams.collabhub.svc.cluster.local:6379
 
   frontend:
     replicaCount: 1
@@ -60,7 +60,7 @@ components:
 # The peers values.yaml leaves to each environment. k3s enforces NetworkPolicy
 # with its embedded kube-router controller, so these have to be right, not just
 # present. Everything but the ingress controller is a pod in this namespace from
-# charts/collabhub-local, matched on the name label that chart gives it. `dns`
+# charts/collabhub-deps, matched on the name label that chart gives it. `dns`
 # keeps the values.yaml default, which is what k3s's CoreDNS carries.
 networkPolicy:
   peers:

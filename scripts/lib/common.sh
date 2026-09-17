@@ -12,6 +12,10 @@
 #                   worktree has uncommitted changes. Never `latest`.
 #   KUBE_CONTEXT    default: the k3d cluster's context. Nothing here falls back
 #                   to kubectl's current context, which might be a real cluster.
+#   DEPLOY_ENV      default: k3d. Selects charts/*/values-$DEPLOY_ENV.yaml.
+#   NAMESPACE       default: collabhub. One instance per namespace.
+#   APP_ORIGIN      the origin the browser uses, e.g. http://a.localhost:8080.
+#                   Default: http://localhost:8080 on k3d; required elsewhere.
 #
 # Written for bash 3.2, which is what macOS ships: no associative arrays, and an
 # empty array is expanded as ${arr[@]+"${arr[@]}"} because `set -u` rejects it
@@ -22,10 +26,19 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMPONENTS=(auth messaging canvas asset worker frontend)
 
 K3D_CLUSTER=collabhub
-# The only published port. The Ingress puts the SPA, the APIs and Dex behind this
-# one origin, which is what register D22's SameSite=Strict cookie needs.
+# k3d's only published port. Every instance on the cluster shares it, told apart
+# by host: http://localhost:8080, http://a.localhost:8080, ...
 K3D_ORIGIN=http://localhost:8080
-NAMESPACE=collabhub
+
+# Which values files the charts install with: charts/*/values-$DEPLOY_ENV.yaml.
+DEPLOY_ENV="${DEPLOY_ENV:-k3d}"
+# One instance of CollabHub: its namespace, and the origin the browser reaches it
+# on. The SPA, the APIs and Dex all sit behind that one origin, which is what
+# register D22's SameSite=Strict cookie needs. deploy.sh resolves an empty
+# APP_ORIGIN, because only k3d has a sensible default.
+NAMESPACE="${NAMESPACE:-collabhub}"
+APP_ORIGIN="${APP_ORIGIN:-}"
+
 # The cluster add-on charts/collabhub's Worker pools scale with. Keep in step with
 # the KEDA entry in docs/platform/versions.md.
 KEDA_VERSION=2.20.2
@@ -43,9 +56,9 @@ if [ -z "${IMAGE_TAG:-}" ]; then
     fi
 fi
 
-# Files charts/collabhub-local reads from the repo rather than keeping a copy of.
+# Files charts/collabhub-deps reads from the repo rather than keeping a copy of.
 # Helm cannot reach outside a chart's directory, so they arrive as --set-file.
-LOCAL_CHART_FILES=(
+DEPS_CHART_FILES=(
     --set-file "postgres.initSql=$REPO_ROOT/docker/postgres/init.sql"
     --set-file "garage.config=$REPO_ROOT/docker/garage/garage.toml"
     --set-file "otelCollector.config=$REPO_ROOT/docker/otel-collector/config.yaml"
@@ -82,3 +95,10 @@ is_component() {
 }
 
 image_ref() { printf '%scollabhub/%s:%s' "${IMAGE_REGISTRY:+$IMAGE_REGISTRY/}" "$1" "$IMAGE_TAG"; }
+
+# The host part of an origin: http://a.localhost:8080 → a.localhost.
+origin_host() {
+    local host="${1#*://}"
+    host="${host%%/*}"
+    printf '%s' "${host%%:*}"
+}

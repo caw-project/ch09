@@ -103,7 +103,7 @@ src/frontend/     React + TypeScript SPA (Vite)
 tests/bdd/        The Gherkin acceptance suite — it spans every service, so it lives here
 docker/           One folder per component: its Dockerfile and any files it needs
 charts/collabhub/ Helm chart covering every component
-charts/collabhub-local/  DEV ONLY: data stores, Dex, Secrets and Ingress for the local k3d cluster
+charts/collabhub-deps/   Data stores, Dex, Secrets and Dex's Ingress for any environment; credentials required
 scripts/          build.sh, test.sh, deploy.sh — the same entry points CI uses
 .claude/skills/   Project skills: adr-writer, stack-update-checker
 ```
@@ -261,29 +261,121 @@ local [k3d](https://k3d.io) cluster — the same scripts CI will run:
 scripts/test.sh && scripts/build.sh --push && scripts/deploy.sh
 ```
 
-Then open <http://localhost:8080> and sign in as `ada@collabhub.dev` / `collabhub`, as above.
-Everything is on that one origin: the SPA, every public API and Dex, behind the Traefik
-Ingress k3s ships with.
+Then open `APP_ORIGIN` — `http://localhost:8080` by default — and sign in as
+`ada@collabhub.dev` / `collabhub`, as above. Everything is on that one origin: the SPA and
+every public API routed by `charts/collabhub`'s Ingress, and Dex by the dependency chart's,
+both behind the Traefik Ingress k3s ships with.
 
 | | |
 |---|---|
 | `scripts/build.sh [component...] [--push]` | Builds `localhost:5500/collabhub/<component>:<tag>`. The tag is the short commit SHA, plus `-dirty` for uncommitted changes |
 | `scripts/deploy.sh cluster` | Creates the `collabhub` k3d cluster (k3s pinned to `versions.md`) and its registry on `localhost:5500` |
-| `scripts/deploy.sh infra` | Installs KEDA (pinned to `versions.md`), then `charts/collabhub-local`: Postgres, three Redis, Elasticsearch, Garage (bootstrapped), Dex, the OTel collector, the Secrets and the Ingress |
+| `scripts/deploy.sh infra` | Installs KEDA (pinned to `versions.md`), then `charts/collabhub-deps` with `values-k3d.yaml`: Postgres, three Redis, Elasticsearch, Garage (bootstrapped), Dex, the OTel collector, the Secrets and Dex's Ingress |
 | `scripts/deploy.sh app` | Installs `charts/collabhub` at the current tag. Migrations run as Helm hook Jobs before any pod rolls |
 | `scripts/deploy.sh` | All three, in order. Idempotent — re-run it to upgrade |
 | `scripts/deploy.sh status` / `down` | What is running / delete the cluster, its registry and **all its data** |
+| `NAMESPACE=… APP_ORIGIN=… scripts/deploy.sh` | Another instance on the same cluster, e.g. `NAMESPACE=collabhub-a APP_ORIGIN=http://a.localhost:8080`. `*.localhost` needs no DNS |
 
-The scripts never use your current kubectl context. Every call names `k3d-collabhub`, creating
-the cluster does not switch to it, and `cluster`, `infra` and `down` refuse to run against
-anything else. `IMAGE_REGISTRY`, `IMAGE_TAG` and `KUBE_CONTEXT` override the defaults — see
+`scripts/deploy.sh infra -- <helm args>` and `app -- <helm args>` pass arguments to that
+chart's Helm call.
+
+The scripts never use your current kubectl context. Every call names `KUBE_CONTEXT` —
+`k3d-collabhub` by default — and creating the cluster does not switch to it. `cluster` and
+`down` refuse any context but `k3d-collabhub`; `infra` and `app` refuse k3d values on any other
+context, and any other environment's values on it. `IMAGE_REGISTRY`, `IMAGE_TAG` and `KUBE_CONTEXT` override the defaults — see
 `.env.example`.
+
+An existing k3d cluster from before this change must be recreated once: the dependency release
+was renamed from `collabhub-local` to `collabhub-deps`, and a new release cannot adopt the
+resources the old one owns. `down` deletes the image registry too, so push again before
+deploying:
+
+```bash
+scripts/deploy.sh down
+scripts/deploy.sh cluster
+scripts/build.sh --push
+scripts/deploy.sh
+```
 
 k3d and the Compose development stack can run at the same time, but that is two of
 everything, Elasticsearch included — give Docker the memory for it.
 
-`charts/collabhub-local` is **development only**: its credentials are throwaway, its Dex is full
-of demo accounts, and nothing in it is backed up. Never install it anywhere else.
+`charts/collabhub-deps` has **no default for any credential** (register D41) — it refuses to
+render until each one is supplied, and names the one that is missing. On k3d they come from
+`charts/collabhub-deps/values-k3d.yaml`, and it is those *values* that are **development
+only**: the credentials are throwaway, Dex is full of demo accounts, and nothing is backed up.
+`scripts/deploy.sh` keeps them off every cluster but `k3d-collabhub`.
+
+Any other environment has its own `charts/collabhub-deps/values-<env>.yaml` — `deploy.sh`
+requires one, if only for `ingress.className` — and can keep every credential out of it, on
+the command line instead:
+
+```bash
+DEPLOY_ENV=<env> APP_ORIGIN=http://<host> scripts/deploy.sh infra -- \
+  --set-string postgres.password=... \
+  --set-string garage.adminToken=... \
+  --set-string garage.rpcSecret=... \
+  --set-string garage.accessKeyId=GK... \
+  --set-string garage.secretAccessKey=... \
+  --set-string dex.clientSecret=... \
+  --set-string 'dex.passwordHash=$2b$10$...' \
+  --set-string workerClientSecret=...
+```
+
+Single-quote the bcrypt hash: it is full of `$`. `--set-string` splits on commas, so a
+credential passed this way may not contain one, and the Postgres password goes into a DSN
+unescaped, so it must be URL-safe — letters, digits and `-_.~`. Garage only accepts keys in its
+own format: `GK` plus 24 hex digits for the key ID, and 64 hex digits for the secret and the
+RPC secret. Auth's signing key is optional — `--set-file auth.signingKey=signing.pem` — and is
+otherwise generated on first install and kept.
+
+Even with real credentials the chart is not production: nothing is backed up, Dex is a
+password database, and the Secrets are rendered from values rather than a secret store.
+Four things to know before running it anywhere but your laptop:
+
+- **KEDA is cluster-wide.** `infra` installs it as release `keda` in namespace `keda`, at the
+  pinned version. On a shared cluster that already runs KEDA, that upgrades or downgrades
+  everyone's, so coordinate first.
+- **Rotating Garage's key means a new key.** The bootstrap Job imports the key only when
+  `garage.accessKeyId` is not already there, so a changed `garage.secretAccessKey` under the
+  same ID is ignored. Change both together.
+- **The Postgres password is fixed at first start.** It is set when the volume is first
+  initialised, so changing `postgres.password` later breaks every service's connection
+  unless you change the password in the database too.
+- **`helm uninstall collabhub-deps` is not harmless.** It deletes the Auth signing-key
+  Secret, which ends every session, and the `redis-streams` PVC, which loses any job not yet
+  acknowledged.
+
+### Deploying to the lab
+
+`values-lab.yaml` exists for both charts: `charts/collabhub`'s carries ingress-nginx and
+`AUTH_COOKIE_SECURE: "false"`; `charts/collabhub-deps`'s carries nothing but
+`ingress.className` — every credential still arrives on the command line, as above.
+
+```bash
+export IMAGE_REGISTRY=<registry the lab pulls from>   # after `docker login` to it
+export DEPLOY_ENV=lab APP_ORIGIN=http://<lab host> KUBE_CONTEXT=<lab context>
+scripts/build.sh --push
+scripts/deploy.sh infra -- \
+  --set-string postgres.password=... \
+  --set-string garage.adminToken=... \
+  --set-string garage.rpcSecret=... \
+  --set-string garage.accessKeyId=GK... \
+  --set-string garage.secretAccessKey=... \
+  --set-string dex.clientSecret=... \
+  --set-string 'dex.passwordHash=$2b$10$...' \
+  --set-string workerClientSecret=...
+scripts/deploy.sh app
+```
+
+`IMAGE_REGISTRY` must be a registry the lab can pull from, with `docker login` done — the k3d
+registry at `localhost:5500` is unreachable from it, which is why the block above sets it
+explicitly rather than taking the default.
+
+The lab is plain HTTP on a real hostname, not `http://localhost`, the one origin browsers
+exempt from `Secure` — so its refresh cookie runs with `Secure` off (register D42). The
+refresh token then travels the lab's network in clear; acceptable only because the lab is a
+trusted network, and never copied to an environment reachable from outside one.
 
 ### What the chart expects of an environment
 
@@ -312,7 +404,7 @@ check them by hand for your cluster. Under a CNI that enforces NetworkPolicy, a 
 
 The k3d environment is a worked example of all three: `deploy.sh infra` installs KEDA,
 `charts/collabhub/values-k3d.yaml` sets every peer (k3s's Traefik as the ingress controller,
-and k3s does enforce NetworkPolicy), and `charts/collabhub-local` supplies the Secret keys.
+and k3s does enforce NetworkPolicy), and `charts/collabhub-deps` supplies the Secret keys.
 
 ```bash
 helm lint charts/collabhub -f <env-values>.yaml --set components.worker.autoscaling.enabled=false
@@ -325,15 +417,18 @@ does take `--api-versions`, so pass it there instead once your peers are set.
 
 The chart deploys CollabHub's own workloads only. Postgres, Redis, Elasticsearch and Garage
 are expected to exist already — they have their own lifecycle and backups, and bundling them
-would make `helm uninstall` a data-loss command. There is no Ingress either: routing is
-per-environment, and `/api/v1/internal/` must never be reachable from the public one.
+would make `helm uninstall` a data-loss command.
 
-Because routing is per-environment, **two constraints land on whoever writes it**:
+The Ingress is opt-in: set `ingress.enabled`, `ingress.className` and — through
+`scripts/deploy.sh`, from `APP_ORIGIN` — `ingress.host`. The public prefixes are
+fixed in the template, so `/api/v1/internal/` (Conventions §5.5) cannot be routed
+by a values file. Two constraints remain the environment's:
 
-- `/api/v1/internal/` must not be reachable from the public ingress (Conventions §5.5).
-- The SPA and the API must be **same-site** — one registrable domain, or one origin. The
-  refresh cookie is `SameSite=Strict` (register D22), so splitting them across genuinely
-  different domains silently signs everyone out. See
+- The identity provider must be routed on the same host, or be a real IdP with its
+  own. `charts/collabhub-deps` does this for Dex.
+- The SPA and the API must be **same-site** — one registrable domain, or one
+  origin. The refresh cookie is `SameSite=Strict` (register D22), so splitting them
+  across genuinely different domains silently signs everyone out. See
   [`auth/cookies.py`](src/services/auth/auth/cookies.py).
 
 ## Working in this repo

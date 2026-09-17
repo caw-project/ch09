@@ -12,10 +12,10 @@ kind: Service
 metadata:
   name: {{ .name }}
   labels:
-    {{- include "collabhub-local.labels" $ctx | nindent 4 }}
+    {{- include "collabhub-deps.labels" $ctx | nindent 4 }}
 spec:
   selector:
-    {{- include "collabhub-local.selectorLabels" $ctx | nindent 4 }}
+    {{- include "collabhub-deps.selectorLabels" $ctx | nindent 4 }}
   ports:
     - name: redis
       port: 6379
@@ -27,7 +27,7 @@ kind: PersistentVolumeClaim
 metadata:
   name: {{ .name }}-data
   labels:
-    {{- include "collabhub-local.labels" $ctx | nindent 4 }}
+    {{- include "collabhub-deps.labels" $ctx | nindent 4 }}
 spec:
   accessModes: ["ReadWriteOnce"]
   resources:
@@ -40,7 +40,7 @@ kind: Deployment
 metadata:
   name: {{ .name }}
   labels:
-    {{- include "collabhub-local.labels" $ctx | nindent 4 }}
+    {{- include "collabhub-deps.labels" $ctx | nindent 4 }}
 spec:
   replicas: 1
   # A ReadWriteOnce volume cannot be mounted by the old and new pod at once.
@@ -48,11 +48,11 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      {{- include "collabhub-local.selectorLabels" $ctx | nindent 6 }}
+      {{- include "collabhub-deps.selectorLabels" $ctx | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "collabhub-local.selectorLabels" $ctx | nindent 8 }}
+        {{- include "collabhub-deps.selectorLabels" $ctx | nindent 8 }}
     spec:
       containers:
         - name: redis

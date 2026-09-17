@@ -10,9 +10,10 @@
 # exist — they have their own lifecycle, backups and upgrade cadence, and
 # bundling them would make `helm uninstall` a data-loss command.
 #
-# Also absent: an Ingress. Which hosts route where is a per-environment
-# decision, and anything under /api/v1/internal/ must never be routed from the
-# public ingress at all (Conventions §5.5).
+# The Ingress is opt-in (register D40). What may be routed is the chart's
+# business — the public prefixes are listed in templates/ingress.yaml, and
+# nothing under /api/v1/internal/ is among them (Conventions §5.5). Where it is
+# routed from is the environment's: host, class, annotations and TLS below.
 
 nameOverride: ""
 fullnameOverride: ""
@@ -27,6 +28,19 @@ image:
   registry: ""
   # Empty means the chart's appVersion, keeping image and chart in step.
   tag: ""
+
+ingress:
+  enabled: false
+  # The IngressClass: traefik on k3d, nginx on the lab.
+  className: ""
+  # Required when enabled. scripts/deploy.sh sets it to the host part of
+  # APP_ORIGIN — it is never written into a values file.
+  host: ""
+  annotations: {}
+  tls:
+    enabled: false
+    # A Secret holding the certificate for `host`, created outside this chart.
+    secretName: ""
 
 # Applied to every component unless it overrides the same key.
 defaults:

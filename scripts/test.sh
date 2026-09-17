@@ -59,6 +59,19 @@ ensure_node_modules() {
     fi
 }
 
+# Every credential charts/collabhub-deps renders, as a --set-string argument.
+# The values are only shaped right; the render never contacts anything.
+DEPS_TEST_CREDENTIALS=(
+    --set-string postgres.password=lint-password
+    --set-string garage.adminToken=lint-admin-token
+    --set-string garage.rpcSecret=0000000000000000000000000000000000000000000000000000000000000002
+    --set-string garage.accessKeyId=GK000000000000000000000002
+    --set-string garage.secretAccessKey=0000000000000000000000000000000000000000000000000000000000000002
+    --set-string dex.clientSecret=lint-client-secret
+    --set-string 'dex.passwordHash=$2b$10$lintlintlintlintlintlO0000000000000000000000000000000'
+    --set-string workerClientSecret=lint-worker-secret
+)
+
 layer_lint() {
     require_cmd npm helm git python3
 
@@ -85,10 +98,85 @@ layer_lint() {
         --set networkPolicy.enabled=false \
         --set components.worker.autoscaling.enabled=false
     helm lint --quiet charts/collabhub --values charts/collabhub/values-k3d.yaml \
-        --set components.worker.autoscaling.enabled=false
+        --set components.worker.autoscaling.enabled=false \
+        --set-string ingress.host=localhost
     helm template collabhub charts/collabhub --values charts/collabhub/values-k3d.yaml \
+        --set-string ingress.host=localhost \
         --api-versions keda.sh/v1alpha1 >/dev/null
-    helm lint --quiet charts/collabhub-local "${LOCAL_CHART_FILES[@]}"
+
+    # The Ingress is an allow-list of public prefixes. Nothing internal may ever
+    # be routed from it (Conventions §5.5), and it must always name a host — an
+    # empty host matches every host, which is a collision once two instances
+    # share a cluster. Only routed paths are checked: the template's comments
+    # name the internal paths too, to say they are not routed.
+    local ingress
+    ingress="$(helm template collabhub charts/collabhub \
+        --values charts/collabhub/values-k3d.yaml \
+        --set-string ingress.host=a.localhost \
+        --api-versions keda.sh/v1alpha1 \
+        --show-only templates/ingress.yaml)"
+    if printf '%s\n' "$ingress" |
+        grep -Eq '^[[:space:]]*(-[[:space:]]+)?path:[[:space:]]*"?(/api/v1/internal|/health)'; then
+        die "charts/collabhub's Ingress routes an internal path"
+    fi
+    # Auth's service-token endpoint is under the public /api/v1/auth prefix, but
+    # is for internal callers only (doc 01 §3.1). An Exact route sends it to the
+    # SPA instead — Traefik and ingress-nginx both prefer Exact over Prefix. A
+    # route runs from its `- path:` line to the next one.
+    local token_route
+    token_route="$(printf '%s\n' "$ingress" |
+        awk '$1 == "-" && $2 == "path:" { inside = ($3 == "/api/v1/auth/service-token") } inside')"
+    printf '%s\n' "$token_route" | grep -q 'pathType: Exact' &&
+        printf '%s\n' "$token_route" | grep -q 'name: collabhub-frontend$' ||
+        die "charts/collabhub's Ingress has no Exact route sending /api/v1/auth/service-token to the frontend Service, so its /api/v1/auth Prefix routes it to Auth"
+    printf '%s\n' "$ingress" | grep -q 'host: "a.localhost"' \
+        || die "charts/collabhub's Ingress does not route on its host"
+    # The refusal has to be for the missing host: a render that fails for any
+    # other reason would otherwise pass here.
+    local refused
+    if refused="$(helm template collabhub charts/collabhub \
+        --values charts/collabhub/values-k3d.yaml \
+        --api-versions keda.sh/v1alpha1 2>&1 >/dev/null)"; then
+        die "charts/collabhub rendered an enabled Ingress with no host"
+    fi
+    printf '%s\n' "$refused" | grep -qF 'ingress.host is empty' \
+        || die "charts/collabhub failed to render with no ingress.host, but not because of it: $refused"
+
+    local deps=(charts/collabhub-deps "${DEPS_CHART_FILES[@]}" --set-string origin=http://lab.example)
+    helm lint --quiet "${deps[@]}" --values charts/collabhub-deps/values-k3d.yaml
+    # No credential has a default, so the chart refuses to render without them —
+    # it cannot be installed anywhere by accident with throwaway values (D41).
+    # Helm stops at the first missing value, so each credential is left out in
+    # turn with every other one supplied, and the refusal has to name that one:
+    # a default crept back into any of them, or a render that fails for some
+    # other reason, would otherwise pass here.
+    local i j path others
+    for ((i = 0; i < ${#DEPS_TEST_CREDENTIALS[@]}; i += 2)); do
+        path="${DEPS_TEST_CREDENTIALS[i + 1]%%=*}"
+        others=()
+        for ((j = 0; j < ${#DEPS_TEST_CREDENTIALS[@]}; j += 2)); do
+            [ "$j" -eq "$i" ] || others+=("${DEPS_TEST_CREDENTIALS[@]:j:2}")
+        done
+        if refused="$(helm template collabhub-deps "${deps[@]}" --set-string ingress.className=nginx \
+            ${others[@]+"${others[@]}"} 2>&1 >/dev/null)"; then
+            die "charts/collabhub-deps rendered with no $path"
+        fi
+        printf '%s\n' "$refused" | grep -qF "$path is empty: supply it" \
+            || die "charts/collabhub-deps failed to render without $path, but not because of it: $refused"
+    done
+    # ...and every one of them can arrive on the command line, with no values file.
+    helm template collabhub-deps "${deps[@]}" --set-string ingress.className=nginx \
+        "${DEPS_TEST_CREDENTIALS[@]}" >/dev/null
+
+    # The lab: ingress-nginx, plain HTTP, CollabHub bringing its own dependencies.
+    helm lint --quiet charts/collabhub --values charts/collabhub/values-lab.yaml \
+        --set-string ingress.host=lab.example \
+        --set components.worker.autoscaling.enabled=false
+    helm template collabhub charts/collabhub --values charts/collabhub/values-lab.yaml \
+        --set-string ingress.host=lab.example \
+        --api-versions keda.sh/v1alpha1 >/dev/null
+    helm template collabhub-deps "${deps[@]}" --values charts/collabhub-deps/values-lab.yaml \
+        "${DEPS_TEST_CREDENTIALS[@]}" >/dev/null
 }
 
 layer_unit() {

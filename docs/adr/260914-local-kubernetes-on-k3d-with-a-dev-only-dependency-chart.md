@@ -11,6 +11,7 @@ Elasticsearch and Garage are expected to exist already, because bundling them
 would make `helm uninstall` a data-loss command. The chart has no Secrets either —
 components name theirs in `envFromSecrets` — and no Ingress, because routing is
 per-environment and `/api/v1/internal/` must never be public (Conventions §5.5).
+*(Amended 2026-09-16: the chart now has an opt-in Ingress — see ADR 260916.)*
 
 As a result the chart had never been installed anywhere. There was no environment
 that supplied what it expects, so nobody knew whether its migration story, image
@@ -26,6 +27,8 @@ the environment needs Dex with an issuer URL the browser and Auth agree on.
 platform image.
 
 ## Decision
+
+*(Amended 2026-09-16: `charts/collabhub-local` is now `charts/collabhub-deps`, usable in any environment, with credentials required rather than defaulted — register D41.)*
 
 We will deploy locally to a **k3d cluster**, created by `scripts/deploy.sh` from
 `scripts/k3d/cluster.yaml` with k3s pinned to `v1.36.4-k3s1`. The environment
@@ -47,7 +50,9 @@ development only and is never installed anywhere else.
   `lookup`, so both Auth replicas sign with one key.
 - **One origin.** A Traefik Ingress serves the SPA, the public API prefixes and
   Dex from `http://localhost:8080`. That satisfies D22 with no CORS at all, and
-  nothing routes `/api/v1/internal/`.
+  nothing routes `/api/v1/internal/`. *(Amended 2026-09-16: the SPA and API
+  routes are now `charts/collabhub`'s opt-in Ingress, and this chart routes
+  only `/dex`, on a host taken from `APP_ORIGIN` — ADR 260916.)*
 
 The app chart gained what its first install needed: a release-wide `image.registry`
 and `image.tag`, migration Jobs for Auth and Messaging as `pre-install,pre-upgrade`
@@ -71,8 +76,11 @@ hostnames and `$$` escaping. Dex's config is a third copy beside
 `docker/dex/config.yaml` and `config.test.yaml`, because Dex reads its issuer and
 redirect URIs only from its file. All three must change together.
 
-The frontend image is environment-specific: the `VITE_*` URLs are inlined at build
-time, and `build.sh` defaults them to the k3d origin.
+The frontend image was environment-specific: the `VITE_*` URLs are inlined at
+build time, and `build.sh` defaulted them to the k3d origin. **Superseded
+2026-09-16** — `build.sh` now defaults them to empty, so the SPA calls its APIs
+relative to its own origin and one image serves every single-origin deployment.
+See [ADR 260916](260916-per-environment-values-and-an-opt-in-ingress.md).
 
 Traefik balances across pods itself and ignores anything a Service says about
 affinity. Since Socket.IO became WebSocket-only (register D30) that costs nothing —

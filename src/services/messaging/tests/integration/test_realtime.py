@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
+from urllib.parse import urlsplit
 
 import httpx
 import pytest
@@ -113,6 +114,45 @@ async def test_a_service_token_is_refused(realtime_url, tokens):
             namespace="/messaging",
             auth={"token": tokens.mint(aud="collabhub-internal", sub="service:worker")},
             transports=["websocket"],
+        )
+
+
+async def test_a_proxy_reporting_ws_on_the_upgrade_still_recognises_the_origin(
+    realtime_url, tokens
+):
+    """The bug this guards: Traefik sends `X-Forwarded-Proto: ws` on a WebSocket
+    upgrade, and engine.io's same-origin check (app settings carry no configured
+    CORS origins) must still recognise the browser's own origin rather than
+    building `ws://...` and refusing everything (see `shared.cors`).
+    """
+    parsed = urlsplit(realtime_url)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    client = socketio.AsyncSimpleClient()
+
+    await client.connect(
+        realtime_url,
+        namespace="/messaging",
+        auth={"token": tokens.mint()},
+        transports=["websocket"],
+        headers={"Origin": origin, "X-Forwarded-Proto": "ws"},
+    )
+
+    assert client.connected
+
+    await client.disconnect()
+
+
+async def test_a_foreign_origin_with_the_same_proxy_headers_is_still_refused(realtime_url, tokens):
+    """Guards the fix from going lenient: same-origin only, not any-origin."""
+    client = socketio.AsyncSimpleClient()
+
+    with pytest.raises(socketio.exceptions.ConnectionError):
+        await client.connect(
+            realtime_url,
+            namespace="/messaging",
+            auth={"token": tokens.mint()},
+            transports=["websocket"],
+            headers={"Origin": "http://evil.example", "X-Forwarded-Proto": "ws"},
         )
 
 
