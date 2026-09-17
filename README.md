@@ -134,6 +134,12 @@ The no-argument run is `lint unit integration`. The `e2e` layer is slower — it
 starts a whole Compose stack — so it runs when named, or as part of `all` (see
 [Acceptance tests](#acceptance-tests)).
 
+Every run rewrites [`docs/test-report.md`](docs/test-report.md) after each layer, pass or
+fail: layer results, failures with their messages, the journeys feature by feature, and
+tests and unit coverage per service. Commit it with the change it describes. A layer you
+did not run keeps its last result, marked ⚠️ if that was at another revision, and a run
+narrowed with `--` says so.
+
 Bring up the full stack — Postgres, the three Redis instances, Dex, Garage, Elasticsearch,
 the OTel collector, all five services and the SPA:
 
