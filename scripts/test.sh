@@ -18,6 +18,11 @@
 #   KEEP_STACK=1 leaves the e2e test stack running afterwards, for iterating on
 #                steps. See "Acceptance tests" in README.md.
 #
+# After every layer, pass or fail, the run rewrites docs/test-report.md — the
+# committed report of what each layer last did. Each tool writes its results into
+# build/test-results/ and testkit.report merges them; a layer that did not run
+# this time keeps its last result there, flagged if it is from another revision.
+#
 set -euo pipefail
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -45,6 +50,17 @@ done
 
 require_cmd uv
 cd "$REPO_ROOT"
+
+RESULTS_DIR="$REPO_ROOT/build/test-results"
+REPORT=docs/test-report.md
+
+# The revision the report describes. Like IMAGE_TAG, plus -dirty for uncommitted
+# changes — except to the report itself, or a second run before a commit would
+# call a clean tree dirty.
+REPORT_REVISION="$(git rev-parse --short=12 HEAD)"
+if [ -n "$(git status --porcelain -- . ":(exclude)$REPORT")" ]; then
+    REPORT_REVISION="${REPORT_REVISION}-dirty"
+fi
 
 ensure_node_modules() {
     # CI always installs clean. Locally an existing install is trusted — unless
@@ -182,19 +198,25 @@ layer_lint() {
 layer_unit() {
     require_cmd npm
     log "unit tests: pytest"
-    uv run pytest -m unit --cov --cov-report=term:skip-covered --cov-report=xml \
+    uv run pytest -m unit --cov --cov-report=term:skip-covered \
+        --cov-report="xml:$RESULTS_DIR/unit-python-coverage.xml" \
+        --junitxml="$RESULTS_DIR/unit-python.xml" \
         ${pytest_args[@]+"${pytest_args[@]}"}
 
     log "unit tests: vitest"
     ensure_node_modules
-    (cd src/frontend && npm run --silent test)
+    (cd src/frontend && npm run --silent test -- \
+        --reporter=default --reporter=junit --outputFile.junit="$RESULTS_DIR/unit-frontend.xml" \
+        --coverage.enabled --coverage.reporter=text-summary --coverage.reporter=cobertura \
+        --coverage.reportsDirectory="$RESULTS_DIR/unit-frontend-coverage")
 }
 
 layer_integration() {
     require_cmd docker
     docker info >/dev/null 2>&1 || die "integration tests need Docker, and the daemon is not reachable"
     log "integration tests"
-    uv run pytest -m integration ${pytest_args[@]+"${pytest_args[@]}"}
+    uv run pytest -m integration --junitxml="$RESULTS_DIR/integration.xml" \
+        ${pytest_args[@]+"${pytest_args[@]}"}
 }
 
 # The *test* stack, never the development one. The suite truncates the messaging
@@ -248,7 +270,8 @@ layer_e2e() {
     log "e2e tests"
     # Pointed at tests/bdd so the run does not collect every service's tests only
     # to deselect them. Under `set -e` a failure exits here, through the trap.
-    uv run pytest tests/bdd -m bdd ${pytest_args[@]+"${pytest_args[@]}"}
+    uv run pytest tests/bdd -m bdd --junitxml="$RESULTS_DIR/e2e.xml" \
+        ${pytest_args[@]+"${pytest_args[@]}"}
 
     if [ "${KEEP_STACK:-}" != 1 ]; then
         trap - EXIT
@@ -262,8 +285,43 @@ log "syncing the Python workspace"
 # aiohttp come from, and without them its real-time tests fail to connect.
 uv sync --locked --all-packages --quiet
 
+# Runs one layer and keeps its exit status, so the report is written whether it
+# passed or not. The subshell is what keeps `set -e` working inside the layer: a
+# function called as `layer || status=$?` would run with errexit silently off.
+run_layer() {
+    local layer="$1" status=0 args=()
+    rm -rf "$RESULTS_DIR/$layer".json "$RESULTS_DIR/$layer".xml "$RESULTS_DIR/$layer"-*
+    mkdir -p "$RESULTS_DIR"
+
+    set +e
+    (
+        set -e
+        "layer_$layer"
+    )
+    status=$?
+    set -e
+
+    # Lint takes no pytest arguments, so it cannot have been a filtered run.
+    [ "$layer" = lint ] || args=(${pytest_args[@]+"${pytest_args[@]}"})
+    # A report that fails to write must not turn a failed layer into a pass, or
+    # a passed one into a failure.
+    if uv run python -m testkit.report record "$layer" "$status" "$REPORT_REVISION" \
+        --results "$RESULTS_DIR" -- ${args[@]+"${args[@]}"} &&
+        uv run python -m testkit.report render --results "$RESULTS_DIR" \
+            --out "$REPORT" --revision "$REPORT_REVISION"; then
+        log "report: $REPORT"
+    else
+        log "report: could not write $REPORT"
+    fi
+
+    if [ "$status" -ne 0 ]; then
+        log "failed: $layer — see $REPORT"
+        exit "$status"
+    fi
+}
+
 for layer in "${layers[@]}"; do
-    "layer_$layer"
+    run_layer "$layer"
 done
 
 log "passed: ${layers[*]}"

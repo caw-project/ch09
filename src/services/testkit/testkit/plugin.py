@@ -13,7 +13,10 @@ are refused — asyncio's self-pipe is an AF_UNIX socketpair, so an event loop
 still works — and `DOCKER_HOST` points at an address that cannot resolve,
 because the Docker SDK's default is a Unix socket the guard would let through.
 
-Paths outside `src/services` — the Gherkin suite in `tests/bdd` — are left alone.
+Paths outside `src/services` — the Gherkin suite in `tests/bdd` — are left alone
+by those rules. A Gherkin scenario, wherever it lives, is labelled instead: its
+feature, name, line and tags go into its user properties, which `--junitxml`
+writes out for the test report (`testkit.report`).
 """
 
 from __future__ import annotations
@@ -71,8 +74,29 @@ def layer_of(path: Path, root: Path) -> str | None:
     )
 
 
+def scenario_properties(item: pytest.Item) -> list[tuple[str, str]]:
+    """What the test report needs to place a pytest-bdd scenario; nothing for any other test.
+
+    pytest-bdd's own Cucumber JSON would carry this, but it leaves out a
+    scenario that fails in setup — every scenario, when the stack is down.
+    """
+    scenario = getattr(getattr(item, "obj", None), "__scenario__", None)
+    if scenario is None:
+        return []
+    tags = set(scenario.tags) | set(scenario.feature.tags)
+    if scenario.rule is not None:
+        tags |= set(scenario.rule.tags)
+    return [
+        ("feature", scenario.feature.name or ""),
+        ("scenario", scenario.name),
+        ("line", str(scenario.line_number)),
+        ("tags", " ".join(sorted(tags))),
+    ]
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     for item in items:
+        item.user_properties.extend(scenario_properties(item))
         layer = layer_of(item.path, config.rootpath)
         if layer is None:
             continue

@@ -186,6 +186,15 @@ scripts/test.sh all              # all four layers — what CI runs
 (cd src/frontend && npm test)    # Vitest only; `npm run test:watch` while working
 ```
 
+**Every `scripts/test.sh` run rewrites `docs/test-report.md`**, after each layer and
+whether it passed or not — it is committed, and it is the feedback until CI exists.
+Each tool writes JUnit and coverage XML into `build/test-results/` and
+`testkit.report` merges them; a layer not run this time keeps its last result there.
+The report leaves out timestamps and durations so its diff shows only changed
+results — keep it that way. Never edit it by hand. `testkit.plugin` labels each
+Gherkin scenario with its feature, name, line and tags in the JUnit file, because
+pytest-bdd's Cucumber JSON drops a scenario that fails in setup.
+
 **The SPA's unit tests are Vitest**, beside their source as `Foo.test.tsx`, with the
 helpers in `src/frontend/src/test/`:
 - `renderWithProviders` / `renderHookWithProviders` give a fresh `QueryClient` per test.
