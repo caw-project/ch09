@@ -6,10 +6,10 @@ kind: Service
 metadata:
   name: elasticsearch
   labels:
-    {{- include "collabhub-local.labels" $ctx | nindent 4 }}
+    {{- include "collabhub-deps.labels" $ctx | nindent 4 }}
 spec:
   selector:
-    {{- include "collabhub-local.selectorLabels" $ctx | nindent 4 }}
+    {{- include "collabhub-deps.selectorLabels" $ctx | nindent 4 }}
   ports:
     - name: http
       port: 9200
@@ -20,16 +20,16 @@ kind: Deployment
 metadata:
   name: elasticsearch
   labels:
-    {{- include "collabhub-local.labels" $ctx | nindent 4 }}
+    {{- include "collabhub-deps.labels" $ctx | nindent 4 }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      {{- include "collabhub-local.selectorLabels" $ctx | nindent 6 }}
+      {{- include "collabhub-deps.selectorLabels" $ctx | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "collabhub-local.selectorLabels" $ctx | nindent 8 }}
+        {{- include "collabhub-deps.selectorLabels" $ctx | nindent 8 }}
     spec:
       containers:
         - name: elasticsearch

@@ -8,10 +8,9 @@
  */
 
 import { problemFrom } from '../api/client'
+import { AUTH_URL } from '../config'
 
 export { ProblemError } from '../api/client'
-
-const AUTH_URL: string = import.meta.env.VITE_AUTH_URL ?? 'http://localhost:8001'
 
 /**
  * What a sign-in returns. There is no refresh token here — it arrives as an

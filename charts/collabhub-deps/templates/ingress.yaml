@@ -1,0 +1,29 @@
+{{- $ctx := dict "root" $ "name" "dex" }}
+{{- $origin := required "origin is empty: set it to APP_ORIGIN, as scripts/deploy.sh does" .Values.origin }}
+{{- $host := regexReplaceAll "^[a-z]+://([^:/]+).*$" $origin "${1}" }}
+# Dex on the instance's own origin, beside the Ingress charts/collabhub renders
+# for the SPA and the APIs. Ingress controllers merge rules for one host across
+# Ingress objects, so the browser sees a single origin, and the app chart never
+# has to know which identity provider an environment runs.
+#
+# Its issuer is `origin`/dex, so the host routed here and the host in Dex's
+# config are the same value by construction.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dex
+  labels:
+    {{- include "collabhub-deps.labels" $ctx | nindent 4 }}
+spec:
+  ingressClassName: {{ required "ingress.className is empty" .Values.ingress.className }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: /dex
+            pathType: Prefix
+            backend:
+              service:
+                name: dex
+                port:
+                  name: http

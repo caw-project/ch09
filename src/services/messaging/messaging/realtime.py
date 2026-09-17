@@ -54,7 +54,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from messaging import channels
 from messaging.schemas import MessageResponse
 from messaging.settings import Settings
-from shared import JobQueue, ProblemException, SecurityContext, problem_body, verify_user_token
+from shared import (
+    JobQueue,
+    ProblemException,
+    SecurityContext,
+    problem_body,
+    socket_allowed_origins,
+    verify_user_token,
+)
 
 _log = logging.getLogger("collabhub.messaging.realtime")
 
@@ -157,12 +164,19 @@ def build_server(context: RealtimeContext) -> socketio.AsyncServer:
         client_manager=socketio.AsyncRedisManager(
             context.settings.redis_realtime_url, channel=BACKPLANE_CHANNEL
         ),
-        # **`or None`, and the distinction is load-bearing.** Conventions §5.6
-        # makes an empty list mean "install no CORS at all" — a service behind
-        # one ingress shares its SPA's origin. engine.io reads an empty list as
-        # an allow-list containing nothing and refuses every browser handshake
-        # with a 400. `None` is its spelling of "same origin only".
-        cors_allowed_origins=context.settings.cors_allowed_origins or None,
+        # **Never the bare list, and the distinction is load-bearing.**
+        # Conventions §5.6 makes an empty `cors_allowed_origins` mean "install
+        # no CORS at all" — a service behind one ingress shares its SPA's
+        # origin — not "allow nothing"; engine.io reads an empty list as the
+        # latter and refuses every browser handshake. `socket_allowed_origins`
+        # turns that empty case into a same-origin predicate instead of `None`,
+        # because engine.io's own idea of "same origin" is built from
+        # `X-Forwarded-Proto`, and a proxy reports that header verbatim — a
+        # WebSocket upgrade through Traefik carries `X-Forwarded-Proto: ws`,
+        # which would otherwise make engine.io compare the browser's
+        # `Origin: http://host` against a `ws://host` it built for itself and
+        # refuse everything. See `shared.cors` for the same-origin rules.
+        cors_allowed_origins=socket_allowed_origins(context.settings.cors_allowed_origins),
         # WebSocket only (register D30). A long-polling session needs every
         # request to reach the same pod, and nothing in front of this service
         # promises that — so the server refuses polling rather than trusting

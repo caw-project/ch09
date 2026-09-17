@@ -1,0 +1,96 @@
+# charts/collabhub-deps — what CollabHub needs around it in an environment that
+# provides nothing but an ingress controller. Installed by `scripts/deploy.sh
+# infra`, before the app chart, once per instance namespace.
+#
+# charts/collabhub deliberately leaves the data stores, Secrets and the identity
+# provider to each environment. This chart is one answer to all three, suitable
+# for k3d and for a lab — not for production: nothing is backed up, Dex is a
+# password database of demo accounts, and the Secrets are rendered from values
+# rather than a secret store (register D41).
+#
+# **No credential has a default.** Each is a required scalar, so it can come from
+# a values file (values-k3d.yaml has throwaway ones) or from
+# `--set-string <path>=<value>` — `scripts/deploy.sh infra -- --set-string ...`.
+# The chart refuses to render until every one is supplied, naming the path.
+#
+# Images match docker-compose.yml; both follow docs/platform/versions.md.
+
+# The app chart's release. Its Services are `<release>-<component>`, and its
+# `envFromSecrets` expects Secrets with the same names.
+appRelease: collabhub
+
+# The origin the browser uses. Dex's issuer, every redirect URI and the Dex
+# Ingress host are built from it. Required: scripts/deploy.sh sets it from
+# APP_ORIGIN.
+origin: ""
+
+ingress:
+  # Required: the IngressClass that routes this environment's origin.
+  className: ""
+
+postgres:
+  image: postgres:18
+  user: collabhub
+  # Required. Goes into a DSN unescaped, so keep it URL-safe: letters, digits, - _ . ~
+  password: ""
+  storage: 5Gi
+  # Supplied with --set-file from docker/postgres/init.sql, so the list of
+  # databases lives in one place.
+  initSql: ""
+
+redis:
+  image: redis:8
+  # Three instances, not interchangeable (Conventions §7). The names match
+  # docker-compose.yml, so the URLs match .env.example. Only streams persists —
+  # an unacked job is work; a cache and a backplane are not.
+  instances:
+    - name: redis-cache
+      persistent: false
+    - name: redis-rt
+      persistent: false
+    - name: redis-streams
+      persistent: true
+  storage: 1Gi
+
+elasticsearch:
+  image: docker.elastic.co/elasticsearch/elasticsearch:9.4.3
+  heap: 512m
+
+garage:
+  image: dxflrs/garage:v2.3.0
+  # Supplied with --set-file from docker/garage/garage.toml.
+  config: ""
+  # Required. Reach Garage as GARAGE_ADMIN_TOKEN and GARAGE_RPC_SECRET, which
+  # replace the literals in the --set-file garage.toml.
+  adminToken: ""
+  # Required. 64 hex digits.
+  rpcSecret: ""
+  storage: 2Gi
+  bucket: collabhub-assets
+  # Required. Garage's own formats: `GK` + 24 hex digits, and 64 hex digits.
+  accessKeyId: ""
+  secretAccessKey: ""
+  # The bootstrap Job talks to Garage's admin API from Python. The Garage image
+  # has no shell, and this image is already pulled for every service.
+  bootstrapImage: python:3.12-slim
+
+dex:
+  image: ghcr.io/dexidp/dex:v2.45.1
+  # Required.
+  clientSecret: ""
+  # Required. A bcrypt hash — single-quote it on a command line, it is full of `$`.
+  passwordHash: ""
+
+otelCollector:
+  image: otel/opentelemetry-collector-contrib:0.156.0
+  # Supplied with --set-file from docker/otel-collector/config.yaml.
+  config: ""
+
+# Required. The Worker's client-credentials secret (Conventions §5.5).
+workerClientSecret: ""
+
+auth:
+  # Optional: Auth's RS256 signing key as PEM, e.g.
+  # `--set-file auth.signingKey=signing.pem`. Empty means generate one on first
+  # install and keep it across upgrades.
+  signingKey: ""

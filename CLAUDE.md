@@ -20,7 +20,7 @@ docker/                 # one folder per component, holding its Dockerfile and a
 docker-compose.yml      # repo root — Postgres, 3x Redis, Garage, Elasticsearch, OTel collector
 docker-compose.test.yml # override: a second, throwaway stack for tests/bdd
 charts/collabhub/       # a single Helm chart for the whole app
-charts/collabhub-local/ # DEV ONLY — data stores, Dex, Secrets, Ingress for the local k3d cluster
+charts/collabhub-deps/  # data stores, Dex, Secrets, Dex's Ingress — any environment; credentials required (D41)
 scripts/                # build.sh, test.sh, deploy.sh — developers and CI call the same ones
 docs/
 ```
@@ -28,8 +28,8 @@ docs/
 **`scripts/` is the entry point for building, checking and deploying.** CI runs the
 same scripts, so a step that only exists in a pipeline file, or only in the README,
 is a bug. They are bash 3.2-compatible (macOS), share `scripts/lib/common.sh`, and
-take their overridable settings — `IMAGE_REGISTRY`, `IMAGE_TAG`, `KUBE_CONTEXT` —
-from the environment.
+take their overridable settings — `IMAGE_REGISTRY`, `IMAGE_TAG`, `KUBE_CONTEXT`,
+`DEPLOY_ENV`, `NAMESPACE`, `APP_ORIGIN` — from the environment.
 
 Per-service tests live beside their service, in `src/services/*/tests/unit/` and
 `tests/integration/`. **The directory decides the layer**: `testkit`'s pytest
@@ -45,9 +45,9 @@ The root suite avoids the clash by being importable as `bdd.*` (`pythonpath = ["
 
 `charts/collabhub` has **dedicated templates per component** under `templates/<component>/`, not one set of templates ranging over a values map. They start near-identical and are expected to diverge — the Worker runs as KEDA-scaled pools, every component has its own NetworkPolicy, the frontend has no ConfigMap.
 
-The chart deploys CollabHub's own workloads only. Postgres, Redis, Elasticsearch and Garage are expected to exist already; bundling them would make `helm uninstall` a data-loss command. There is no Ingress in the chart — routing is per-environment, and `/api/v1/internal/` must never be reachable from the public one.
+The chart deploys CollabHub's own workloads only. Postgres, Redis, Elasticsearch and Garage are expected to exist already; bundling them would make `helm uninstall` a data-loss command. The chart's Ingress is opt-in (D40): its public-prefix allow-list lives in `templates/ingress.yaml`, so `/api/v1/internal/` is never routable; the host comes from `APP_ORIGIN` and never from a values file.
 
-`charts/collabhub-local` is the local k3d environment's answer to all of that — the data stores, Dex, the Secrets the app chart's `envFromSecrets` names, and a single-origin Ingress. **It is development only and must never be installed anywhere else**: throwaway credentials, demo accounts, no backups. `scripts/deploy.sh` refuses any context but `k3d-collabhub`. Its Dex config is a third copy beside `docker/dex/config.yaml` and `config.test.yaml` — change all three together. Gaps a deploy finds in `charts/collabhub` get fixed in that chart, never worked around in the scripts or the local chart.
+`charts/collabhub-deps` is an environment's answer to all of that — the data stores, Dex, the Secrets the app chart's `envFromSecrets` names, and Dex's Ingress on the instance's host. **No credential has a default** (D41): `values-k3d.yaml` carries throwaway ones and is development only; any other environment supplies them with `scripts/deploy.sh infra -- --set-string <path>=<value>`. `scripts/deploy.sh` refuses k3d values on any context but `k3d-collabhub`, and any other environment's values on it. Its Dex config is a third copy beside `docker/dex/config.yaml` and `config.test.yaml` — change all three together. Gaps a deploy finds in `charts/collabhub` get fixed in that chart, never worked around in the scripts or the dependency chart.
 
 Service names drop the `collabhub-` prefix used in the design docs (`src/services/auth`, not `collabhub-auth`).
 
@@ -98,7 +98,7 @@ Library versions (FastAPI, SQLAlchemy, React) are out of that file's scope — p
 
 `docs/design/07-open-decisions-register.md` is the live register. 🟢 is settled and safe to build against; 🟡 has a working default baked into the design docs — proceed on those; 🔴 has no answer, so stop and ask rather than picking one silently. Much of the register is still 🟡 or 🔴.
 
-Settled so far: D1 denylist fail-open with a fail-closed set · D2 one workspace per token · D5 Auth federates to an upstream IdP and is never a provider · D8d no edit/delete window, author edits own, author or channel admin deletes, tombstones retained in history · D9 canvas state as `bytea` · D14 Worker write-back via internal endpoint plus service token · D22 refresh token in an `HttpOnly` cookie (which requires the SPA and API to be same-site) · D24 TanStack Query + Zustand · D25 job payloads carry what the producer holds · D26 Tailwind v4 · D27 pytest-bdd + Playwright · D31 read state follows channel visibility, with a forward-only marker · D36 a workspace admin, not only an owner, may grant and remove `owner`.
+Settled so far: D1 denylist fail-open with a fail-closed set · D2 one workspace per token · D5 Auth federates to an upstream IdP and is never a provider · D8d no edit/delete window, author edits own, author or channel admin deletes, tombstones retained in history · D9 canvas state as `bytea` · D14 Worker write-back via internal endpoint plus service token · D22 refresh token in an `HttpOnly` cookie (which requires the SPA and API to be same-site) · D24 TanStack Query + Zustand · D25 job payloads carry what the producer holds · D26 Tailwind v4 · D27 pytest-bdd + Playwright · D31 read state follows channel visibility, with a forward-only marker · D36 a workspace admin, not only an owner, may grant and remove `owner` · D40 deploy any environment from one set of images, identified by APP_ORIGIN and NAMESPACE · D41 the dependency chart serves any environment, credentials required · D42 the lab (plain HTTP) runs the refresh cookie without Secure; nowhere else.
 
 D8d settles the *semantics* only. **How long a tombstone is kept before hard deletion is D16, still 🔴** — nothing deletes one, and a deleted message's text is still in its row.
 

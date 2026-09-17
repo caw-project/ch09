@@ -11,7 +11,7 @@ and structlog + OpenTelemetry setup.
 See docs/design/00-platform-conventions.md.
 """
 
-from shared.cors import install_cors
+from shared.cors import install_cors, socket_allowed_origins
 from shared.denylist import Denylist, TokenState
 from shared.health import HealthCheck, build_health_router, http_check, postgres_check, redis_check
 from shared.ids import uuid7
@@ -99,6 +99,7 @@ __all__ = [
     "require_service",
     "require_user",
     "require_user_sensitive",
+    "socket_allowed_origins",
     "trace_id",
     "uuid7",
     "verify_user_token",

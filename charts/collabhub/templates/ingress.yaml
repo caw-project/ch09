@@ -1,0 +1,87 @@
+{{- if .Values.ingress.enabled }}
+{{- $ctx := dict "root" $ "name" "ingress" }}
+{{- $components := .Values.components }}
+{{- $host := required "ingress.host is empty: set it to the host part of APP_ORIGIN, as scripts/deploy.sh does" .Values.ingress.host }}
+# The public routes, and only those (register D40).
+#
+# An allow-list, so what is not here is not reachable: the internal API
+# (Conventions §5.5) and the health-check endpoints fall through to the SPA's
+# index.html and never reach a service. Adding a prefix here is how an API
+# becomes public.
+#
+# One origin for the SPA and every public API. Register D22 needs them
+# same-site — the refresh cookie is SameSite=Strict — and one origin needs no
+# CORS at all. The identity provider is not routed here: it is a dependency, and
+# the chart that deploys it routes it on the same host.
+#
+# Canvas and Asset have no public API yet. When Canvas gains real-time it will
+# want /socket.io too, which Messaging already holds.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "collabhub.fullname" . }}
+  labels:
+    {{- include "collabhub.labels" $ctx | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ $host | quote }}
+      secretName: {{ required "ingress.tls.secretName is empty and ingress.tls.enabled is true" .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          {{- if $components.auth.enabled }}
+          {{- $auth := include "collabhub.componentFullname" (dict "root" $ "name" "auth") }}
+          {{- range list "/api/v1/auth" "/api/v1/users" "/api/v1/workspaces" "/.well-known" }}
+          - path: {{ . }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $auth }}
+                port:
+                  name: http
+          {{- end }}
+          {{- end }}
+          {{- if $components.messaging.enabled }}
+          {{- $messaging := include "collabhub.componentFullname" (dict "root" $ "name" "messaging") }}
+          {{- range list "/api/v1/channels" "/api/v1/messages" "/api/v1/search" "/socket.io" }}
+          - path: {{ . }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $messaging }}
+                port:
+                  name: http
+          {{- end }}
+          {{- end }}
+          {{- if $components.frontend.enabled }}
+          # Exact beats Prefix in both Traefik and ingress-nginx, so the internal-only
+          # service-token endpoint (design doc 01) falls through to the SPA's index.html
+          # instead of reaching Auth. The route list is only public-facing when the
+          # frontend (the catch-all) is enabled.
+          - path: /api/v1/auth/service-token
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "collabhub.componentFullname" (dict "root" $ "name" "frontend") }}
+                port:
+                  name: http
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "collabhub.componentFullname" (dict "root" $ "name" "frontend") }}
+                port:
+                  name: http
+          {{- end }}
+{{- end }}

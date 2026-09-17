@@ -1,0 +1,19 @@
+# charts/collabhub-deps on the lab cluster. Layered over values.yaml by
+# scripts/deploy.sh when DEPLOY_ENV=lab.
+#
+# **No credentials here** (register D41). Supply every one on the command line:
+#
+#   DEPLOY_ENV=lab APP_ORIGIN=http://<host> KUBE_CONTEXT=<lab> scripts/deploy.sh infra -- \
+#     --set-string postgres.password=... \
+#     --set-string garage.adminToken=... \
+#     --set-string garage.rpcSecret=<64 hex> \
+#     --set-string garage.accessKeyId=GK<24 hex> \
+#     --set-string garage.secretAccessKey=<64 hex> \
+#     --set-string dex.clientSecret=... \
+#     --set-string 'dex.passwordHash=<bcrypt>' \
+#     --set-string workerClientSecret=...
+#
+# The render fails naming whichever is missing.
+
+ingress:
+  className: nginx

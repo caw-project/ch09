@@ -94,7 +94,9 @@ actually proxies the traffic. It was rejected because it lives entirely
 outside this chart — the chart deploys no Ingress by design (routing is
 per-environment) — so the fix would be an annotation an operator must
 remember to add correctly in every environment, forever, with no chart-level
-enforcement and no test that could catch its absence. It also does nothing to
+enforcement and no test that could catch its absence. *(Amended 2026-09-16: the
+chart now has an opt-in Ingress, with annotations still per environment — see
+ADR 260916.)* It also does nothing to
 fix the misleading `sessionAffinity: ClientIP` already sitting in the chart,
 which would keep implying a protection it does not provide.
 

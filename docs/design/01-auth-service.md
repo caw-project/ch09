@@ -336,7 +336,7 @@ Common vars per Conventions §8, plus:
 | `AUTH_CODE_TTL_SECONDS` | Default 60. How long the SPA has to spend its authorization code. |
 | `SAML_{PROVIDER}_METADATA_URL` | Per SAML IdP. SAML is undecided (register D6). |
 | `SPA_REDIRECT_URI` | The **only** post-login redirect target. Never taken from a request, so there is no open redirect to validate against a list. |
-| `AUTH_COOKIE_SECURE` | Default true, everywhere. Only reason to disable is a browser that refuses `Secure` on `http://localhost`; doing so in a deployed environment puts the session token on the wire in clear. |
+| `AUTH_COOKIE_SECURE` | Default true, everywhere but the lab. Only reason to disable is a browser that refuses `Secure` on `http://localhost`; doing so in a deployed environment puts the session token on the wire in clear. **The lab is the one exception** (register [D42](07-open-decisions-register.md), [ADR](../adr/260916-per-environment-values-and-an-opt-in-ingress.md)): it is plain HTTP on a real hostname, and browsers exempt only `http://localhost` from `Secure`, so with it on the refresh cookie is dropped and every session ends at its first renewal. `charts/collabhub/values-lab.yaml` sets it `false`, and the thirty-day refresh token travels the lab's network in clear — acceptable only on a trusted network, never anywhere reachable from outside one. |
 | `CORS_ALLOWED_ORIGINS` | Browser origins allowed to call this service. Empty installs no CORS middleware at all, which is right when the SPA and API share an origin behind one ingress. Never `*`. |
 
 ---

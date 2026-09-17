@@ -17,9 +17,10 @@ body (register D22), so this script keeps a cookie jar the way a browser would.
 `--refresh-cookie` prints that value, which is the one thing a browser would
 never reveal — it exists so `api.http` can send a `Cookie` header by hand.
 
-It only works against a local stack with Dex's static passwords. There is
-nothing here that would work against a real identity provider, and that is the
-point: this is a development convenience, not a supported grant.
+It works against a local stack with Dex's static passwords, or a k3d instance
+on one origin with `--auth-url` set to that origin. There is nothing here that
+would work against a real identity provider, and that is the point: this is a
+development convenience, not a supported grant.
 """
 
 from __future__ import annotations
@@ -59,11 +60,32 @@ def b64url(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
 
 
-def follow_within(client: httpx.Client, response: httpx.Response, host: str) -> httpx.Response:
-    """Follow redirects while they stay on `host`; stop at the first that leaves."""
+def idp_root(authorize: httpx.URL) -> httpx.URL:
+    """The IdP as an origin plus a path: Dex's `/dex/auth` makes it everything under `/dex/`.
+
+    The host is not enough. Behind one ingress Dex and Auth share it, and the
+    redirect from Dex to Auth's callback leaves Dex only by its path.
+    """
+    directory = authorize.path.rsplit("/", 1)[0] + "/"
+    return httpx.URL(
+        scheme=authorize.scheme, host=authorize.host, port=authorize.port, path=directory
+    )
+
+
+def within_idp(target: httpx.URL, idp: httpx.URL) -> bool:
+    return (
+        target.scheme == idp.scheme
+        and target.host == idp.host
+        and target.port == idp.port
+        and target.path.startswith(idp.path)
+    )
+
+
+def follow_within(client: httpx.Client, response: httpx.Response, idp: httpx.URL) -> httpx.Response:
+    """Follow redirects while they stay inside the IdP; stop at the first that leaves."""
     while response.status_code in REDIRECTS:
         target = response.url.join(response.headers["location"])
-        if target.host != host or target.port != response.url.port:
+        if not within_idp(target, idp):
             return response
         response = client.get(target)
     return response
@@ -83,10 +105,10 @@ def sign_in(auth_url: str, provider: str, email: str, password: str) -> dict:
                 f"/auth/login/{provider} answered {started.status_code}: {started.text}"
             )
 
-        authorize = started.headers["location"]
-        idp_host = urlparse(authorize).hostname
+        authorize = httpx.URL(started.headers["location"])
+        idp = idp_root(authorize)
 
-        page = follow_within(client, client.get(authorize), idp_host)
+        page = follow_within(client, client.get(authorize), idp)
         match = FORM_ACTION.search(page.text)
         if match is None:
             raise SystemExit(
@@ -95,7 +117,7 @@ def sign_in(auth_url: str, provider: str, email: str, password: str) -> dict:
 
         action = page.url.join(match.group(1).replace("&amp;", "&"))
         submitted = client.post(action, data={"login": email, "password": password})
-        final = follow_within(client, submitted, idp_host)
+        final = follow_within(client, submitted, idp)
 
         if final.status_code not in REDIRECTS:
             raise SystemExit(f"sign-in failed — check the email and password:\n{final.text[:400]}")

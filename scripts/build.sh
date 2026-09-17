@@ -7,7 +7,9 @@
 #
 # Images are tagged ${IMAGE_REGISTRY}/collabhub/<component>:${IMAGE_TAG}; the
 # defaults are in scripts/lib/common.sh. The frontend's VITE_* URLs default to
-# the k3d origin — override them to build the SPA for somewhere else.
+# empty, so the SPA calls every API on its own origin and one image serves any
+# environment behind a single ingress. Export them only to build for a stack
+# that is not same-origin.
 set -euo pipefail
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -43,13 +45,14 @@ for component in "${selected[@]}"; do
         --label "org.opencontainers.image.revision=$revision"
     )
     if [ "$component" = frontend ]; then
-        # Vite inlines these into the bundle, so the image belongs to one
-        # environment. Behind the k3d Ingress every API is same-origin.
+        # Vite inlines these into the bundle. Empty means "same origin": every
+        # call is relative to the page, so the image carries no environment and
+        # the Ingress decides where it lives (register D40).
         args+=(
-            --build-arg "VITE_AUTH_URL=${VITE_AUTH_URL:-$K3D_ORIGIN}"
-            --build-arg "VITE_MESSAGING_URL=${VITE_MESSAGING_URL:-$K3D_ORIGIN}"
-            --build-arg "VITE_CANVAS_URL=${VITE_CANVAS_URL:-$K3D_ORIGIN}"
-            --build-arg "VITE_ASSET_URL=${VITE_ASSET_URL:-$K3D_ORIGIN}"
+            --build-arg "VITE_AUTH_URL=${VITE_AUTH_URL-}"
+            --build-arg "VITE_MESSAGING_URL=${VITE_MESSAGING_URL-}"
+            --build-arg "VITE_CANVAS_URL=${VITE_CANVAS_URL-}"
+            --build-arg "VITE_ASSET_URL=${VITE_ASSET_URL-}"
         )
     fi
 

@@ -10,10 +10,10 @@ kind: Secret
 metadata:
   name: dex
   labels:
-    {{- include "collabhub-local.labels" $ctx | nindent 4 }}
+    {{- include "collabhub-deps.labels" $ctx | nindent 4 }}
 type: Opaque
 stringData:
-  DEX_PASSWORD_HASH: {{ .Values.dex.passwordHash | quote }}
+  DEX_PASSWORD_HASH: {{ include "collabhub-deps.credential" (dict "path" "dex.passwordHash" "value" .Values.dex.passwordHash) | quote }}
   # THIRD COPY — keep in step with docker/dex/config.yaml and config.test.yaml.
   # Dex reads its issuer and redirect URIs only from this file, never from the
   # environment, so every place it runs needs its own. Only those URLs differ.
@@ -37,7 +37,7 @@ stringData:
     staticClients:
       - id: collabhub-auth
         name: CollabHub
-        secret: {{ .Values.dex.clientSecret }}
+        secret: {{ include "collabhub-deps.credential" (dict "path" "dex.clientSecret" "value" .Values.dex.clientSecret) | quote }}
         redirectURIs:
           - {{ .Values.origin }}/api/v1/auth/callback/dex
 
@@ -62,10 +62,10 @@ kind: Service
 metadata:
   name: dex
   labels:
-    {{- include "collabhub-local.labels" $ctx | nindent 4 }}
+    {{- include "collabhub-deps.labels" $ctx | nindent 4 }}
 spec:
   selector:
-    {{- include "collabhub-local.selectorLabels" $ctx | nindent 4 }}
+    {{- include "collabhub-deps.selectorLabels" $ctx | nindent 4 }}
   ports:
     - name: http
       port: 5556
@@ -76,19 +76,19 @@ kind: Deployment
 metadata:
   name: dex
   labels:
-    {{- include "collabhub-local.labels" $ctx | nindent 4 }}
+    {{- include "collabhub-deps.labels" $ctx | nindent 4 }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      {{- include "collabhub-local.selectorLabels" $ctx | nindent 6 }}
+      {{- include "collabhub-deps.selectorLabels" $ctx | nindent 6 }}
   template:
     metadata:
       annotations:
         # In-memory storage, so the config is re-read only on a restart.
         checksum/config: {{ list .Values.origin .Values.dex | toJson | sha256sum }}
       labels:
-        {{- include "collabhub-local.selectorLabels" $ctx | nindent 8 }}
+        {{- include "collabhub-deps.selectorLabels" $ctx | nindent 8 }}
     spec:
       containers:
         - name: dex

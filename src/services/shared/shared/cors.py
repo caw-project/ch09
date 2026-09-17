@@ -30,6 +30,9 @@ which owns that constraint.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
@@ -56,3 +59,48 @@ def install_cors(app: FastAPI, *, origins: list[str]) -> None:
         allow_headers=ALLOWED_HEADERS,
         max_age=600,
     )
+
+
+def socket_allowed_origins(
+    origins: list[str],
+) -> list[str] | Callable[[str, dict[str, Any]], bool]:
+    """engine.io's own origin check for the `/messaging` socket — separate from,
+    and stricter than, `install_cors`'s middleware.
+
+    Configured origins come back unchanged: engine.io accepts a list exactly as
+    `CORSMiddleware` does. The interesting case is the deployed one, where
+    Conventions §5.6 says an empty `CORS_ALLOWED_ORIGINS` means "same origin",
+    not "allow nothing" — but engine.io's own idea of "same origin" is built
+    from `X-Forwarded-Proto`, and a proxy reports that header verbatim from the
+    request it received. Traefik's WebSocket upgrades carry
+    `X-Forwarded-Proto: ws`, so engine.io's default check compares the browser's
+    `Origin: http://host` against a `ws://host` it built for itself, and refuses
+    every handshake behind the proxy.
+
+    So an empty list returns a predicate instead of `None`: it rebuilds the
+    origin the same way, but treats `ws`/`wss` as naming the same origin as
+    `http`/`https` — a WebSocket scheme is not a different site, only the
+    upgraded form of the one the browser already trusted. Everything else is
+    exact: no wildcard, no port or scheme leniency beyond that one mapping, and
+    a chain of forwarded hosts uses only the first — the client-facing hop.
+    """
+    if origins:
+        return origins
+
+    def same_origin(origin: str, environ: dict[str, Any]) -> bool:
+        forwarded_host = environ.get("HTTP_X_FORWARDED_HOST")
+        host = (
+            forwarded_host.split(",")[0].strip() if forwarded_host else environ.get("HTTP_HOST", "")
+        )
+
+        forwarded_proto = environ.get("HTTP_X_FORWARDED_PROTO")
+        scheme = (
+            forwarded_proto.split(",")[0].strip()
+            if forwarded_proto
+            else environ.get("wsgi.url_scheme", "http")
+        )
+        scheme = {"ws": "http", "wss": "https"}.get(scheme, scheme)
+
+        return origin == f"{scheme}://{host}"
+
+    return same_origin

@@ -1,0 +1,32 @@
+# charts/collabhub-deps on the local k3d cluster — DEV ONLY. Layered over
+# values.yaml by scripts/deploy.sh when DEPLOY_ENV=k3d, which refuses any
+# context but k3d-collabhub.
+#
+# Every credential here is a throwaway, and Dex is full of demo accounts. They
+# repeat .env.example, which cannot be read directly: it carries Compose
+# hostnames and `$$` escaping. Any of them can still be overridden per instance
+# with `scripts/deploy.sh infra -- --set-string <path>=<value>`.
+
+ingress:
+  className: traefik
+
+postgres:
+  password: collabhub
+
+garage:
+  # The same values docker/garage/garage.toml carries for Compose. Here they reach
+  # Garage as GARAGE_ADMIN_TOKEN and GARAGE_RPC_SECRET, which replace the file's.
+  adminToken: collabhub-local-admin-token
+  rpcSecret: "0000000000000000000000000000000000000000000000000000000000000001" # gitleaks:allow — local dev secret
+  # Garage only accepts keys in its own format — `GK` plus 24 hex digits, and a
+  # 64-hex-digit secret — so .env.example's `collabhub-local` cannot be imported.
+  accessKeyId: GK00000000000000000c011ab0 # gitleaks:allow — local dev key
+  secretAccessKey: "00000000000000000000000000000000000000000000000000000000c011ab00" # gitleaks:allow
+
+dex:
+  clientSecret: collabhub-local-secret
+  # bcrypt of the shared password "collabhub". Single `$`s: the doubling in
+  # .env.example is Compose escaping and does not apply here.
+  passwordHash: "$2b$10$AjNda/ZYuDZgz2nQA9lAPOb3Y.uGW4xYCWXG8wTfnyb9KjviceU/S"
+
+workerClientSecret: worker-local-secret

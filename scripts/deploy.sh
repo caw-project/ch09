@@ -1,22 +1,31 @@
 #!/usr/bin/env bash
-# Deploy CollabHub to a local k3d cluster with Helm. Developers and CI run this
-# same script.
+# Deploy CollabHub to Kubernetes with Helm. Developers and CI run this same
+# script.
 #
 #   scripts/deploy.sh [up]     cluster, then infra, then app. Re-run to upgrade
 #   scripts/deploy.sh cluster  create the k3d cluster and its image registry
-#   scripts/deploy.sh infra    KEDA, then data stores, Dex, Secrets, Ingress (charts/collabhub-local)
+#   scripts/deploy.sh infra    KEDA, then data stores, Dex, Secrets and Dex's Ingress
 #   scripts/deploy.sh app      CollabHub itself (charts/collabhub) at IMAGE_TAG
-#   scripts/deploy.sh status   releases, pods and jobs
-#   scripts/deploy.sh down     delete the cluster, its registry and all its data
+#   scripts/deploy.sh status   releases, pods, jobs and ingresses
+#   scripts/deploy.sh down     delete the k3d cluster, its registry and all its data
+#
+#   scripts/deploy.sh infra -- --set-string postgres.password=...
+#                              anything after -- goes to that command's helm call
+#
+# One instance per NAMESPACE, reached on APP_ORIGIN; DEPLOY_ENV picks the values
+# files. Two instances on one k3d cluster:
+#
+#   NAMESPACE=collabhub-a APP_ORIGIN=http://a.localhost:8080 scripts/deploy.sh up
+#   NAMESPACE=collabhub-b APP_ORIGIN=http://b.localhost:8080 scripts/deploy.sh up
 #
 # The images must already be in the registry — run scripts/build.sh --push
-# first. CollabHub is then served at http://localhost:8080.
+# first. With no overrides CollabHub is served at http://localhost:8080.
 set -euo pipefail
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
 APP_RELEASE=collabhub
-LOCAL_RELEASE=collabhub-local
+DEPS_RELEASE=collabhub-deps
 
 # Every call names its context. A developer's current context may be a real
 # cluster, and none of this should ever follow it there.
@@ -25,10 +34,44 @@ helm_ns() { helm --kube-context "$KUBE_CONTEXT" --namespace "$NAMESPACE" "$@"; }
 
 is_local_cluster() { [ "$KUBE_CONTEXT" = "k3d-$K3D_CLUSTER" ]; }
 
-# charts/collabhub-local carries throwaway credentials and a Dex full of demo
-# accounts, and `down` deletes everything. Neither may touch a shared cluster.
+# `cluster` creates the k3d cluster and `down` deletes it, with everything in it.
+# Neither may touch a shared cluster. `infra` and `app` are guarded by
+# require_matching_context instead.
 require_local_cluster() {
     is_local_cluster || die "'$1' only targets the local k3d cluster, and KUBE_CONTEXT is '$KUBE_CONTEXT'"
+}
+
+# Only k3d has a default origin. Anywhere else the origin is the environment's
+# identity, and guessing localhost would install something nobody can reach.
+resolve_origin() {
+    if [ -z "$APP_ORIGIN" ]; then
+        [ "$DEPLOY_ENV" = k3d ] || die "APP_ORIGIN is required when DEPLOY_ENV is '$DEPLOY_ENV'"
+        APP_ORIGIN="$K3D_ORIGIN"
+    fi
+    APP_ORIGIN="${APP_ORIGIN%/}"
+    case "$APP_ORIGIN" in
+        http://* | https://*) ;;
+        *) die "APP_ORIGIN must start with http:// or https:// (got '$APP_ORIGIN')" ;;
+    esac
+    case "${APP_ORIGIN#*://}" in
+        */*) die "APP_ORIGIN is an origin, with no path (got '$APP_ORIGIN')" ;;
+    esac
+}
+
+# The environment and the cluster have to agree, in both directions: k3d values
+# carry throwaway credentials that must not reach a shared cluster, and another
+# environment's values would misconfigure the laptop's.
+require_matching_context() {
+    if [ "$DEPLOY_ENV" = k3d ]; then
+        is_local_cluster || die "DEPLOY_ENV is k3d but KUBE_CONTEXT is '$KUBE_CONTEXT'"
+    elif is_local_cluster; then
+        die "DEPLOY_ENV is '$DEPLOY_ENV' but KUBE_CONTEXT is the local k3d cluster"
+    fi
+    local chart
+    for chart in collabhub collabhub-deps; do
+        [ -f "$REPO_ROOT/charts/$chart/values-$DEPLOY_ENV.yaml" ] \
+            || die "no charts/$chart/values-$DEPLOY_ENV.yaml for DEPLOY_ENV '$DEPLOY_ENV'"
+    done
 }
 
 cluster_exists() { k3d cluster get "$K3D_CLUSTER" >/dev/null 2>&1; }
@@ -46,7 +89,7 @@ cmd_cluster() {
 }
 
 cmd_infra() {
-    require_local_cluster infra
+    require_matching_context
     require_cmd helm
 
     # A cluster add-on rather than part of either chart: charts/collabhub refuses
@@ -57,15 +100,29 @@ cmd_infra() {
         --namespace keda --create-namespace \
         --wait --timeout 10m
 
-    log "installing $LOCAL_RELEASE — data stores, Dex, Secrets and Ingress"
-    helm_ns upgrade --install "$LOCAL_RELEASE" "$REPO_ROOT/charts/collabhub-local" \
+    log "installing $DEPS_RELEASE into $NAMESPACE for $APP_ORIGIN — data stores, Dex, Secrets"
+    helm_ns upgrade --install "$DEPS_RELEASE" "$REPO_ROOT/charts/collabhub-deps" \
         --create-namespace \
-        "${LOCAL_CHART_FILES[@]}" \
+        --values "$REPO_ROOT/charts/collabhub-deps/values-$DEPLOY_ENV.yaml" \
+        "${DEPS_CHART_FILES[@]}" \
+        --set-string "origin=$APP_ORIGIN" \
+        ${helm_args[@]+"${helm_args[@]}"} \
         --wait --timeout 10m
 }
 
 cmd_app() {
+    require_matching_context
     require_cmd helm kubectl docker curl
+
+    # The k3d registry is on the developer's machine, and nothing else can pull
+    # from it: without this the pods sit in ImagePullBackOff until Helm times out.
+    if [ "$DEPLOY_ENV" != k3d ]; then
+        case "$IMAGE_REGISTRY" in
+            "" | localhost* | 127.0.0.1*)
+                die "IMAGE_REGISTRY is '$IMAGE_REGISTRY', which DEPLOY_ENV '$DEPLOY_ENV' cannot pull from — set it to a registry that cluster can reach"
+                ;;
+        esac
+    fi
 
     # Checked up front: a missing image otherwise surfaces as ImagePullBackOff
     # and a Helm timeout ten minutes later.
@@ -88,12 +145,26 @@ cmd_app() {
         upgrading=true
     fi
 
-    log "installing $APP_RELEASE at $IMAGE_TAG"
+    log "installing $APP_RELEASE at $IMAGE_TAG into $NAMESPACE for $APP_ORIGIN"
+    # Everything that depends on where this instance is reached, or which
+    # namespace it is in, is set here — never in a values file — so one values
+    # file serves any number of instances.
+    #
+    # REDIS_STREAMS_ADDRESS is read by KEDA's operator, which resolves it from its
+    # own namespace, so it must be fully qualified.
     helm_ns upgrade --install "$APP_RELEASE" "$REPO_ROOT/charts/collabhub" \
         --create-namespace \
-        --values "$REPO_ROOT/charts/collabhub/values-k3d.yaml" \
+        --values "$REPO_ROOT/charts/collabhub/values-$DEPLOY_ENV.yaml" \
         --set-string "image.registry=$IMAGE_REGISTRY" \
         --set-string "image.tag=$IMAGE_TAG" \
+        --set-string "ingress.host=$(origin_host "$APP_ORIGIN")" \
+        --set-string "components.auth.env.AUTH_ISSUER=$APP_ORIGIN" \
+        --set-string "components.auth.env.SPA_REDIRECT_URI=$APP_ORIGIN/auth/callback" \
+        --set-string "components.messaging.env.AUTH_ISSUER=$APP_ORIGIN" \
+        --set-string "components.canvas.env.AUTH_ISSUER=$APP_ORIGIN" \
+        --set-string "components.asset.env.AUTH_ISSUER=$APP_ORIGIN" \
+        --set-string "components.worker.env.REDIS_STREAMS_ADDRESS=redis-streams.$NAMESPACE.svc.cluster.local:6379" \
+        ${helm_args[@]+"${helm_args[@]}"} \
         --wait --timeout 10m
 
     # Every rebuild from one dirty commit reuses the same tag, so Helm sees an
@@ -104,25 +175,29 @@ cmd_app() {
         kube rollout status deployment --selector "app.kubernetes.io/instance=$APP_RELEASE" --timeout 5m
     fi
 
-    if is_local_cluster; then
-        check_origin
-    fi
+    check_origin
 }
 
 # Through the Ingress, so this proves routing as well as the pods: the SPA, and
-# Auth's JWKS, which every other service needs to verify a token.
+# Auth's JWKS, which every other service needs to verify a token. Routing is
+# what is most likely to be wrong in a new environment, so it runs everywhere.
 check_origin() {
     local path
     for path in / /.well-known/jwks.json; do
         curl --fail --silent --show-error --output /dev/null \
             --retry 30 --retry-delay 2 --retry-all-errors \
-            "$K3D_ORIGIN$path" || die "$K3D_ORIGIN$path is not answering"
+            "$APP_ORIGIN$path" || die "$APP_ORIGIN$path is not answering"
     done
-    log "CollabHub is up at $K3D_ORIGIN — sign in as ada@collabhub.dev with password collabhub"
+    if [ "$DEPLOY_ENV" = k3d ]; then
+        log "CollabHub is up at $APP_ORIGIN — sign in as ada@collabhub.dev with password collabhub"
+    else
+        log "CollabHub is up at $APP_ORIGIN"
+    fi
 }
 
 cmd_status() {
     require_cmd helm kubectl
+    log "namespace $NAMESPACE, origin ${APP_ORIGIN:-(not set)}"
     helm_ns list
     kube get pods,jobs,ingress
 }
@@ -144,8 +219,55 @@ cmd_up() {
     cmd_app
 }
 
-case "${1:-up}" in
-    up | cluster | infra | app | status | down) "cmd_${1:-up}" ;;
-    -h | --help) usage ;;
-    *) die "unknown command '$1' (expected up, cluster, infra, app, status or down)" ;;
+command="${1:-up}"
+[ $# -gt 0 ] && shift
+helm_args=()
+if [ "${1:-}" = -- ]; then
+    shift
+    helm_args=("$@")
+elif [ $# -gt 0 ]; then
+    die "unexpected argument '$1' (Helm arguments go after --)"
+fi
+
+case "$command" in
+    up | cluster | infra | app | status | down) ;;
+    -h | --help)
+        usage
+        exit 0
+        ;;
+    *) die "unknown command '$command' (expected up, cluster, infra, app, status or down)" ;;
 esac
+
+# Helm arguments belong to one chart. `up` installs two, and a credential for
+# one would be silently ignored by the other.
+if [ ${#helm_args[@]} -gt 0 ]; then
+    case "$command" in
+        infra | app) ;;
+        *) die "Helm arguments go to 'infra' or 'app', not '$command'" ;;
+    esac
+fi
+
+# Everything after -- lands after the context and namespace helm_ns sets, and
+# Helm takes the last one given: these would carry a release past
+# require_matching_context, onto whatever cluster they name.
+for arg in ${helm_args[@]+"${helm_args[@]}"}; do
+    case "$arg" in
+        --kube-context | --kube-context=* | --namespace | --namespace=* | -n*)
+            die "'$arg' cannot go to Helm — set KUBE_CONTEXT or NAMESPACE instead"
+            ;;
+    esac
+done
+
+# `cluster` and `down` concern only the k3d cluster, never an instance on it, so
+# they neither need an origin nor should fail for the lack of one. `status` only
+# reports the origin, so it runs without one where k3d's default does not apply.
+case "$command" in
+    cluster | down) ;;
+    status)
+        if [ -n "$APP_ORIGIN" ] || [ "$DEPLOY_ENV" = k3d ]; then
+            resolve_origin
+        fi
+        ;;
+    *) resolve_origin ;;
+esac
+"cmd_$command"

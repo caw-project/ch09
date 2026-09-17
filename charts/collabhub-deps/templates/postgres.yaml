@@ -1,11 +1,25 @@
 {{- $ctx := dict "root" $ "name" "postgres" }}
+{{- $password := include "collabhub-deps.credential" (dict "path" "postgres.password" "value" .Values.postgres.password) }}
 # One instance holding one database per service (docker/postgres/init.sql).
+#
+# The superuser password, in a Secret like every other credential here, so it
+# is not readable by anyone who can read the StatefulSet.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres
+  labels:
+    {{- include "collabhub-deps.labels" $ctx | nindent 4 }}
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: {{ $password | quote }}
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: postgres-init
   labels:
-    {{- include "collabhub-local.labels" $ctx | nindent 4 }}
+    {{- include "collabhub-deps.labels" $ctx | nindent 4 }}
 data:
   10-databases.sql: |
     {{- required "postgres.initSql is empty: pass --set-file postgres.initSql=docker/postgres/init.sql, as scripts/deploy.sh does" .Values.postgres.initSql | nindent 4 }}
@@ -15,10 +29,10 @@ kind: Service
 metadata:
   name: postgres
   labels:
-    {{- include "collabhub-local.labels" $ctx | nindent 4 }}
+    {{- include "collabhub-deps.labels" $ctx | nindent 4 }}
 spec:
   selector:
-    {{- include "collabhub-local.selectorLabels" $ctx | nindent 4 }}
+    {{- include "collabhub-deps.selectorLabels" $ctx | nindent 4 }}
   ports:
     - name: postgres
       port: 5432
@@ -29,17 +43,21 @@ kind: StatefulSet
 metadata:
   name: postgres
   labels:
-    {{- include "collabhub-local.labels" $ctx | nindent 4 }}
+    {{- include "collabhub-deps.labels" $ctx | nindent 4 }}
 spec:
   serviceName: postgres
   replicas: 1
   selector:
     matchLabels:
-      {{- include "collabhub-local.selectorLabels" $ctx | nindent 6 }}
+      {{- include "collabhub-deps.selectorLabels" $ctx | nindent 6 }}
   template:
     metadata:
+      # No checksum/credentials annotation: the entrypoint sets the password only
+      # when it initialises an empty volume, so rolling the pod would not change
+      # it, and the annotation would publish an unsalted hash of it to anyone who
+      # can read pods.
       labels:
-        {{- include "collabhub-local.selectorLabels" $ctx | nindent 8 }}
+        {{- include "collabhub-deps.selectorLabels" $ctx | nindent 8 }}
     spec:
       containers:
         - name: postgres
@@ -48,7 +66,8 @@ spec:
             - name: POSTGRES_USER
               value: {{ .Values.postgres.user | quote }}
             - name: POSTGRES_PASSWORD
-              value: {{ .Values.postgres.password | quote }}
+              valueFrom:
+                secretKeyRef: {name: postgres, key: POSTGRES_PASSWORD}
             - name: POSTGRES_DB
               value: {{ .Values.postgres.user | quote }}
           ports:

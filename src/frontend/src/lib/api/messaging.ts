@@ -15,6 +15,7 @@
 import createClient from 'openapi-fetch'
 
 import { problemFromBody, type ProblemError } from './client'
+import { MESSAGING_URL } from '../config'
 import type { components, paths } from '../../types/messaging'
 
 export type Channel = components['schemas']['ChannelResponse']
@@ -26,8 +27,6 @@ export type ChannelMemberRole = components['schemas']['AddChannelMemberRequest']
 export type Message = components['schemas']['MessageResponse']
 export type MessagePage = components['schemas']['MessageListResponse']
 export type Reaction = components['schemas']['ReactionSummary']
-
-const MESSAGING_URL: string = import.meta.env.VITE_MESSAGING_URL ?? 'http://localhost:8002'
 
 const client = createClient<paths>({ baseUrl: MESSAGING_URL })
 

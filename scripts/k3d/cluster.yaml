@@ -11,8 +11,8 @@ agents: 0
 image: rancher/k3s:v1.36.4-k3s1
 
 ports:
-  # The only published port. Traefik (bundled with k3s) serves the Ingress from
-  # charts/collabhub-local here: the SPA, the APIs and Dex on one origin.
+  # The only published port. Traefik (bundled with k3s) serves every instance's
+  # Ingress here, routed on host: localhost, a.localhost, b.localhost ...
   - port: 127.0.0.1:8080:80
     nodeFilters:
       - loadbalancer

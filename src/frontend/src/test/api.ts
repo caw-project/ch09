@@ -18,10 +18,11 @@ import { http, HttpResponse, type DefaultBodyType } from 'msw'
 import { setupServer } from 'msw/node'
 
 import type { Profile, TokenPair, Workspace, WorkspaceMember } from '../lib/auth/api'
+import { AUTH_URL, MESSAGING_URL } from '../lib/config'
 import type { paths } from '../types/messaging'
 
-export const MESSAGING_URL: string = import.meta.env.VITE_MESSAGING_URL ?? 'http://localhost:8002'
-export const AUTH_URL: string = import.meta.env.VITE_AUTH_URL ?? 'http://localhost:8001'
+// The same values the app calls, so a stub cannot drift from the real URL.
+export { AUTH_URL, MESSAGING_URL }
 
 export const server = setupServer()
 

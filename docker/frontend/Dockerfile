@@ -12,10 +12,14 @@ COPY src/frontend/ ./
 
 # Vite inlines VITE_-prefixed vars at build time, so they are build args rather
 # than runtime env. Only non-secret values belong here — they ship in the bundle.
-ARG VITE_AUTH_URL
-ARG VITE_MESSAGING_URL
-ARG VITE_CANVAS_URL
-ARG VITE_ASSET_URL
+# Empty means same-origin: the SPA calls /api/... on whatever host served it.
+# It is the default here as well as in scripts/build.sh, so a plain `docker
+# build` gets it too rather than the dev fallbacks. Compose passes explicit URLs
+# because its SPA and APIs are on different ports.
+ARG VITE_AUTH_URL=""
+ARG VITE_MESSAGING_URL=""
+ARG VITE_CANVAS_URL=""
+ARG VITE_ASSET_URL=""
 
 RUN npm run build
 
