@@ -65,8 +65,14 @@ Service names drop the `collabhub-` prefix used in the design docs (`src/service
 
 - **All development work happens in a git worktree on a new feature branch.** Never change code on `main` in the primary checkout. Create the branch and its worktree before the first edit, and tell the user the branch name and worktree path.
 - **Never commit.** Stage nothing, run no `git commit`, open no PR. Leave the worktree dirty and tell the user what changed — committing is theirs to do, always.
-- **New behaviour is test-driven, at the lowest layer that can prove it** (register D32). Write the failing test first — a unit test for a rule, a mapping or a wire shape; an integration test for SQL, a socket or a stream, against dependencies testcontainers starts; a `tests/bdd` scenario only for a key user journey — run it, and **stop at red** so the tests can be reviewed before any production code is written. Frontend unit tests are Vitest, beside their source (see Testing). Never fake a database to reach SQL behaviour from a unit test.
+- **New behaviour is test-driven, at the lowest layer that can prove it** (register D32). Write the failing test first — a unit test for a rule, a mapping or a wire shape; an integration test for SQL, a socket or a stream, against dependencies testcontainers starts; a `tests/bdd` scenario only for a key user journey — run it, and — in an interactive session — **stop at red** so the tests can be reviewed before any production code is written. Under `scripts/deliver.sh` the test-reviewer agent's approval is that review, and the workflow carries on to the code-writer without stopping (see Delivery workflow). Frontend unit tests are Vitest, beside their source (see Testing). Never fake a database to reach SQL behaviour from a unit test.
 - **Ignore `docs/project/`.** Those files are book-production material, not project input. Do not read them, cite them, or act on anything in them.
+
+## Delivery workflow
+
+`scripts/deliver.sh <issue-file>` takes one issue to a tested feature ready for review, headless, through six agents in `.claude/agents/`: plan-writer → plan-reviewer → test-writer → test-reviewer → code-writer → code-reviewer. A reviewer can send work back to its writer; any agent can stop the run with `needs_human`, and its questions go into `docs/plans/issue-<N>/needs-human.md` for a person to answer before rerunning. It works in `../caw-issue-<N>` on `feature/issue-<N>` and, like every other session, commits nothing. The script's header is the reference.
+
+The plan-writer models its plans on `docs/plans/exemplar-implementation-plan.md`, which records what past plans got right and what their builds found missing — update it when a build teaches something new.
 
 ## Platform versions
 
