@@ -9,7 +9,10 @@
 # or `# Issue 42 — Pin a message`. The work happens in the worktree
 # ../caw-issue-<N>, on branch feature/issue-<N>, created from main if missing.
 #
-# Six stages, a writer and a reviewer for each of plan, tests and code:
+# Six stages, a writer and a reviewer for each of plan, tests and code. What
+# every agent needs to know about this workflow — the context block, rounds, the
+# final round, escalation — is in .claude/delivery/agent-context.md; keep it in
+# step with this script.
 #
 #   plan-writer -> plan-reviewer -> test-writer -> test-reviewer -> code-writer -> code-reviewer -> done
 #
@@ -18,15 +21,26 @@
 #                       changes_requested  back to its writer, with the review
 #   any agent returns   needs_human        stop; questions in needs-human.md
 #
-# A writer and its reviewer get DELIVER_MAX_ROUNDS reviews (default 3) before
-# the workflow stops for a human instead. Answer the questions under each
-# **Answer:** in docs/plans/issue-<N>/needs-human.md, then run the same command
-# again: it resumes at the stage that stopped, and every agent reads the answers.
+# A writer and its reviewer get DELIVER_MAX_ROUNDS reviews (default 3). The last
+# is the final round, and it is cut down so a disagreement cannot run on: both
+# agents get fewer turns and less effort, and are told so. The final reviewer
+# may only approve — leaving minor findings to the stages after it — or stop for
+# a human over something critical or a deadlock; `changes_requested` there stops
+# for a human too. A stage that runs out of turns stops for a human as well.
+#
+# Answer the questions under each **Answer:** in
+# docs/plans/issue-<N>/needs-human.md, then run the same command again: it
+# resumes at the stage that stopped, and every agent reads the answers. Rounds
+# past the limit stay final rounds, so every one comes back through a human.
 #
 # A stage whose agent is not written yet pauses the workflow the same way; run
 # it again once the agent exists.
 #
 #   DELIVER_MAX_ROUNDS       reviews per writer/reviewer pair. Default: 3
+#   DELIVER_MAX_TURNS        turns for a stage before the final round — a guard
+#                            against a runaway, not a budget. Default: 150
+#   DELIVER_FINAL_MAX_TURNS  turns for a stage in the final round. Default: 40
+#   DELIVER_FINAL_EFFORT     effort for a stage in the final round. Default: medium
 #   DELIVER_BASE             the branch a new worktree starts from. Default: main
 #   DELIVER_MODEL            overrides every agent's model, e.g. for a cheap dry run
 #   DELIVER_PERMISSION_MODE  default: dontAsk — anything a stage is not allowed
@@ -43,6 +57,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 STAGES=(plan-writer plan-reviewer test-writer test-reviewer code-writer code-reviewer)
 
 DELIVER_MAX_ROUNDS="${DELIVER_MAX_ROUNDS:-3}"
+DELIVER_MAX_TURNS="${DELIVER_MAX_TURNS:-150}"
+DELIVER_FINAL_MAX_TURNS="${DELIVER_FINAL_MAX_TURNS:-40}"
+DELIVER_FINAL_EFFORT="${DELIVER_FINAL_EFFORT:-medium}"
 DELIVER_BASE="${DELIVER_BASE:-main}"
 DELIVER_MODEL="${DELIVER_MODEL:-}"
 DELIVER_PERMISSION_MODE="${DELIVER_PERMISSION_MODE:-dontAsk}"
@@ -83,8 +100,14 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$issue_file" ] || die "usage: scripts/deliver.sh <issue-file> [--restart]"
 [ -f "$issue_file" ] || die "no such issue file: $issue_file"
-case "$DELIVER_MAX_ROUNDS" in
-    '' | *[!0-9]* | 0) die "DELIVER_MAX_ROUNDS must be a positive number" ;;
+for setting in DELIVER_MAX_ROUNDS DELIVER_MAX_TURNS DELIVER_FINAL_MAX_TURNS; do
+    case "${!setting}" in
+        '' | *[!0-9]* | 0) die "$setting must be a positive number" ;;
+    esac
+done
+case "$DELIVER_FINAL_EFFORT" in
+    low | medium | high | xhigh | max) ;;
+    *) die "DELIVER_FINAL_EFFORT must be low, medium, high, xhigh or max" ;;
 esac
 require_cmd claude git jq
 
@@ -154,6 +177,14 @@ role_of() { printf '%s' "${1##*-}"; } # plan-writer -> writer
 rounds_of() { eval "printf '%s' \"\$ROUNDS_$1\""; }
 set_rounds() { eval "ROUNDS_$1=$2"; }
 
+# The pair's last permitted review — and every round after it, which only a
+# human's answers can reach.
+is_final_round() { [ "$(rounds_of "$(pair_of "$1")")" -ge "$DELIVER_MAX_ROUNDS" ]; }
+
+turns_for() {
+    if is_final_round "$1"; then printf '%s' "$DELIVER_FINAL_MAX_TURNS"; else printf '%s' "$DELIVER_MAX_TURNS"; fi
+}
+
 # The stage after this one, or `done`.
 next_stage() {
     local i
@@ -180,7 +211,14 @@ allowed_tools() {
             printf '%s\n' Read Grep Glob Write Edit Skill \
                 'Bash(git log *)' 'Bash(git show *)' 'Bash(git diff *)' \
                 'Bash(git status *)' 'Bash(git worktree list*)' 'Bash(git branch *)' \
-                'Bash(ls *)' 'Bash(wc *)'
+                'Bash(git merge-base *)' 'Bash(ls *)' 'Bash(wc *)'
+            ;;
+        # Writes only its review, so no Edit: it never touches the plan.
+        plan-reviewer)
+            printf '%s\n' Read Grep Glob Write Skill \
+                'Bash(git log *)' 'Bash(git show *)' 'Bash(git diff *)' \
+                'Bash(git status *)' 'Bash(git worktree list*)' 'Bash(git branch *)' \
+                'Bash(git merge-base *)' 'Bash(ls *)' 'Bash(wc *)'
             ;;
         *) die "no tools are allowed for $1 yet — add its entry to allowed_tools" ;;
     esac
@@ -212,11 +250,21 @@ context_block() {
     printf 'Plan: %s\n' "$PLAN"
     printf 'Worktree: %s (branch %s)\n' "$WORKTREE" "$BRANCH"
     printf 'Stage: %s, round %s of %s\n' "$stage" "$(rounds_of "$pair")" "$DELIVER_MAX_ROUNDS"
+    if is_final_round "$stage"; then
+        printf 'Final round: yes — %s turns. Follow your *Final round* rules.\n' "$(turns_for "$stage")"
+    else
+        printf 'Turns: %s\n' "$(turns_for "$stage")"
+    fi
     if [ "$(role_of "$stage")" = writer ] && [ -n "$REVIEW" ]; then
         printf 'Review to address: %s\n' "$REVIEW"
     fi
     if [ "$(role_of "$stage")" = reviewer ]; then
         printf 'Write your review to: %s\n' "$(review_path "$stage")"
+    fi
+    # Every review so far, approvals included — a final reviewer's approval can
+    # leave minor findings for the stages after it to pick up.
+    if [ -n "$(ls "$WORKTREE/$PLAN_DIR/reviews" 2>/dev/null)" ]; then
+        printf 'Earlier reviews: %s/reviews/\n' "$PLAN_DIR"
     fi
     if [ -s "$WORKTREE/$ANSWERS" ]; then
         printf 'Human answers: %s\n' "$ANSWERS"
@@ -245,32 +293,35 @@ touched_between() {
 # carry errexit into a command substitution, hence the set -e.
 run_stage() {
     set -e
-    local stage="$1" out head before scope strays prompt tool_list t
+    local stage="$1" out head before scope strays prompt tool_list t turns subtype round
     out="$RUN_DIR/$(printf '%02d' "$STEP")-$stage.json"
     prompt="$(context_block "$stage")"
     tool_list="$(allowed_tools "$stage")"
     local tools=()
     while IFS= read -r t; do tools+=("$t"); done <<<"$tool_list"
-    local model_args=()
-    [ -z "$DELIVER_MODEL" ] || model_args=(--model "$DELIVER_MODEL")
+    turns="$(turns_for "$stage")"
+    round="$(rounds_of "$(pair_of "$stage")")"
+    local extra_args=(--max-turns "$turns")
+    [ -z "$DELIVER_MODEL" ] || extra_args+=(--model "$DELIVER_MODEL")
+    ! is_final_round "$stage" || extra_args+=(--effort "$DELIVER_FINAL_EFFORT")
 
-    log "$stage — round $(rounds_of "$(pair_of "$stage")") (log: ${out#"$WORKTREE"/})"
+    log "$stage — round $round, $turns turns (log: ${out#"$WORKTREE"/})"
     head="$(git -C "$WORKTREE" rev-parse HEAD)"
     before="$(snapshot)"
+    # A stage that runs out of turns exits non-zero with a JSON result, so the
+    # result decides whether this failed, not the exit status.
     (cd "$WORKTREE" && claude -p "$prompt" \
         --agent "$stage" \
         --output-format json \
         --json-schema "$RESULT_SCHEMA" \
         --permission-mode "$DELIVER_PERMISSION_MODE" \
         --allowedTools "${tools[@]}" \
-        ${model_args[@]+"${model_args[@]}"}) >"$out" ||
-        die "$stage failed — see $out"
+        "${extra_args[@]}") >"$out" || true
+    subtype="$(jq -r '.subtype // empty' "$out" 2>/dev/null || true)"
+    [ -n "$subtype" ] || die "$stage failed — see $out"
 
-    [ "$(jq -r '.is_error' "$out")" = false ] || die "$stage ended in error — see $out"
-    jq -e '.structured_output.status' "$out" >/dev/null ||
-        die "$stage returned no structured result — see $out"
-
-    # The rules no agent may break, checked rather than trusted.
+    # The rules no agent may break, checked rather than trusted — before anything
+    # else, because a stage stopped mid-way may still have broken one.
     [ "$(git -C "$WORKTREE" rev-parse HEAD)" = "$head" ] ||
         die "$stage committed — the workflow never commits. Inspect $BRANCH before rerunning"
     scope="$(write_scope "$stage")"
@@ -279,6 +330,22 @@ run_stage() {
         [ -z "$strays" ] || die "$stage wrote outside $scope:
 $strays"
     fi
+
+    # Out of turns is the cap working, not a crash: hand it to a human as a
+    # needs_human result, with its partial work left where it is.
+    if [ "$subtype" = error_max_turns ]; then
+        jq -nc --arg stage "$stage" --arg turns "$turns" --arg round "$round" --arg out "${out#"$WORKTREE"/}" '{
+            status: "needs_human",
+            summary: "\($stage) used all \($turns) turns in round \($round) without finishing. Its transcript is in \($out); anything it wrote is left in place.",
+            files: [],
+            questions: ["\($stage) ran out of turns. Rerun it as it is, rerun with a larger DELIVER_MAX_TURNS or DELIVER_FINAL_MAX_TURNS, or answer here what it was stuck on — which?"]
+        }'
+        return
+    fi
+
+    [ "$(jq -r '.is_error' "$out")" = false ] || die "$stage ended in error ($subtype) — see $out"
+    jq -e '.structured_output.status' "$out" >/dev/null ||
+        die "$stage returned no structured result — see $out"
 
     jq -c '.structured_output' "$out"
 }
@@ -336,6 +403,10 @@ while [ "$STAGE" != done ]; do
             STAGE="$(next_stage "$STAGE")"
             ;;
         reviewer:approved)
+            # An approval writes its review too: it is the record of what was
+            # checked, and of any minor findings left for later stages.
+            [ -s "$WORKTREE/$(review_path "$STAGE")" ] ||
+                die "$STAGE approved but wrote no $(review_path "$STAGE")"
             REVIEW=""
             STAGE="$(next_stage "$STAGE")"
             ;;
@@ -343,9 +414,11 @@ while [ "$STAGE" != done ]; do
             REVIEW="$(review_path "$STAGE")"
             [ -s "$WORKTREE/$REVIEW" ] || die "$STAGE asked for changes but wrote no $REVIEW"
             rounds="$(rounds_of "$pair")"
+            # The final reviewer is told to approve or escalate, never to send
+            # the plan back — if it does anyway, a human settles it.
             if [ "$rounds" -ge "$DELIVER_MAX_ROUNDS" ]; then
                 record_needs_human "$STAGE" \
-                    "The $pair writer and reviewer did not agree in $rounds rounds. The last review is $REVIEW." \
+                    "The $pair reviewer asked for changes in the final round ($rounds of $DELIVER_MAX_ROUNDS), where it may only approve or escalate. The last review is $REVIEW, and the writer's answers to it are in its Review responses." \
                     '["Settle the findings in the last review that are still open: which should the writer take, and which should the reviewer drop?"]'
             fi
             # The writer takes the review, and the answers too when there are
