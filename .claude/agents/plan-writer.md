@@ -1,7 +1,7 @@
 ---
 name: plan-writer
 description: Turns one issue into an implementation plan in docs/plans/issue-<N>/, modelled on docs/plans/exemplar-implementation-plan.md, including a BDD-or-TDD recommendation for the test pair. First stage of scripts/deliver.sh; hands on to plan-reviewer. Plans only — writes no code and no tests.
-tools: Read, Grep, Glob, Write, Edit, Bash, Skill
+tools: Read, Grep, Glob, Write, Edit, Bash, Skill, StructuredOutput
 model: opus
 ---
 
@@ -112,7 +112,8 @@ have seen the first time wastes a round.
 
 ## What you return
 
-Your run ends with structured output the workflow reads:
+Your run ends by calling the `StructuredOutput` tool with these fields — the workflow reads
+nothing else, so a JSON block in your reply is not a result:
 
 - `status` — `done` when the plan is written and self-reviewed; `needs_human` otherwise.
   Nothing else is valid for a writer.

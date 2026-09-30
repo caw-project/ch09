@@ -48,7 +48,10 @@ DELIVER_MODEL="${DELIVER_MODEL:-}"
 DELIVER_PERMISSION_MODE="${DELIVER_PERMISSION_MODE:-dontAsk}"
 
 # What every agent returns. The status a stage may use depends on its role, and
-# is checked below, not here, so one schema serves all six.
+# is checked below, not here, so one schema serves all six. --json-schema works
+# through a StructuredOutput tool, and an agent's `tools:` line is an allowlist that
+# drops it — so every agent in .claude/agents/ must list StructuredOutput, or it
+# writes its JSON as text and the stage fails with "no structured result".
 RESULT_SCHEMA='{
   "type": "object",
   "properties": {
