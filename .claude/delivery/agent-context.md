@@ -15,7 +15,7 @@ code:
 |---|---|---|
 | **plan-writer** | turns the issue into an implementation plan | `docs/plans/issue-<N>/01-implementation-plan.md` |
 | **plan-reviewer** | checks the plan against the issue, the exemplar and the code | its review |
-| **test-writer** | builds the plan's RED tasks: the failing tests | tests |
+| **test-writer** | builds the plan's RED tasks: the failing tests | tests, and `docs/plans/issue-<N>/02-red-tests.md` |
 | **test-reviewer** | checks the tests fail for the reasons the plan gives — the red gate | its review |
 | **code-writer** | builds the GREEN tasks until the tests pass | code, docs the plan records |
 | **code-reviewer** | checks the code against the plan, the tests and the conventions | its review |
@@ -35,6 +35,8 @@ Your prompt is a **context block**. The lines it can hold:
 
 - `Issue:`, `Issue file:`, `Plan:` — the issue number, and the paths relative to the
   worktree root. The issue file is a copy, refreshed every run.
+- `Red report:` — from the test pair on: the test-writer's account of every failing
+  test, what it fails with, and where the tests depart from the plan.
 - `Worktree:` — where you are, and its branch.
 - `Stage: <stage>, round <R> of <max>` — see *Rounds*.
 - `Turns: <n>`, or `Final round: yes — <n> turns` — your allowance; see *The final round*.
@@ -53,14 +55,105 @@ Your prompt is a **context block**. The lines it can hold:
   absolute path when they are outside the worktree; Bash can't reach those at all. `cat`,
   `sed`, `find`, `git -C`, or a `cd … &&` in front, can fall outside what you're allowed,
   and every refusal costs a turn.
-- **Installed dependencies are not in the worktree.** A worktree has no `node_modules/`
-  or `.venv/` of its own: find the primary checkout with `git worktree list` (the first
-  line) and read its copy by absolute path.
+- **Installed dependencies start out missing.** A new worktree has no `node_modules/` or
+  `.venv/` of its own. A stage that only reads finds the primary checkout with
+  `git worktree list` (the first line) and reads its copy by absolute path. A stage that
+  runs tests uses the worktree's own, which the test-writer installs (see *Running
+  tests*) — never the primary checkout's, which may be a different branch's.
 - **Write only where your stage writes** (the table above, and your agent file). The
   workflow compares the tree before and after you run, and stops if you wrote anywhere
   else.
 - **Never commit**, and never tell anyone to. The workflow checks HEAD after every stage
   and stops if it moved. Committing is the human's, always.
+
+## Running tests
+
+The test and code stages run tests, and always the same way: from the worktree root, one
+layer and as few files as prove the point.
+
+| Layer | Command |
+|---|---|
+| Vitest | `npm --prefix src/frontend test -- <paths relative to src/frontend>` |
+| Types | `npm --prefix src/frontend run typecheck` |
+| Python unit or integration | `uv run pytest <paths>` — the directory decides the layer |
+| BDD | cannot run here: it needs the Compose test stack. `uv run pytest tests/bdd --collect-only -q` proves the features parse; `uv run pytest tests/bdd --generate-missing --feature tests/bdd/features` prints a stub for every step with no definition, and nothing when all bind |
+
+- **Install before the first run**, if the worktree has none: `npm --prefix src/frontend ci`
+  (never `npm install`, which rewrites the lockfile); `uv run` syncs `.venv` by itself.
+  The lint hook skips TypeScript until `node_modules/` exists, so install before writing
+  a `.ts` file.
+- **Never `scripts/test.sh`.** It rewrites the committed `docs/test-report.md`, which no
+  stage writes, and runs whole layers.
+- **Integration tests start their own containers** through testcontainers. If Docker is
+  unreachable, nothing at that layer has run — not a test failure, and not a pass: stop
+  for a human. (BDD is different: it never runs here, by design.)
+- **Read the failure, not the count.** A file that fails to load reports its tests as
+  failed without running one; `Failed to resolve import` and `ImportError` are load
+  failures, `is not a function` and an assertion are the test running. A load failure is
+  right only when every test in the file needs the missing module; otherwise it hides
+  tests that would really run — import what exists, and let the missing export fail its
+  own tests.
+
+## Tests that prove something
+
+Every stage that specifies, writes or reviews a test holds it to these. Each is a test
+that once passed, or stayed red, without proving the behaviour it was named for — so for
+every test, name the wrong build it must fail, and check that it would:
+
+- **A guard proves its positive too.** "Does not X" passes when nothing ever does X: the
+  same test shows the path that *does* X under the neighbouring condition, or asserts
+  what happens instead.
+- **A negative case passes every earlier guard,** so only the rule under test can stop it.
+  A private-channel search test once passed because the user could see no channels at all
+  and the code returned before any filter ran. A 404 before a route exists passes a
+  "can't see it" test: assert the Problem `detail`.
+- **A fixture where two readings coincide proves neither** — the oldest match for the
+  newest, a strict bound for an inclusive one, a timer restarted for one kept. Two
+  candidates, not one; events spread over time, not all at one instant; a value past the
+  boundary as well as on it; state that differs before and after.
+- **Each input on its own.** A rule with several inputs gets each flipped alone, the
+  others held true; a helper that always changes two together hides a build that listens
+  to one. A test named "and nothing is left over" needs something pending when it happens.
+- **Both sides of every boundary**, and both directions of a comparison. jsdom has no
+  layout — every scroll and size reads 0 — so geometry code needs its dimensions stubbed
+  (`MessageList.test.tsx`'s `giveLayout()`), one test per direction; a missing
+  `clientHeight` once passed every test there was. In fake time, the instant before and
+  the instant after (the 4999 ms and 1 ms pair in `useMessages.test.ts`).
+- **Clocks.** Fake only the clock you need (`vi.useFakeTimers({ toFake: [...] })`, as
+  `session.test.ts` does), advance with `advanceTimersByTimeAsync` inside `act`, and let
+  no timeout or background loop quietly repair what the test pins — a 1-second reclaim
+  once hid a missing `XACK`. No `vi.waitFor` under fake timers near a boundary: each
+  retry moves the clock on, past the instant pinned.
+- **Nothing from a missing module drives the test.** An import that doesn't exist yet is
+  `undefined` at red: a clock advanced by an imported constant advances by `NaN`, and the
+  half that expects nothing to happen passes for that reason alone. Use the plan's value
+  as a literal.
+- **Events where the library listens.** Check the installed source for the target and
+  whether it expects the event to bubble; an event it never hears makes a "reacts to X"
+  half pass or fail for the wrong reason.
+- **Races in both orders.** An event arriving during an in-flight fetch is held with a
+  deferred response (`holdHistoryFetch()` in `useMessages.test.ts`) and proven to survive;
+  a response and its echo give the same state either way round; a path that spends a
+  one-time resource is called twice at once. Readiness is the server's ack, not a
+  connected socket.
+- **Wait on the last effect, not the first.** A negative assertion comes after the thing
+  could have happened, anchored to a positive event: "nothing was sent", checked
+  synchronously against something recorded asynchronously, can't fail.
+- **Pin what the plan pins, and no more.** DOM shape, call order and timing the plan
+  leaves open belong to the code; a test that fixes them fails a correct build.
+- **The real code, not a copy.** No fixture that restates a production mapping
+  (`testkit.search` seeds with the Worker's own handlers for this reason), no mock of the
+  unit under test, never a faked database session — pull the rule into a pure function,
+  or prove it at integration (CLAUDE.md).
+- **Dependency down.** An external call gets its documented fail-open or fail-closed
+  answer tested, not only the happy path.
+- **One layer per rule** (D32). Grep for an existing test of the same rule: a rule proven
+  lower down gets no scenario, and a route's rule gets one integration test.
+- **The journey proves the server.** Phrases from
+  `docs/plans/ch06/gherkin/00-scenario-vocabulary.md` verbatim, `@bdd` on the Feature line
+  only, page-object answers through retrying `expect`. The last `Then` shows what the
+  server holds — a reload, the other user's window, the confirmed row, not the optimistic
+  one. A recovery scenario breaks something first, or it passes with nothing recovered.
 
 ## What governs the work
 
