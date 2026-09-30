@@ -122,6 +122,7 @@ WORKTREE="$(dirname "$REPO_ROOT")/caw-issue-$ISSUE"
 PLAN_DIR="docs/plans/issue-$ISSUE"
 ISSUE_COPY="$PLAN_DIR/00-issue.md"
 PLAN="$PLAN_DIR/01-implementation-plan.md"
+RED_REPORT="$PLAN_DIR/02-red-tests.md"
 ANSWERS="$PLAN_DIR/needs-human.md"
 
 RUN_DIR="$WORKTREE/build/delivery"
@@ -205,31 +206,73 @@ review_path() { printf '%s/reviews/%s-%s.md' "$PLAN_DIR" "$1" "$(rounds_of "$(pa
 # In dontAsk mode a tool not listed here is refused, so this list is the stage's
 # whole reach. Each stage's entry is added with its agent.
 
+# Looking around the repo and its history — every stage has these.
+read_only_bash() {
+    printf '%s\n' \
+        'Bash(git log *)' 'Bash(git show *)' 'Bash(git diff *)' \
+        'Bash(git status *)' 'Bash(git worktree list*)' 'Bash(git branch *)' \
+        'Bash(git merge-base *)' 'Bash(ls *)' 'Bash(wc *)'
+}
+
+# Running tests one file at a time. Never scripts/test.sh: it rewrites the
+# committed docs/test-report.md, and runs every layer when a stage needs one
+# file. Nothing here can reach the e2e stack.
+test_bash() {
+    printf '%s\n' \
+        'Bash(npm --prefix src/frontend test*)' \
+        'Bash(npm --prefix src/frontend run typecheck*)' \
+        'Bash(npm --prefix src/frontend run lint*)' \
+        'Bash(uv run pytest *)' 'Bash(uv sync*)'
+}
+
 allowed_tools() {
     case "$1" in
         plan-writer)
-            printf '%s\n' Read Grep Glob Write Edit Skill \
-                'Bash(git log *)' 'Bash(git show *)' 'Bash(git diff *)' \
-                'Bash(git status *)' 'Bash(git worktree list*)' 'Bash(git branch *)' \
-                'Bash(git merge-base *)' 'Bash(ls *)' 'Bash(wc *)'
+            printf '%s\n' Read Grep Glob Write Edit Skill
+            read_only_bash
             ;;
         # Writes only its review, so no Edit: it never touches the plan.
         plan-reviewer)
-            printf '%s\n' Read Grep Glob Write Skill \
-                'Bash(git log *)' 'Bash(git show *)' 'Bash(git diff *)' \
-                'Bash(git status *)' 'Bash(git worktree list*)' 'Bash(git branch *)' \
-                'Bash(git merge-base *)' 'Bash(ls *)' 'Bash(wc *)'
+            printf '%s\n' Read Grep Glob Write Skill
+            read_only_bash
+            ;;
+        # The first stage that runs anything, so the first that installs: a
+        # worktree has no node_modules/ or .venv/ until it does (both ignored,
+        # so the write check never sees them). `npm ci`, never `npm install`,
+        # which rewrites the lockfile.
+        test-writer)
+            printf '%s\n' Read Grep Glob Write Edit Skill \
+                'Bash(npm --prefix src/frontend ci*)' 'Bash(uv run ruff *)'
+            read_only_bash
+            test_bash
+            ;;
+        # Runs the tests to see them fail, and writes only its review. Edit and
+        # the sketch are for a throwaway implementation under build/sketch/,
+        # which is ignored — the write check still holds it to its review.
+        test-reviewer)
+            printf '%s\n' Read Grep Glob Write Edit Skill 'Bash(.claude/delivery/sketch.sh *)'
+            read_only_bash
+            test_bash
             ;;
         *) die "no tools are allowed for $1 yet — add its entry to allowed_tools" ;;
     esac
 }
 
-# Where a stage may write. Checked after it runs; unset means the stage is not
-# confined to one directory.
+# Where a stage may write, as an extended regex over paths relative to the
+# worktree root. Checked after it runs; unset means the stage is not confined.
 write_scope() {
     case "$1" in
-        plan-writer) printf '%s/' "$PLAN_DIR" ;;
-        plan-reviewer) printf '%s/reviews/' "$PLAN_DIR" ;;
+        plan-writer) printf '^%s/' "$PLAN_DIR" ;;
+        plan-reviewer) printf '^%s/reviews/' "$PLAN_DIR" ;;
+        # Tests wherever each layer keeps them, the helpers they share, and the
+        # red report — never production code, config or docs.
+        test-writer)
+            printf '^(%s|%s|%s|%s|%s|%s)' \
+                'src/frontend/src/.*\.test\.tsx?$' 'src/frontend/src/test/' \
+                'src/services/[^/]+/tests/' 'src/services/testkit/' 'tests/bdd/' \
+                "$RED_REPORT\$"
+            ;;
+        test-reviewer) printf '^%s/reviews/' "$PLAN_DIR" ;;
     esac
 }
 
@@ -237,6 +280,7 @@ write_scope() {
 writer_output() {
     case "$1" in
         plan-writer) printf '%s' "$PLAN" ;;
+        test-writer) printf '%s' "$RED_REPORT" ;;
     esac
 }
 
@@ -248,6 +292,10 @@ context_block() {
     printf 'Issue: #%s\n' "$ISSUE"
     printf 'Issue file: %s\n' "$ISSUE_COPY"
     printf 'Plan: %s\n' "$PLAN"
+    # From the test pair on: the failing tests, as the test-writer reports them.
+    case "$pair" in
+        test | code) printf 'Red report: %s\n' "$RED_REPORT" ;;
+    esac
     printf 'Worktree: %s (branch %s)\n' "$WORKTREE" "$BRANCH"
     printf 'Stage: %s, round %s of %s\n' "$stage" "$(rounds_of "$pair")" "$DELIVER_MAX_ROUNDS"
     if is_final_round "$stage"; then
@@ -326,7 +374,7 @@ run_stage() {
         die "$stage committed — the workflow never commits. Inspect $BRANCH before rerunning"
     scope="$(write_scope "$stage")"
     if [ -n "$scope" ]; then
-        strays="$(touched_between "$before" "$(snapshot)" | grep -v "^$scope" || true)"
+        strays="$(touched_between "$before" "$(snapshot)" | grep -Ev "$scope" || true)"
         [ -z "$strays" ] || die "$stage wrote outside $scope:
 $strays"
     fi
