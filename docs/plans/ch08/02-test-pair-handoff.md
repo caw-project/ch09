@@ -6,6 +6,7 @@ picks up where it stops.
 
 ## Where it stands
 
+- **Merged:** `9681d59` on `feature/test-pair`, merged to main as `fa08be8`.
 - **Built:** `test-writer` and `test-reviewer` (`.claude/agents/`), their `allowed_tools`,
   `write_scope` and `writer_output` entries in `scripts/deliver.sh`, and two sections in
   `.claude/delivery/agent-context.md`: *Running tests*, for every stage that runs them,
@@ -26,9 +27,15 @@ picks up where it stops.
   made no difference and every sketch was rewritten whole with Write. Check each new
   agent's `tools:` against what its prompt tells it to do.
 - **Not built:** `code-writer`, `code-reviewer`. A run pauses with exit 3 at code-writer.
-- **Issue 1 is at the gate, approved:** `../caw-issue-1` holds the approved plan and an
-  approved red set from the final end-to-end run (below). `scripts/deliver.sh
-  docs/issues/001.md` resumes at code-writer once it exists.
+- **Issue 1 is at the gate, approved — and is the code pair's input.** `../caw-issue-1`,
+  branch `feature/issue-1`, fast-forwarded to `fa08be8` with no commits of its own. Its
+  working tree holds, uncommitted, the approved plan and all six reviews under
+  `docs/plans/issue-1/`, and the approved red set from the final end-to-end run (below):
+  84 Vitest tests in 9 files, the `read_state.feature` journey and its steps. Its ignored
+  `build/delivery/state` says `STAGE=code-writer`, `ROUNDS_test=2`, `STEP=10`, so
+  `scripts/deliver.sh docs/issues/001.md` resumes at code-writer (checked: exit 3 until
+  the agent exists). The red set came from the prompts before their final clean-up, which
+  moved rules without changing them.
 
 ## Decisions taken for the pair
 
@@ -117,8 +124,36 @@ recurred in 2 of 3 v2 runs despite the rule; a writer can't check that without a
 so the reviewer is where it's caught. Severity for the same defect still varies a grade
 between reviewers (major vs minor).
 
+**After the final clean-up** — the shared rules moved into *Tests that prove something*,
+and `Edit` added to the reviewer's `tools:` — one reviewer rerun over writer run c ($3.77,
+97 turns) found the plan's markup defect (now critical) and the two-events helper, but
+not the debounce the previous run over the same tests caught. It sketched six wrong
+builds, all sound, just not that one: "each test you suspect" left the choice to the run.
+*Sketch it* now says to sketch **every wrong build the Expectations named**, which the
+debounce was. **That change is untested.**
+
+**What the session cost:** about $90 — the plan run ($9.93), both end-to-end test-pair
+runs ($8.69, $10.05), six writer runs and nine reviewer runs.
+
 ## For the code pair
 
+- **Start from `../caw-issue-1` as it is**, and build the agents in a worktree of their
+  own, as this pair did: copy each draft into `../caw-issue-1/.claude/agents/` (and any
+  shared change into `.claude/delivery/`) to run it, then delete the copies before
+  bringing the branch up to main — `git merge --ff-only` refuses to overwrite them.
+- **Snapshot it before the first run — nothing durable does yet.** Tuning needs every run
+  to start from the same red set, and a code-writer run changes the tree. This pair's
+  snapshot lived in a session scratchpad and is gone. Either a baseline commit of the
+  plan and tests on `feature/issue-1` (then `git checkout . && git clean -fd` resets it;
+  that is a commit on an issue branch, so the human's call), or a tarball of
+  `docs/plans/issue-1/`, the changed tests and `build/delivery/`. Either way, keep
+  `build/delivery/state`: it is what makes the run resume at code-writer. `--restart`
+  throws it away and starts again at plan-writer.
+- **The code-writer's reach is the first real decision.** Its `write_scope` is everything
+  *except* the tests and the red report — production code, the docs and ADR the plan's
+  record task names, and the plan's *Found while building*. Its `allowed_tools` need
+  `npm --prefix src/frontend run build` or `typecheck` and `lint` on top of the test
+  pair's, and `generate:api` for an issue that changes a contract.
 - **The code-writer reads the red report's *For the code-writer*** and every test review's
   *Left for later stages*. The approved issue-1 set has a list of what the tests pin that
   the plan doesn't spell out (DOM adjacency, synchronous emits, a hold that re-applies to
@@ -134,8 +169,7 @@ between reviewers (major vs minor).
   tests first, written to the file, then the code. It can reuse `sketch.sh`'s idea in
   reverse: mutate the real code in a copy and see the tests catch it.
 - **A code-writer must not edit a test.** If a test is wrong, that is `needs_human` or a
-  finding for the code-reviewer — otherwise the red gate is undone after the fact. The
-  write scope should enforce it: tests out of scope.
+  finding for the code-reviewer — otherwise the red gate is undone after the fact.
 
 ## Open items
 
@@ -147,6 +181,24 @@ between reviewers (major vs minor).
   for a human if it isn't.
 - **The issue 1 ambiguities** in handoff 01 still stand — the plan pair settled them in
   decision rows, and the test pair built to those.
-- **The harness** used for the variance runs (a stage run in its own detached worktree,
-  with deliver.sh's own tool list and schema) isn't in the repo. If the code pair is
-  tuned the same way, it may be worth a `scripts/deliver.sh --stage <name>` mode instead.
+- **The variance harness isn't in the repo.** To run one stage several times from one
+  input, it did, per run: `git worktree add --detach ../caw-var-<x> main`; copied in the
+  approved `docs/plans/issue-1/` and `build/delivery/`, the draft agents and
+  `.claude/delivery/*`; then, from that worktree, `claude -p "<the context block
+  deliver.sh would print>" --agent <stage> --output-format json --json-schema
+  "<RESULT_SCHEMA>" --permission-mode dontAsk --allowedTools <allowed_tools <stage>>
+  --max-turns 150`. It took the tool list and schema from `deliver.sh` itself, by
+  `eval`-ing its `read_only_bash` … `allowed_tools` functions, so they couldn't drift. A
+  `scripts/deliver.sh --stage <name> --worktree <dir>` mode would make that one command.
+- **Left for the final pass across all agents:**
+  - the plan-reviewer's checklist items 4–5 restate part of *Tests that prove something*;
+  - the reviewers share more than the shared file says — expectations written before the
+    work is opened, "don't raise the writer's choices", and the review file's skeleton
+    (findings, *Left for later stages*, *Checked and sound*). With a third reviewer coming,
+    that belongs in `agent-context.md` once;
+  - three lessons for the plan pair's exemplar, from *What converged* above: a test for
+    every function in the interfaces, fixtures in the test table that make two readings
+    coincide, and markup the plan gives that its own tests can't match;
+  - `tools:` against each prompt, for every agent.
+- **Leftover worktrees:** `../caw-test-pair` (merged) and `../caw-var-a`, `-b`, `-c` (the
+  variance runs, detached at `fd87f7e`, their tests and reviews uncommitted) can go.
