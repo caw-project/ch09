@@ -72,6 +72,8 @@ Service names drop the `collabhub-` prefix used in the design docs (`src/service
 
 `scripts/deliver.sh <issue-file>` takes one issue to a tested feature ready for review, headless, through six agents in `.claude/agents/`: plan-writer → plan-reviewer → test-writer → test-reviewer → code-writer → code-reviewer. A reviewer can send work back to its writer; any agent can stop the run with `needs_human`, and its questions go into `docs/plans/issue-<N>/needs-human.md` for a person to answer before rerunning. It works in `../caw-issue-<N>` on `feature/issue-<N>` and, like every other session, commits nothing. The script's header is the reference.
 
+What every agent shares — the team, how a run works, what an agent may touch, rounds and the final round, severity, deadlocks, escalation, the `StructuredOutput` result — lives once in `.claude/delivery/agent-context.md`, and each agent reads it first. An agent's own file holds only its role; put anything that applies to more than one agent in the shared file, not in two prompts. It sits outside `.claude/agents/` because every file there is loaded as an agent.
+
 The plan-writer models its plans on `docs/plans/exemplar-implementation-plan.md`, which records what past plans got right and what their builds found missing — update it when a build teaches something new.
 
 ## Platform versions
