@@ -74,6 +74,8 @@ Service names drop the `collabhub-` prefix used in the design docs (`src/service
 
 What every agent shares — the team, how a run works, what an agent may touch, rounds and the final round, severity, deadlocks, escalation, the `StructuredOutput` result — lives once in `.claude/delivery/agent-context.md`, and each agent reads it first. An agent's own file holds only its role; put anything that applies to more than one agent in the shared file, not in two prompts. It sits outside `.claude/agents/` because every file there is loaded as an agent.
 
+An issue for it is written with the `issue-writer` skill, which grills the user against `docs/issues/exemplar-issue.md` — where the rules meet, the paths each must hold on, the assumptions it leans on, and a timeline for anything timed. Update the exemplar issue when a delivery's plan has to decide something its issue should have.
+
 The plan-writer models its plans on `docs/plans/exemplar-implementation-plan.md`, which records what past plans got right and what their builds found missing — update it when a build teaches something new.
 
 ## Platform versions
