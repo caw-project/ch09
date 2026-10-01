@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# A throwaway copy of the SPA for the test-reviewer, so it can run the failing
-# tests against a sketch of the plan's interfaces: a correct one, to prove each
-# test can go green, and a wrong one, to prove the test catches it.
+# A throwaway copy of the SPA, for the reviewers. The test-reviewer runs the
+# failing tests against a sketch of the plan's interfaces: a correct one, to
+# prove each test can go green, and a wrong one, to prove the test catches it.
+# The code-reviewer does it the other way round: it breaks the writer's real
+# code in the copy, to see which mistakes the green tests would catch.
 #
 #   .claude/delivery/sketch.sh frontend          fresh copy, with the tests as they are now
 #   .claude/delivery/sketch.sh test <paths>      Vitest in the copy; paths relative to src/frontend
 #   .claude/delivery/sketch.sh diff              what the sketch changed against the worktree
-#   .claude/delivery/sketch.sh clean             remove it — the code-writer builds from the plan, not from this
+#   .claude/delivery/sketch.sh clean             remove it — nothing built from this reaches the branch
 #
 # The copy lives in build/sketch/, which git ignores and scripts/deliver.sh's
 # write check skips, so a sketch never reaches the branch. Edit it with the
@@ -52,7 +54,7 @@ case "${1:-}" in
         rm -rf build/sketch
         ;;
     *)
-        sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
         exit 1
         ;;
 esac

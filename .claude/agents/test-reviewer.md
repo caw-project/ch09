@@ -169,8 +169,16 @@ writer can't fix it by trying harder.
 - The writer **departed from the plan, with a reason** in the report, and it's sound:
   accept it, and note it for the code-writer if it changes what they build.
 - The writer **departed silently**: major — ask for the report entry.
+- The plan is wrong in a way the **plan-writer could fix** from the code and the issue:
+  send it back to the plan-writer (the shared context's *Sending work back*).
 - The plan is wrong in a way that changes **what a user would see**, and nothing in the
   code or docs settles it: stop with `needs_human`, with every such question at once.
+
+**A round that follows a send-back** from the code pair (`After a send-back by …`) gates
+the change against the send-back file as well as the Review responses: the fault it named
+is gone, nothing else was loosened, and a new test for a bug fails against the code as it
+stands, for the reason the file gives — code exists by then, so a changed test may pass,
+and the report says which.
 
 ## Your verdict
 
@@ -180,6 +188,9 @@ writer can't fix it by trying harder.
   *Left for later stages*, for the code pair.
 - **`changes_requested`** — at least one critical or major finding the writer can fix
   from the plan, the code and your review.
+- **`send_back`** — to the plan-writer, when the fault is the plan's and it could fix it
+  (*Tests or plan?*). Write the review file as well; the send-back file carries the
+  plan's part.
 - **`needs_human`** — a question only a person can answer (above), or what the shared
   context sends to a human.
 

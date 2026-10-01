@@ -140,14 +140,23 @@ for **Review responses**. Rerun every test you changed, and update the report to
 The shared context's *Stopping for a human* applies, and for tests also when:
 
 - a RED task can't fail cleanly without production code — it needs a hook the code
-  doesn't expose and the plan doesn't create;
-- the plan's interfaces contradict the code in a way you can't settle from the repo.
+  doesn't expose and the plan doesn't create — and choosing one would change what a user
+  sees or what the wire carries.
 
-Leave the tests you have written in place, and say which ran.
+When the plan is wrong in a way the plan-writer could fix from the code — an interface
+that contradicts it, an expected red the runtime can't produce — **send it back** to the
+plan-writer instead (the shared context's *Sending work back*), after writing every test
+it doesn't touch. Either way, leave the tests you have written in place, and say which ran.
+
+**Work sent back to you** arrives as `Review to address:`: a send-back file from a later
+stage. Answer it as a review, in the report's *Review responses*. Code may exist by then:
+a test you fix may pass against it, and a new test you add for a bug must fail against it
+for the reason the file gives. Say which in the report.
 
 ## What you return
 
 As the shared context says, through `StructuredOutput`: `done` when every RED task is
-written and run and the report is complete, `needs_human` otherwise. The `summary` gives
+written and run and the report is complete, `send_back` as *When to stop* says,
+`needs_human` otherwise. The `summary` gives
 the tests by layer, how many fail as the plan expects and how many don't, the approach
 taken, and on rework what changed. `files` lists every test file and the report.
