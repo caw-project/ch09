@@ -17,7 +17,7 @@ code:
 | **plan-reviewer** | checks the plan against the issue, the exemplar and the code | its review |
 | **test-writer** | builds the plan's RED tasks: the failing tests | tests, and `docs/plans/issue-<N>/02-red-tests.md` |
 | **test-reviewer** | checks the tests fail for the reasons the plan gives — the red gate | its review |
-| **code-writer** | builds the GREEN tasks until the tests pass | code, docs the plan records |
+| **code-writer** | builds the GREEN tasks until the tests pass, then the record and the verification | code, the docs the plan records, the plan's *Found while building*, `docs/test-report.md`, and `docs/plans/issue-<N>/03-green-report.md` |
 | **code-reviewer** | checks the code against the plan, the tests and the conventions | its review |
 
 Each stage sees the issue, the plan, the reviews and the repo — **never another agent's
@@ -37,14 +37,21 @@ Your prompt is a **context block**. The lines it can hold:
   worktree root. The issue file is a copy, refreshed every run.
 - `Red report:` — from the test pair on: the test-writer's account of every failing
   test, what it fails with, and where the tests depart from the plan.
+- `Green report:` — the code pair: the code-writer's account of what it built, what ran
+  and what it printed, and where the code departs from the plan.
 - `Worktree:` — where you are, and its branch.
 - `Stage: <stage>, round <R> of <max>` — see *Rounds*.
 - `Turns: <n>`, or `Final round: yes — <n> turns` — your allowance; see *The final round*.
-- `Review to address:` — a writer being sent back: the review to answer.
+- `Review to address:` — a writer being sent back: the review to answer, or a later
+  stage's send-back file (see *Sending work back*).
 - `Write your review to:` — a reviewer: exactly where the review goes.
 - `Earlier reviews:` — every review so far, from every stage, approvals included.
 - `Human answers:` — a person's answers to an earlier stop. They overrule the issue where
   they differ, and settle what they answer for every stage.
+- `Send-back file, if you send work back:` — from the test pair on: where you write why,
+  if you return `send_back`.
+- `After a send-back by <stage>: <file>` — work you take over has changed since that stage
+  sent it back; read the file first. For the stage that sent it, this is the return.
 
 ## Where you work, and what you may touch
 
@@ -54,7 +61,9 @@ Your prompt is a **context block**. The lines it can hold:
   paths inside the worktree. Read, search and list files with **Read, Grep and Glob**, by
   absolute path when they are outside the worktree; Bash can't reach those at all. `cat`,
   `sed`, `find`, `git -C`, or a `cd … &&` in front, can fall outside what you're allowed,
-  and every refusal costs a turn.
+  and every refusal costs a turn. Run an allowed command as it is listed, one per call:
+  an environment-variable prefix (`KEEP_STACK=1 …`), `npx`, or a chained `; echo $?` turns
+  it into a command you aren't allowed. A pipe into `tail` or `grep` is fine.
 - **Installed dependencies start out missing.** A new worktree has no `node_modules/` or
   `.venv/` of its own. A stage that only reads finds the primary checkout with
   `git worktree list` (the first line) and reads its copy by absolute path. A stage that
@@ -76,17 +85,23 @@ layer and as few files as prove the point.
 | Vitest | `npm --prefix src/frontend test -- <paths relative to src/frontend>` |
 | Types | `npm --prefix src/frontend run typecheck` |
 | Python unit or integration | `uv run pytest <paths>` — the directory decides the layer |
-| BDD | cannot run here: it needs the Compose test stack. `uv run pytest tests/bdd --collect-only -q` proves the features parse; `uv run pytest tests/bdd --generate-missing --feature tests/bdd/features` prints a stub for every step with no definition, and nothing when all bind |
+| BDD | before the code-writer, it cannot run: it needs the Compose test stack. `uv run pytest tests/bdd --collect-only -q` proves the features parse; `uv run pytest tests/bdd --generate-missing --feature tests/bdd/features` prints a stub for every step with no definition, and nothing when all bind. The code-writer runs it with `scripts/test.sh e2e -- -k <filter>` |
 
 - **Install before the first run**, if the worktree has none: `npm --prefix src/frontend ci`
   (never `npm install`, which rewrites the lockfile); `uv run` syncs `.venv` by itself.
   The lint hook skips TypeScript until `node_modules/` exists, so install before writing
   a `.ts` file.
-- **Never `scripts/test.sh`.** It rewrites the committed `docs/test-report.md`, which no
-  stage writes, and runs whole layers.
+- **Never `scripts/test.sh`** — except the code-writer, for its final verification only.
+  It rewrites the committed `docs/test-report.md`, which goes with the finished code and
+  no earlier stage, and it runs whole layers. Its `e2e` layer is the only way a journey
+  runs: it builds and starts the Compose test stack, one run per machine at a time, and
+  takes minutes.
 - **Integration tests start their own containers** through testcontainers. If Docker is
   unreachable, nothing at that layer has run — not a test failure, and not a pass: stop
-  for a human. (BDD is different: it never runs here, by design.)
+  for a human. (BDD before the code-writer is different: it never runs there, by design.)
+- **Leave nothing behind.** A run that writes files — `--coverage`, a reporter's output —
+  is `scripts/test.sh`'s, which writes under the ignored `build/`. You can't delete
+  a file once it's written, so it stays in the branch for the human to find.
 - **Read the failure, not the count.** A file that fails to load reports its tests as
   failed without running one; `Failed to resolve import` and `ImportError` are load
   failures, `is not a function` and an assertion are the test running. A load failure is
@@ -223,6 +238,32 @@ is cut down so that a disagreement can't run on: fewer turns, less effort.
 
 Rounds after a human has answered stay final rounds.
 
+## Sending work back — `send_back`
+
+The work you take over can be wrong in a way that is not yours to fix: a test no correct
+build could pass, or a fault in the test harness only running it shows; a plan interface
+the code contradicts, or an expected red the runtime can't produce. When the pair that
+owns it could fix it from the issue, the plan, the code and what you write — nobody has to
+decide anything — send it back to them. Code stages send back to the test-writer, test
+stages to the plan-writer. Never fix it yourself, and never build round it: the write check
+blocks the first, and the second hides the fault from the pair that owns it.
+
+- **Finish first.** Do everything that doesn't depend on the fault, so the return costs
+  one pass, not a rebuild.
+- **Write the file** at the `Send-back file` path: what is wrong and where, what you ran
+  and what it printed, why nothing in your own stage fixes it, and the smallest fix you'd
+  expect. The writer answers it as a review; its reviewer checks the answer against it.
+- **Return `send_back`**, with your work left in place.
+
+The earlier pair takes a new round, and it counts: its writer answers the file in its
+**Review responses**, its reviewer gates the fix as it gates any round, and the work comes
+forward through every stage after them to you again. Their work now sits under yours — a
+test they fix may already pass against code you built, and they can't run a journey; they
+say so, and you rerun it. Past their round limit, a human sees the send-back first.
+
+A fault whose fix needs a decision — what a user sees, what the issue means, which of two
+readings is right — is not a send-back: stop for a human.
+
 ## Stopping for a human — `needs_human`
 
 Stop, and return `needs_human`, when:
@@ -249,8 +290,10 @@ Your run ends by calling the **`StructuredOutput` tool** — every agent's `tool
 lists it. The workflow reads nothing else, so a JSON block in your reply is not a result.
 
 - `status` — a writer returns `done` or `needs_human`; a reviewer returns `approved`,
-  `changes_requested` or `needs_human`. Anything else stops the workflow.
+  `changes_requested` or `needs_human`; from the test pair on, any stage may return
+  `send_back` (*Sending work back*). Anything else stops the workflow.
 - `summary` — two or three sentences for the human reading the run's log. Your agent file
   says what goes in it.
 - `files` — the files you wrote, relative to the worktree root.
 - `questions` — for `needs_human`, the questions as above. Empty otherwise.
+- For `send_back`, `files` includes the send-back file.

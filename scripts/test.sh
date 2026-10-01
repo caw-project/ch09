@@ -236,13 +236,40 @@ e2e_down() {
         log "e2e: teardown failed — check 'docker compose -p collabhub-test ps'"
 }
 
+# One test stack per machine. Its project name and host ports are fixed, so a
+# run from a second worktree — two issues going through scripts/deliver.sh at
+# once — would rebuild the stack under the first and take it down mid-scenario.
+# The second waits instead. A lock whose run has gone is taken over.
+E2E_LOCK="${TMPDIR:-/tmp}/collabhub-test-stack.lock"
+E2E_LOCK_WAIT_SECONDS="${E2E_LOCK_WAIT_SECONDS:-3600}"
+
+e2e_lock() {
+    local holder waited=0
+    until mkdir "$E2E_LOCK" 2>/dev/null; do
+        holder="$(cat "$E2E_LOCK/pid" 2>/dev/null || true)"
+        if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
+            log "e2e: taking the test stack over from run $holder, which has gone"
+            rm -rf "$E2E_LOCK"
+            continue
+        fi
+        [ "$waited" -gt 0 ] || log "e2e: another run (${holder:-starting}) has the test stack — waiting for it"
+        [ "$waited" -lt "$E2E_LOCK_WAIT_SECONDS" ] ||
+            die "e2e: waited ${waited}s for the test stack; remove $E2E_LOCK if no run holds it"
+        sleep 5
+        waited=$((waited + 5))
+    done
+    # $$ is the script's own pid, even in the subshell run_layer runs this in.
+    echo "$$" >"$E2E_LOCK/pid"
+}
+
 # Runs when the script exits during the e2e layer — a failed `up`, a failed
-# scenario, Ctrl-C. It takes the exit status first and exits with it again, so
-# the teardown can neither hide a failure nor invent one.
+# scenario, Ctrl-C, or the end of the run. It takes the exit status first and
+# exits with it again, so the teardown can neither hide a failure nor invent one.
 e2e_on_exit() {
     local status=$?
     trap - EXIT
-    e2e_down
+    [ "${KEEP_STACK:-}" = 1 ] || e2e_down
+    rm -rf "$E2E_LOCK"
     exit "$status"
 }
 
@@ -252,11 +279,9 @@ layer_e2e() {
     [ -f .env ] ||
         die "e2e tests need .env at the repo root, which the Compose files read: cp .env.example .env"
 
-    if [ "${KEEP_STACK:-}" = 1 ]; then
-        log "e2e: KEEP_STACK=1 — the test stack stays up afterwards"
-    else
-        trap e2e_on_exit EXIT
-    fi
+    e2e_lock
+    trap e2e_on_exit EXIT
+    [ "${KEEP_STACK:-}" != 1 ] || log "e2e: KEEP_STACK=1 — the test stack stays up afterwards"
 
     log "e2e: bringing the test stack up"
     # --wait holds until every container with a healthcheck is healthy, and the
@@ -269,14 +294,10 @@ layer_e2e() {
 
     log "e2e tests"
     # Pointed at tests/bdd so the run does not collect every service's tests only
-    # to deselect them. Under `set -e` a failure exits here, through the trap.
+    # to deselect them. Under `set -e` a failure exits here, through the trap —
+    # and so does success, when the layer's subshell ends.
     uv run pytest tests/bdd -m bdd --junitxml="$RESULTS_DIR/e2e.xml" \
         ${pytest_args[@]+"${pytest_args[@]}"}
-
-    if [ "${KEEP_STACK:-}" != 1 ]; then
-        trap - EXIT
-        e2e_down
-    fi
 }
 
 log "syncing the Python workspace"

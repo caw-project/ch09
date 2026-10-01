@@ -37,6 +37,8 @@ ENV/
 .coverage.*
 coverage.xml
 htmlcov/
+# Vitest's --coverage outside scripts/test.sh, which writes under build/ instead.
+src/frontend/coverage/
 *.cover
 .hypothesis/
 

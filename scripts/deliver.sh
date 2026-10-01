@@ -19,7 +19,18 @@
 #   a writer returns    done               on to its reviewer
 #   a reviewer returns  approved           on to the next writer, or done
 #                       changes_requested  back to its writer, with the review
+#   a later stage       send_back          back to the writer of the pair before
+#     returns                                its own, with why in a send-back file
 #   any agent returns   needs_human        stop; questions in needs-human.md
+#
+# A send-back is for work an earlier pair owns and a later stage finds wrong — a
+# test the code-writer can't pass because the test is broken, a plan the tests
+# can't be written to. The stage writes why to the send-back file its context
+# block names, and stops. The earlier pair takes a new round: its writer answers
+# the file as it answers a review, its reviewer gates the fix, and the workflow
+# comes forward from there as usual. The stage that sent it back is told, when
+# it runs again, what it is resuming after. Test stages send back to the
+# plan-writer, code stages to the test-writer; the plan pair can't send back.
 #
 # A writer and its reviewer get DELIVER_MAX_ROUNDS reviews (default 3). The last
 # is the final round, and it is cut down so a disagreement cannot run on: both
@@ -72,7 +83,7 @@ DELIVER_PERMISSION_MODE="${DELIVER_PERMISSION_MODE:-dontAsk}"
 RESULT_SCHEMA='{
   "type": "object",
   "properties": {
-    "status":    {"type": "string", "enum": ["done", "approved", "changes_requested", "needs_human"]},
+    "status":    {"type": "string", "enum": ["done", "approved", "changes_requested", "send_back", "needs_human"]},
     "summary":   {"type": "string"},
     "files":     {"type": "array", "items": {"type": "string"}},
     "questions": {"type": "array", "items": {"type": "string"}}
@@ -109,7 +120,35 @@ case "$DELIVER_FINAL_EFFORT" in
     low | medium | high | xhigh | max) ;;
     *) die "DELIVER_FINAL_EFFORT must be low, medium, high, xhigh or max" ;;
 esac
-require_cmd claude git jq
+
+# --- pre-flight -----------------------------------------------------------------
+#
+# Everything a run needs from this machine, checked before the first stage. The
+# stages that need most of it come last: the test pair installs and runs Vitest
+# and pytest, and the code-writer's verification runs scripts/test.sh, whose e2e
+# layer builds the Compose test stack. A missing tool found there costs every
+# stage before it. Lists every problem at once, so one fix-and-rerun is enough.
+preflight() {
+    local problems=() cmd
+    # The workflow itself; what stages run (tests, lint, the scripts' layers).
+    for cmd in claude git jq uv node npm python3 helm docker; do
+        command -v "$cmd" >/dev/null 2>&1 || problems+=("'$cmd' is not on PATH")
+    done
+    if command -v docker >/dev/null 2>&1; then
+        docker info >/dev/null 2>&1 ||
+            problems+=("the Docker daemon is not reachable — the code-writer's e2e run needs it")
+        docker compose version >/dev/null 2>&1 ||
+            problems+=("'docker compose' (v2) is not available — the e2e layer brings its stack up with it")
+    fi
+    [ -f "$REPO_ROOT/.env.example" ] ||
+        problems+=(".env.example is missing — a worktree's .env is made from it for the e2e layer")
+    if [ ${#problems[@]} -gt 0 ]; then
+        log "Pre-flight failed — fix these, then run this again:"
+        printf '  - %s\n' "${problems[@]}" >&2
+        exit 1
+    fi
+}
+preflight
 
 issue_file="$(cd "$(dirname "$issue_file")" && pwd)/$(basename "$issue_file")"
 ISSUE="$(head -n 20 "$issue_file" | grep -m1 -oiE 'issue[[:space:]:#]*[0-9]+' | grep -oE '[0-9]+' || true)"
@@ -123,6 +162,7 @@ PLAN_DIR="docs/plans/issue-$ISSUE"
 ISSUE_COPY="$PLAN_DIR/00-issue.md"
 PLAN="$PLAN_DIR/01-implementation-plan.md"
 RED_REPORT="$PLAN_DIR/02-red-tests.md"
+GREEN_REPORT="$PLAN_DIR/03-green-report.md"
 ANSWERS="$PLAN_DIR/needs-human.md"
 
 RUN_DIR="$WORKTREE/build/delivery"
@@ -143,6 +183,10 @@ fi
     die "$WORKTREE is not on $BRANCH — move it or remove it"
 
 mkdir -p "$RUN_DIR" "$WORKTREE/$PLAN_DIR"
+# The e2e layer's Compose files read .env, which git ignores, so a new worktree
+# has none. The example is the full contract with local values — what a
+# developer starts from too.
+[ -f "$WORKTREE/.env" ] || cp "$WORKTREE/.env.example" "$WORKTREE/.env"
 # The issue travels with its plan, as a design doc does. Copied every run, so an
 # issue edited to answer a question reaches the agents that read it.
 cp "$issue_file" "$WORKTREE/$ISSUE_COPY"
@@ -157,6 +201,8 @@ STATUS=running
 STEP=0
 REVIEW=""
 ROUNDS_plan=1 ROUNDS_test=1 ROUNDS_code=1
+# The stage waiting on a send-back, and the file that says why.
+SENT_BACK_BY="" SENT_BACK_FILE=""
 
 if $restart; then
     rm -f "$STATE"
@@ -169,6 +215,7 @@ save_state() {
     {
         printf 'STAGE=%q\nSTATUS=%q\nSTEP=%q\nREVIEW=%q\n' "$STAGE" "$STATUS" "$STEP" "$REVIEW"
         printf 'ROUNDS_plan=%q ROUNDS_test=%q ROUNDS_code=%q\n' "$ROUNDS_plan" "$ROUNDS_test" "$ROUNDS_code"
+        printf 'SENT_BACK_BY=%q SENT_BACK_FILE=%q\n' "$SENT_BACK_BY" "$SENT_BACK_FILE"
     } >"$STATE"
 }
 
@@ -200,6 +247,22 @@ next_stage() {
 
 # A reviewer's review, one file per round so the writer's history survives.
 review_path() { printf '%s/reviews/%s-%s.md' "$PLAN_DIR" "$1" "$(rounds_of "$(pair_of "$1")")"; }
+
+# The pair a stage sends back to, or nothing for the plan pair.
+earlier_pair() {
+    case "$(pair_of "$1")" in
+        test) printf plan ;;
+        code) printf test ;;
+    esac
+}
+
+# Where a stage writes why it sends work back — numbered by the round the
+# earlier pair will take it in, so each send-back keeps its own file.
+sendback_path() {
+    local earlier
+    earlier="$(earlier_pair "$1")"
+    printf '%s/reviews/%s-sendback-%s.md' "$PLAN_DIR" "$1" "$(($(rounds_of "$earlier") + 1))"
+}
 
 # --- what each stage may do ---------------------------------------------------
 #
@@ -254,6 +317,34 @@ allowed_tools() {
             read_only_bash
             test_bash
             ;;
+        # Builds until the tests pass, then verifies the whole branch: the only
+        # stage that runs scripts/test.sh, because its final run writes the
+        # committed docs/test-report.md that goes with the code. e2e brings up
+        # the Compose test stack, one run per machine at a time. The contract
+        # regeneration is here for an issue that changes an API.
+        code-writer)
+            printf '%s\n' Read Grep Glob Write Edit Skill \
+                'Bash(npm --prefix src/frontend ci*)' \
+                'Bash(npm --prefix src/frontend run build*)' \
+                'Bash(npm --prefix src/frontend run generate:api*)' \
+                'Bash(uv run ruff *)' 'Bash(uv run alembic *)' 'Bash(uv run python -m *)' \
+                'Bash(scripts/test.sh *)' \
+                'Bash(python3 .claude/hooks/checks/conventions.py*)' \
+                'Bash(.claude/hooks/security.sh*)'
+            read_only_bash
+            test_bash
+            ;;
+        # Runs every check but scripts/test.sh, whose layers it reads from the
+        # report the code-writer left, and writes only its review. The sketch is
+        # the real code copied under build/sketch/, broken on purpose to see
+        # which mistakes the tests would catch.
+        code-reviewer)
+            printf '%s\n' Read Grep Glob Write Edit Skill 'Bash(.claude/delivery/sketch.sh *)' \
+                'Bash(npm --prefix src/frontend run build*)' \
+                'Bash(python3 .claude/hooks/checks/conventions.py*)'
+            read_only_bash
+            test_bash
+            ;;
         *) die "no tools are allowed for $1 yet — add its entry to allowed_tools" ;;
     esac
 }
@@ -270,9 +361,26 @@ write_scope() {
             printf '^(%s|%s|%s|%s|%s|%s)' \
                 'src/frontend/src/.*\.test\.tsx?$' 'src/frontend/src/test/' \
                 'src/services/[^/]+/tests/' 'src/services/testkit/' 'tests/bdd/' \
-                "$RED_REPORT\$"
+                "$RED_REPORT\$|$PLAN_DIR/reviews/test-writer-sendback-"
             ;;
         test-reviewer) printf '^%s/reviews/' "$PLAN_DIR" ;;
+        # Production code, config and docs anywhere — then write_denied takes
+        # the tests back out. The plan only for its *Found while building*.
+        code-reviewer) printf '^%s/reviews/' "$PLAN_DIR" ;;
+        code-writer) printf '^(src/|docs/|charts/|docker/|scripts/|\.env\.example$|docker-compose)' ;;
+    esac
+}
+
+# Paths a stage may never write, even inside its scope. The code-writer builds
+# to the approved red set: a test changed after the gate undoes the gate.
+write_denied() {
+    case "$1" in
+        code-writer)
+            printf '^(%s|%s|%s|%s|%s|%s|%s)' \
+                'src/frontend/src/.*\.test\.tsx?$' 'src/frontend/src/test/' \
+                'src/services/[^/]+/tests/' 'src/services/testkit/' 'tests/' \
+                "$RED_REPORT\$" "$PLAN_DIR/reviews/[a-z]+-reviewer-"
+            ;;
     esac
 }
 
@@ -281,6 +389,7 @@ writer_output() {
     case "$1" in
         plan-writer) printf '%s' "$PLAN" ;;
         test-writer) printf '%s' "$RED_REPORT" ;;
+        code-writer) printf '%s' "$GREEN_REPORT" ;;
     esac
 }
 
@@ -296,6 +405,8 @@ context_block() {
     case "$pair" in
         test | code) printf 'Red report: %s\n' "$RED_REPORT" ;;
     esac
+    # The code pair: what was built, and what ran, as the code-writer reports it.
+    [ "$pair" != code ] || printf 'Green report: %s\n' "$GREEN_REPORT"
     printf 'Worktree: %s (branch %s)\n' "$WORKTREE" "$BRANCH"
     printf 'Stage: %s, round %s of %s\n' "$stage" "$(rounds_of "$pair")" "$DELIVER_MAX_ROUNDS"
     if is_final_round "$stage"; then
@@ -316,6 +427,14 @@ context_block() {
     fi
     if [ -s "$WORKTREE/$ANSWERS" ]; then
         printf 'Human answers: %s\n' "$ANSWERS"
+    fi
+    if [ -n "$(earlier_pair "$stage")" ]; then
+        printf 'Send-back file, if you send work back: %s\n' "$(sendback_path "$stage")"
+    fi
+    # Every stage the flow passes through on its way back to the stage that sent
+    # work back — the work each takes over has changed since it last saw it.
+    if [ -n "$SENT_BACK_BY" ] && [ "$REVIEW" != "$SENT_BACK_FILE" ]; then
+        printf 'After a send-back by %s: %s\n' "$SENT_BACK_BY" "$SENT_BACK_FILE"
     fi
 }
 
@@ -376,6 +495,12 @@ run_stage() {
     if [ -n "$scope" ]; then
         strays="$(touched_between "$before" "$(snapshot)" | grep -Ev "$scope" || true)"
         [ -z "$strays" ] || die "$stage wrote outside $scope:
+$strays"
+    fi
+    scope="$(write_denied "$stage")"
+    if [ -n "$scope" ]; then
+        strays="$(touched_between "$before" "$(snapshot)" | grep -E "$scope" || true)"
+        [ -z "$strays" ] || die "$stage wrote where it may not, $scope:
 $strays"
     fi
 
@@ -442,6 +567,8 @@ while [ "$STAGE" != done ]; do
     log "$STAGE: $status — $summary"
 
     pair="$(pair_of "$STAGE")"
+    # The stage a send-back was waiting on has now run with it in view.
+    [ "$SENT_BACK_BY" != "$STAGE" ] || SENT_BACK_BY="" SENT_BACK_FILE=""
     case "$(role_of "$STAGE"):$status" in
         writer:done)
             output="$(writer_output "$STAGE")"
@@ -474,6 +601,24 @@ while [ "$STAGE" != done ]; do
             set_rounds "$pair" $((rounds + 1))
             STAGE="$pair-writer"
             [ "$rounds" -lt "$DELIVER_MAX_ROUNDS" ] || stop_for_human
+            ;;
+        *:send_back)
+            earlier="$(earlier_pair "$STAGE")"
+            [ -n "$earlier" ] || die "$STAGE may not send work back — there is no pair before it"
+            file="$(sendback_path "$STAGE")"
+            [ -s "$WORKTREE/$file" ] || die "$STAGE sent work back but wrote no $file"
+            rounds=$(($(rounds_of "$earlier") + 1))
+            set_rounds "$earlier" "$rounds"
+            SENT_BACK_BY="$STAGE" SENT_BACK_FILE="$file"
+            REVIEW="$file"
+            STAGE="$earlier-writer"
+            # A new round like any other: past the limit, a human sees it first.
+            if [ "$rounds" -gt "$DELIVER_MAX_ROUNDS" ]; then
+                record_needs_human "$SENT_BACK_BY" \
+                    "$SENT_BACK_BY sent work back to the $earlier pair, which has used its $DELIVER_MAX_ROUNDS rounds. Why is in $file." \
+                    '["Should the '"$earlier"' pair take this send-back as a further round? Answer, then rerun to send it."]'
+                stop_for_human
+            fi
             ;;
         *:needs_human)
             record_needs_human "$STAGE" "$summary" "$(jq -c '.questions' <<<"$result")"
