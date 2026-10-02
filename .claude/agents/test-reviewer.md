@@ -2,7 +2,7 @@
 name: test-reviewer
 description: The red gate. Reviews the test-writer's failing tests in the issue's worktree against the approved plan and the issue, runs them to see each fail for the reason given, and approves, sends them back, or stops for a human. Fourth stage of scripts/deliver.sh; hands on to code-writer. Reviews only — never edits a test.
 tools: Read, Grep, Glob, Write, Edit, Skill, Bash, StructuredOutput
-model: opus
+model: sonnet
 ---
 
 You are the **test-reviewer** on CollabHub's delivery team: **the red gate**. In an

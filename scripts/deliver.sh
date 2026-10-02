@@ -71,7 +71,19 @@
 #   DELIVER_FINAL_EFFORT     effort for a stage in the final round. Default: medium
 #   DELIVER_BASE             the branch a new worktree starts from. Default: main
 #   DELIVER_RUN              a name for a second build of the same issue (above)
-#   DELIVER_MODEL            overrides every agent's model, e.g. for a cheap dry run
+#   DELIVER_MODEL            one model for every stage, e.g. for a cheap dry run.
+#                            Default: by stage — Sonnet for the test pair and the
+#                            code-writer, Opus for the plan pair and the
+#                            code-reviewer (default_model)
+#   DELIVER_MODEL_<STAGE>    one stage's model, over DELIVER_MODEL and the
+#                            default — DELIVER_MODEL_TEST_WRITER=opus
+#   DELIVER_REWORK_MODEL     the model for a pass that answers a review or follows
+#                            a send-back, over both of those
+#   DELIVER_EFFORT           effort for every stage's first pass. Default: the
+#                            model's own
+#   DELIVER_EFFORT_<STAGE>   one stage's effort, over DELIVER_EFFORT
+#   DELIVER_REWORK_EFFORT    effort for a rework pass, over both of those. The
+#                            final round keeps DELIVER_FINAL_EFFORT
 #   DELIVER_PERMISSION_MODE  default: dontAsk — anything a stage is not allowed
 #                            below is refused, never prompted for
 #
@@ -94,6 +106,9 @@ DELIVER_RUN="${DELIVER_RUN:-}"
 DELIVER_FINAL_EFFORT="${DELIVER_FINAL_EFFORT:-medium}"
 DELIVER_BASE="${DELIVER_BASE:-main}"
 DELIVER_MODEL="${DELIVER_MODEL:-}"
+DELIVER_REWORK_MODEL="${DELIVER_REWORK_MODEL:-}"
+DELIVER_EFFORT="${DELIVER_EFFORT:-}"
+DELIVER_REWORK_EFFORT="${DELIVER_REWORK_EFFORT:-}"
 DELIVER_PERMISSION_MODE="${DELIVER_PERMISSION_MODE:-dontAsk}"
 
 # What every agent returns. The status a stage may use depends on its role, and
@@ -320,6 +335,60 @@ turns_for() {
     else
         first_pass_turns "$1"
     fi
+}
+
+# A stage's own setting: stage_setting MODEL test-writer -> $DELIVER_MODEL_TEST_WRITER.
+stage_setting() {
+    get_var "DELIVER_$1_$(printf '%s' "$2" | tr 'a-z-' 'A-Z_')"
+}
+
+# The model each stage runs on when nothing is set, or nothing for its agent's
+# own. Measured on issue 1 (docs/plans/ch08/05-model-effort-handoff.md): Sonnet
+# for the test pair and the code-writer is a fifth faster and a third cheaper
+# with no difference a blind judge could find; a Sonnet plan-writer builds a
+# weaker design, and the code-reviewer is the last gate. Hard-coded for now —
+# it may come to depend on the issue. Keep the agents' `model:` lines in step.
+default_model() {
+    case "$1" in
+        test-writer | test-reviewer | code-writer) printf sonnet ;;
+    esac
+}
+
+# The model a stage runs on this pass, or nothing for its agent's own. A final
+# round is a rework pass too, so the rework model reaches it.
+model_for() {
+    local model
+    model="$(stage_setting MODEL "$1")"
+    [ -n "$model" ] || model="$DELIVER_MODEL"
+    [ -n "$model" ] || model="$(default_model "$1")"
+    if [ -n "$DELIVER_REWORK_MODEL" ] && { is_rework "$1" || is_final_round "$1"; }; then
+        model="$DELIVER_REWORK_MODEL"
+    fi
+    printf '%s' "$model"
+}
+
+# The effort a stage runs at this pass, or nothing for the model's own. The
+# final round's is cut down whatever a rework pass would get.
+effort_for() {
+    local effort
+    effort="$(stage_setting EFFORT "$1")"
+    [ -n "$effort" ] || effort="$DELIVER_EFFORT"
+    if is_final_round "$1"; then
+        effort="$DELIVER_FINAL_EFFORT"
+    elif [ -n "$DELIVER_REWORK_EFFORT" ] && is_rework "$1"; then
+        effort="$DELIVER_REWORK_EFFORT"
+    fi
+    printf '%s' "$effort"
+}
+
+# What history.log says a stage ran with: the model passed, or the one its agent
+# names, and the effort.
+ran_with() {
+    local model effort
+    model="$(model_for "$1")"
+    [ -n "$model" ] || model="$(sed -n 's/^model: *//p' "$WORKTREE/.claude/agents/$1.md" | head -n 1)"
+    effort="$(effort_for "$1")"
+    printf '%s · %s' "${model:-default}" "${effort:-default}"
 }
 
 # The stage after this one, or `done`.
@@ -598,7 +667,7 @@ invoke_agent() {
 # carry errexit into a command substitution, hence the set -e.
 run_stage() {
     set -e
-    local stage="$1" out base head before scope strays prompt tool_list t turns more subtype round session
+    local stage="$1" out base head before scope strays prompt tool_list t turns more subtype round session model effort
     base="$RUN_DIR/$(printf '%02d' "$STEP")-$stage"
     out="$base.json"
     prompt="$(context_block "$stage")"
@@ -608,10 +677,12 @@ run_stage() {
     turns="$(turns_for "$stage")"
     round="$(rounds_of "$(pair_of "$stage")")"
     local extra_args=()
-    [ -z "$DELIVER_MODEL" ] || extra_args+=(--model "$DELIVER_MODEL")
-    ! is_final_round "$stage" || extra_args+=(--effort "$DELIVER_FINAL_EFFORT")
+    model="$(model_for "$stage")"
+    effort="$(effort_for "$stage")"
+    [ -z "$model" ] || extra_args+=(--model "$model")
+    [ -z "$effort" ] || extra_args+=(--effort "$effort")
 
-    log "$stage — round $round, $turns turns (log: ${out#"$WORKTREE"/})"
+    log "$stage — round $round, $turns turns, $(ran_with "$stage") (log: ${out#"$WORKTREE"/})"
     head="$(git -C "$WORKTREE" rev-parse HEAD)"
     before="$(snapshot)"
     invoke_agent "$out" -p "$prompt" --agent "$stage" --max-turns "$turns" \
@@ -732,7 +803,7 @@ while [ "$STAGE" != done ]; do
     result="$(run_stage "$STAGE")"
     status="$(jq -r '.status' <<<"$result")"
     summary="$(jq -r '.summary' <<<"$result")"
-    stats="$(step_stats)"
+    stats="$(step_stats) · $(ran_with "$STAGE")"
     printf '%02d %s %s [%s]: %s\n' "$STEP" "$STAGE" "$status" "$stats" "$summary" >>"$RUN_DIR/history.log"
     log "$STAGE: $status [$stats] — $summary"
 
