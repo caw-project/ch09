@@ -158,7 +158,41 @@ offline/reconnecting UI.
   acknowledged `Message` / `message_received`.
 - Subscribe to `message_received`/`message_edited`/`message_deleted`, `reaction_changed`,
   `read_receipt_updated`, `user_typing` and update TanStack Query caches.
-- Debounce `typing`; throttle `mark_read`.
+- Debounce `typing`.
+
+**Read state — added 2026-10-02.** What the SPA does with the server's read marker
+(register D31; the polling choice is in `docs/adr/261002-unread-state-polls-rather-than-pushes.md`):
+
+- **When a channel counts as read.** The open channel's page is visible **and** the
+  window is focused **and** its list is measured within 80px of the bottom
+  (`STICK_THRESHOLD`, `<`, not `≤`). The bottom is measured — after a scroll and after
+  any programmatic scroll — never assumed.
+- **Target.** The newest non-pending loaded message, the user's own and tombstones
+  included. A `temp:` send is never a target.
+- **Throttle and timing.** `mark_read` over the socket, per channel, leading and trailing:
+  the first read goes at once and opens a 1 s window; reads inside it are held, the latest
+  kept, and sent when it ends, which opens the next. A window opens only when something
+  was emitted. Leaving a channel (or unmounting) sends a held read at once; changing the
+  socket or the workspace drops it. No queue and no retry: a read not sent is not sent
+  later by itself, and the forward-only marker makes the next one cover it. Each emit has a
+  5 s ack timeout.
+- **Local write and hold.** As it emits, the SPA writes `lastReadId` and `unreadCount: 0`
+  into the channel list and detail caches, never moving a marker back, and holds that
+  write against any fetch that began earlier until the ack, an error ack, or the timeout. Leaving a channel does not release it; a
+  socket change does, because the socket library answers each pending ack with an error.
+- **Polling.** The channel list refetches every 30 s while the tab is visible, once on
+  return to the tab or window, on every socket connect, and on every channel switch.
+- **Receipts.** The user's own `read_receipt_updated` writes the caches when it covers the
+  newest cached message, and refetches the list otherwise. Another user's is ignored.
+- **The divider.** A "New messages" separator sits above the first message after the
+  marker, by someone else, not deleted, among those that existed when the channel was
+  opened. It is captured once per visit, after the channel detail and the history have both
+  settled, then pinned for the visit. It waits for the older page that holds the marker.
+- **One mount per channel.** `ChannelView` keys `MessageList` by channel, so each channel is
+  a fresh mount: it starts at its newest message, takes its own divider and flushes its own
+  pending read as it unmounts.
+- **Badge.** A pill (`99+` above 99) and a bold name for a channel with unread messages,
+  hidden on the open channel only while it is being read (`readingChannelId`, client state).
 
 **Added 2026-08-16, while building live delivery.** Four rules the bullets above
 leave implicit, each of which is a bug that only shows up in a running app:

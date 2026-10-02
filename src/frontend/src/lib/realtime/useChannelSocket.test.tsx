@@ -2,12 +2,13 @@ import type { InfiniteData } from '@tanstack/react-query'
 import { act } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
+import { channelKeys } from '../../features/channels/useChannels'
 import { messageKeys } from '../../features/channels/useMessages'
 import { useChatStore } from '../../stores/chat'
-import { aMessage, aMessagePage } from '../../test/factories'
+import { aChannel, aMessage, aMessagePage, messageIdAt } from '../../test/factories'
 import { createTestQueryClient, renderHookWithProviders } from '../../test/render'
 import { latestSocket, type FakeSocket } from '../../test/socket'
-import type { Message, MessagePage } from '../api/messaging'
+import type { Channel, ChannelPage, Message, MessagePage } from '../api/messaging'
 import { useChannelSocket } from './useChannelSocket'
 
 const WORKSPACE = 'workspace-1'
@@ -258,6 +259,108 @@ describe('useChannelSocket', () => {
       act(() => socket.serverDisconnect())
 
       expect(joinedChannel()).toBeNull()
+    })
+  })
+
+  describe('read state', () => {
+    const newer = messageIdAt(3)
+    const older = messageIdAt(2)
+
+    function seedChannel(queryClient: ReturnType<typeof createTestQueryClient>) {
+      const channel = aChannel({ id: CHANNEL, unreadCount: 3 })
+      queryClient.setQueryData<ChannelPage>(channelKeys.list(WORKSPACE), {
+        items: [channel],
+        nextCursor: null,
+      })
+      queryClient.setQueryData(channelKeys.detail(WORKSPACE, CHANNEL), channel)
+      queryClient.setQueryData<InfiniteData<MessagePage>>(messageKeys.list(WORKSPACE, CHANNEL), {
+        pages: [aMessagePage([aMessage({ id: newer }), aMessage({ id: older })])],
+        pageParams: [undefined],
+      })
+    }
+
+    const listChannel = (queryClient: ReturnType<typeof createTestQueryClient>) =>
+      queryClient.getQueryData<ChannelPage>(channelKeys.list(WORKSPACE))?.items[0]
+    const detailChannel = (queryClient: ReturnType<typeof createTestQueryClient>) =>
+      queryClient.getQueryData<Channel>(channelKeys.detail(WORKSPACE, CHANNEL))
+    const listInvalidated = (queryClient: ReturnType<typeof createTestQueryClient>) =>
+      queryClient.getQueryState(channelKeys.list(WORKSPACE))?.isInvalidated
+
+    function receipt(messageId: string, userId = ADA) {
+      return { channelId: CHANNEL, userId, messageId }
+    }
+
+    it('refetches the channel list on every connect', () => {
+      const queryClient = createTestQueryClient()
+      seedChannel(queryClient)
+      renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL, ADA), {
+        queryClient,
+      })
+      const socket = latestSocket()
+      expect(listInvalidated(queryClient)).toBe(false)
+
+      act(() => socket.serverConnect())
+      expect(listInvalidated(queryClient)).toBe(true)
+
+      // A fresh write clears the flag; a drop and a second connect set it again.
+      seedChannel(queryClient)
+      expect(listInvalidated(queryClient)).toBe(false)
+      act(() => socket.serverDisconnect())
+      act(() => socket.serverConnect())
+      expect(listInvalidated(queryClient)).toBe(true)
+    })
+
+    it('applies the user’s own receipt to the list and the detail', () => {
+      const queryClient = createTestQueryClient()
+      seedChannel(queryClient)
+      renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL, ADA), {
+        queryClient,
+      })
+      const socket = latestSocket()
+      act(() => socket.serverConnect())
+      seedChannel(queryClient) // clear the connect's invalidation
+
+      act(() => socket.serverEmit('read_receipt_updated', receipt(newer)))
+
+      expect(listChannel(queryClient)).toMatchObject({ lastReadId: newer, unreadCount: 0 })
+      expect(detailChannel(queryClient)).toMatchObject({ lastReadId: newer, unreadCount: 0 })
+      expect(listInvalidated(queryClient)).toBe(false)
+    })
+
+    it('refetches the list for a receipt older than the newest cached message', () => {
+      const queryClient = createTestQueryClient()
+      seedChannel(queryClient)
+      renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL, ADA), {
+        queryClient,
+      })
+      const socket = latestSocket()
+      act(() => socket.serverConnect())
+      seedChannel(queryClient)
+
+      act(() => socket.serverEmit('read_receipt_updated', receipt(older)))
+
+      expect(listInvalidated(queryClient)).toBe(true)
+      expect(listChannel(queryClient)).toMatchObject({ lastReadId: null, unreadCount: 3 })
+    })
+
+    it('ignores a receipt for another user', () => {
+      const queryClient = createTestQueryClient()
+      seedChannel(queryClient)
+      renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL, ADA), {
+        queryClient,
+      })
+      const socket = latestSocket()
+      act(() => socket.serverConnect())
+      seedChannel(queryClient)
+
+      act(() => socket.serverEmit('read_receipt_updated', receipt(newer, 'user-grace')))
+      expect(listChannel(queryClient)).toMatchObject({ lastReadId: null, unreadCount: 3 })
+      expect(listInvalidated(queryClient)).toBe(false)
+
+      // The same receipt for the signed-in user is applied: the silence above
+      // was the user check, not a socket that never delivers the event.
+      act(() => socket.serverEmit('read_receipt_updated', receipt(newer)))
+      expect(listChannel(queryClient)).toMatchObject({ lastReadId: newer, unreadCount: 0 })
     })
   })
 

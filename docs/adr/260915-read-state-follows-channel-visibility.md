@@ -94,9 +94,10 @@ connections in two workspaces and a connection must never carry another
 workspace's traffic (§5.4).
 
 What the unit tests written for this feature cannot reach — the count's four
-rules, the forward-only guard and the 404s all need Postgres — is covered today
-by a manual check and the existing integration suite's regression run, not by
-tests of its own. That gap is recorded in the implementation plan.
+rules, the forward-only guard and the 404s all need Postgres — is now covered by
+`src/services/messaging/tests/integration/test_read_state.py`. (When the feature
+was first built that gap was covered only by a manual check; this note is
+corrected as of the SPA slice, 2026-10-02.)
 
 ## Alternatives Considered
 

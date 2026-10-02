@@ -33,7 +33,15 @@ interface ChatState {
    * checking the channel is visible.
    */
   joinedChannelId: string | null
+  /**
+   * The channel being read right now — open, visible, focused and at the
+   * bottom. A fact about the screen, shared between the list and the sidebar,
+   * which the server has no opinion about; the sidebar hides that channel's
+   * badge while it holds.
+   */
+  readingChannelId: string | null
   setActiveChannel: (channelId: string | null) => void
+  setReadingChannel: (channelId: string | null) => void
   setDraft: (channelId: string, text: string) => void
   clearDraft: (channelId: string) => void
   setConnectionStatus: (status: ConnectionStatus) => void
@@ -45,7 +53,9 @@ export const useChatStore = create<ChatState>((set) => ({
   drafts: {},
   connectionStatus: 'disconnected',
   joinedChannelId: null,
+  readingChannelId: null,
   setActiveChannel: (channelId) => set({ activeChannelId: channelId }),
+  setReadingChannel: (channelId) => set({ readingChannelId: channelId }),
   setConnectionStatus: (status) => set({ connectionStatus: status }),
   setJoinedChannel: (channelId) => set({ joinedChannelId: channelId }),
   setDraft: (channelId, text) =>

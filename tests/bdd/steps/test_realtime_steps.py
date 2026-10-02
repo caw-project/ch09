@@ -24,7 +24,7 @@ Messaging's `test_realtime.py` and `test_realtime_writes.py`, and the Vitest
 from __future__ import annotations
 
 import pytest
-from pytest_bdd import given, parsers, scenarios, then, when
+from pytest_bdd import parsers, scenarios, then, when
 
 from bdd.pages.chat_page import ChatPage
 
@@ -33,21 +33,9 @@ pytestmark = pytest.mark.bdd
 scenarios("../features/realtime.feature")
 
 
-# --- given ----------------------------------------------------------------
-
-
-@given(parsers.parse('Grace is looking at the "{name}" channel'))
-def grace_is_watching(grace: ChatPage, name: str) -> None:
-    """Grace opens the channel and waits until she is actually in its room.
-
-    The wait is the point. Without it the scenario races its own arrangement:
-    Ada sends, the broadcast goes to a room Grace has not joined yet, and the
-    failure looks like "real-time does not work" rather than "the test was
-    early". A connected socket is not enough — the join is acknowledged later.
-    """
-    grace.open()
-    grace.open_channel(name)
-    grace.wait_for_channel_joined()
+# `Given Grace is looking at the "…" channel` lives in `steps/conftest.py`: the
+# read-state feature uses it too, and a step is not reachable from a sibling
+# module.
 
 
 # --- when -----------------------------------------------------------------

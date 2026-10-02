@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { auth, messaging, requests } from '../../test/api'
 import { aMessage, aMessagePage, aWorkspaceMember, WORKSPACE_ID } from '../../test/factories'
+import { giveLayout } from '../../test/layout'
 import { renderWithProviders } from '../../test/render'
 import { MessageList } from './MessageList'
 import { messageKeys, upsertMessage } from './useMessages'
@@ -33,6 +34,8 @@ function renderList() {
       channelId={CHANNEL}
       userId={ADA}
       myRole={null}
+      lastReadId={null}
+      channelFetching={false}
     />,
   )
 }
@@ -43,27 +46,6 @@ const shownBodies = () =>
 const historyRequests = () => requests().filter((r) => r.url.pathname.endsWith('/messages'))
 
 const scrollerElement = () => screen.getAllByRole('article')[0].parentElement as HTMLElement
-
-type Layout = Record<'clientHeight' | 'scrollHeight' | 'scrollTop', number>
-
-/**
- * jsdom does no layout, so every scroll dimension reads 0 and the scroller
- * looks pinned to the top of nothing. Give the element the geometry a browser
- * would: a viewport inside a taller content box, with a `scrollTop` that
- * remembers what the component writes to it.
- */
-function giveLayout(element: HTMLElement, { clientHeight, scrollHeight, scrollTop }: Layout) {
-  let top = scrollTop
-  Object.defineProperty(element, 'clientHeight', { configurable: true, get: () => clientHeight })
-  Object.defineProperty(element, 'scrollHeight', { configurable: true, get: () => scrollHeight })
-  Object.defineProperty(element, 'scrollTop', {
-    configurable: true,
-    get: () => top,
-    set: (value: number) => {
-      top = value
-    },
-  })
-}
 
 /** What a `message_received` event does to the cache, without the socket. */
 function messageArrives(queryClient: QueryClient, body: string) {

@@ -7,7 +7,7 @@
  * clean "not found" that a channel id nobody may see has to produce.
  */
 
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from 'react-router-dom'
 import { useEffect } from 'react'
 
@@ -34,9 +34,18 @@ export function ChannelView({ accessToken, workspaceId, userId }: Props) {
     return () => setActiveChannel(null)
   }, [channelId, setActiveChannel])
 
+  const queryClient = useQueryClient()
+
+  // Opening a channel refetches the list: the sidebar's counts are the
+  // server's, and the user has just changed what they are looking at.
+  useEffect(() => {
+    void queryClient.invalidateQueries({ queryKey: channelKeys.list(workspaceId) })
+  }, [queryClient, workspaceId, channelId])
+
   const {
     data: channel,
     isPending,
+    isFetching,
     error,
   } = useQuery({
     queryKey: channelKeys.detail(workspaceId, channelId),
@@ -70,12 +79,18 @@ export function ChannelView({ accessToken, workspaceId, userId }: Props) {
 
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
+          {/* Keyed by channel: every channel is a fresh mount, which starts at
+              its newest message, measures the bottom, takes its divider once
+              and flushes its pending read as it unmounts. */}
           <MessageList
+            key={channel.id}
             accessToken={accessToken}
             workspaceId={workspaceId}
             channelId={channel.id}
             userId={userId}
             myRole={channel.myRole ?? null}
+            lastReadId={channel.lastReadId ?? null}
+            channelFetching={isFetching}
           />
           {/* Enabled for any channel this view can render: visibility is the
               write test as well as the read one, so someone who can see a

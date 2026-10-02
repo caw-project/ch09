@@ -10,8 +10,8 @@
  *   than reaching whatever is listening on localhost.
  * - `connect()` is replaced with the fake socket for every test, so no unit
  *   test can open a real connection.
- * - After each test: handlers, recorded requests, sockets, the DOM and the
- *   Zustand store go back to where they started.
+ * - After each test: handlers, recorded requests, sockets, the page's focus and
+ *   visibility, the DOM and the Zustand store go back to where they started.
  */
 
 import '@testing-library/jest-dom/vitest'
@@ -21,6 +21,7 @@ import { afterAll, afterEach, vi } from 'vitest'
 
 import { useChatStore } from '../stores/chat'
 import { resetRequests, server } from './api'
+import { resetPageAttention } from './page'
 import { resetSockets } from './socket'
 
 vi.mock('../lib/realtime/socket', async () => {
@@ -37,6 +38,7 @@ afterEach(() => {
   server.resetHandlers()
   resetRequests()
   resetSockets()
+  resetPageAttention()
   useChatStore.setState(initialChat, true)
 })
 

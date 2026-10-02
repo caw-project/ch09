@@ -51,6 +51,20 @@ def ada_has_created_private(ada: ChatPage, name: str) -> None:
     ada.create_private_channel_and_wait(name)
 
 
+@given(parsers.parse('Grace is looking at the "{name}" channel'))
+def grace_is_watching(grace: ChatPage, name: str) -> None:
+    """Grace opens the channel and waits until she is actually in its room.
+
+    The wait is the point. Without it the scenario races its own arrangement:
+    Ada sends, the broadcast goes to a room Grace has not joined yet, and the
+    failure looks like "real-time does not work" rather than "the test was
+    early". A connected socket is not enough — the join is acknowledged later.
+    """
+    grace.open()
+    grace.open_channel(name)
+    grace.wait_for_channel_joined()
+
+
 # --- when -----------------------------------------------------------------
 
 
@@ -116,6 +130,11 @@ def ada_opens_channel(ada: ChatPage, name: str) -> None:
 @when("Ada reloads CollabHub")
 def ada_reloads(ada: ChatPage) -> None:
     ada.open()
+
+
+@when("Grace reloads CollabHub")
+def grace_reloads(grace: ChatPage) -> None:
+    grace.open()
 
 
 #: `parsers.re` rather than `parsers.parse`: `parse`'s `{body}` will happily

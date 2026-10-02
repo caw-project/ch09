@@ -1,15 +1,15 @@
 # Test report
 
-Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `e4d3396e9779-dirty`.
+Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `d4be439c4307`.
 
 ## Layers
 
 | Layer | Result | Passed | Failed | Skipped | Revision |
 |---|---|--:|--:|--:|---|
-| Lint | ✅ passed | | | | `e4d3396e9779-dirty` |
-| Unit | ✅ passed | 467 | 0 | 0 | `e4d3396e9779-dirty` |
-| Integration | ✅ passed | 381 | 0 | 0 | `e4d3396e9779-dirty` |
-| End-to-end | ✅ passed | 19 | 0 | 0 | `e4d3396e9779-dirty` |
+| Lint | ✅ passed | | | | `d4be439c4307` |
+| Unit | ✅ passed | 565 | 0 | 0 | `d4be439c4307` |
+| Integration | ✅ passed | 381 | 0 | 0 | `d4be439c4307` |
+| End-to-end | ✅ passed | 20 | 0 | 0 | `d4be439c4307` |
 
 ## Failures
 
@@ -57,6 +57,14 @@ None.
 |---|---|
 | Grace sees Ada's reaction without reloading | ✅ passed |
 
+### Read state
+
+1 of 1 passed.
+
+| Scenario | Result |
+|---|---|
+| Grace's unread count clears once she has read the channel | ✅ passed |
+
 ### Real-time delivery
 
 4 of 4 passed.
@@ -89,7 +97,7 @@ None.
 | shared | ✅ 87 passed | ✅ 26 passed |
 | testkit | ✅ 59 passed | ✅ 4 passed |
 | worker | ✅ 19 passed | ✅ 17 passed |
-| frontend | ✅ 145 passed | — |
+| frontend | ✅ 243 passed | — |
 
 ## Coverage
 
@@ -104,4 +112,4 @@ Unit tests only.
 | messaging | `█████░░░░░` 56% | `██░░░░░░░░` 26% |
 | shared | `████████░░` 89% | `███████░░░` 74% |
 | worker | `██████░░░░` 65% | `███░░░░░░░` 30% |
-| frontend | `████████░░` 88% | `███████░░░` 77% |
+| frontend | `█████████░` 93% | `████████░░` 83% |
