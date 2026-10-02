@@ -146,10 +146,10 @@ class ChannelRead(Base):
 class Message(Base):
     """Something somebody said in a channel (spec §4).
 
-    Three columns ship ahead of their features, on the rule `0001_channels`
-    already set: adding a column later churns the table, so `thread_root_id`
-    (threading, register D8a), `attachments` (the Asset service is a skeleton)
-    and `version` land now. `version` is not idle even so — it is the
+    `thread_root_id` makes a row a reply (single-level threads, register D8a);
+    `attachments` shipped ahead of its feature (the Asset service is a skeleton),
+    on the rule `0001_channels` set: adding a column later churns the table.
+    `version` is not idle — it is the
     optimistic-concurrency guard for the edit in the next slice, and the
     external version an Elasticsearch index would use (register D25).
 
@@ -164,11 +164,16 @@ class Message(Base):
         # `WHERE deleted_at IS NULL`** — history returns tombstones, so the read
         # path has no such clause and would not match a partial index.
         #
-        # `ix_messages_thread` from spec §4 is deliberately absent: nothing
-        # queries `thread_root_id` in this scope, and an index for a query no
-        # code makes is dead weight. Adding it later is one line and no table
-        # rewrite — unlike the column, which is why the column is here.
         Index("ix_messages_channel_time", "channel_id", text("id DESC")),
+        # Threads (`0005_thread_index`). Partial: top-level rows, almost all of
+        # the table, never enter it. `(thread_root_id, id)` serves the per-page
+        # reply summary and the replies page's keyset alike.
+        Index(
+            "ix_messages_thread",
+            "thread_root_id",
+            "id",
+            postgresql_where=text("thread_root_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)

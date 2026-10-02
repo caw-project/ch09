@@ -51,8 +51,8 @@ import socketio
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from messaging import channels
-from messaging.schemas import MessageResponse
+from messaging import channels, threads
+from messaging.schemas import MessageResponse, ThreadSummaryChanged
 from messaging.settings import Settings
 from shared import (
     JobQueue,
@@ -372,6 +372,7 @@ async def publish_reaction_changed(
     count: int,
     user_id: uuid.UUID,
     reacted: bool,
+    thread_root_id: uuid.UUID | None,
 ) -> None:
     """Tell the channel that one emoji's count on one message has changed.
 
@@ -404,7 +405,39 @@ async def publish_reaction_changed(
             "count": count,
             "userId": str(user_id),
             "reacted": reacted,
+            # Which thread cache to write: `null` on a top-level message.
+            "threadRootId": str(thread_root_id) if thread_root_id else None,
         },
+        room=room(channel_id),
+        namespace=NAMESPACE,
+    )
+
+
+async def publish_thread_summary_changed(
+    sio: socketio.AsyncServer | None,
+    *,
+    channel_id: uuid.UUID,
+    root_id: uuid.UUID,
+    summary: threads.Summary,
+) -> None:
+    """Tell the channel a root's reply count and last reply time.
+
+    **The authoritative summary, never a delta**, read after the reply's commit
+    so the last writer to commit counts everyone committed before it. A client
+    sets it and never adds, so the ack, the echo and a refetch agree.
+    """
+    if sio is None:
+        return
+
+    payload = ThreadSummaryChanged(
+        channel_id=channel_id,
+        root_id=root_id,
+        reply_count=summary.reply_count,
+        last_reply_at=summary.last_reply_at,
+    )
+    await sio.emit(
+        "thread_summary_changed",
+        payload.model_dump(mode="json", by_alias=True),
         room=room(channel_id),
         namespace=NAMESPACE,
     )

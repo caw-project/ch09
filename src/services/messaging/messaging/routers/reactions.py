@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from messaging import reactions, realtime
 from messaging.db import session as db_session
 from messaging.models import Message
-from messaging.routers.messages import _as_message, _visible_message
+from messaging.routers.messages import _as_message, _visible_message, summary_of
 from messaging.schemas import MessageResponse, ReactionRequest
 from shared import ProblemException, UserPrincipal, require_user
 
@@ -79,7 +79,9 @@ async def _respond(
     summaries = (
         await reactions.summaries_for(session, message_ids=[message.id], user_id=principal.user_id)
     ).get(message.id, [])
-    response = _as_message(message, reactions=summaries)
+    # A root keeps its reply summary through a reaction, or the event the client
+    # applies it from would zero "2 replies".
+    response = _as_message(message, reactions=summaries, thread=await summary_of(session, message))
     await session.commit()
 
     count, reacted = _state_of(summaries, emoji)
@@ -91,6 +93,7 @@ async def _respond(
         count=count,
         user_id=principal.user_id,
         reacted=reacted,
+        thread_root_id=message.thread_root_id,
     )
     return response
 

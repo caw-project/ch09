@@ -89,7 +89,7 @@ lab is plain HTTP; nowhere else does.
 
 | ID | Decision | Default in docs | Recommendation | Scope |
 |----|----------|-----------------|----------------|-------|
-| D8a | Threading depth | 🟡 Single-level | Confirm against UX needs. **Built against it 2026-08-16:** `thread_root_id` ships as a column and serializes as `null`; there is no thread API and `ix_messages_thread` is not created | Messaging |
+| D8a | Threading depth | 🟢 Single-level, built 2026-10-02 | A reply to a reply is filed under the root. Replies are kept out of channel history, unread and search; a root carries `replyCount`/`lastReplyAt`. See [ADR 261002](../adr/261002-single-level-threads.md) | Messaging |
 | D8b | DM modelling | 🟡 `kind='dm'` channels | **Built against it 2026-08-16:** `kind='dm'` is rejected by `CREATABLE_KINDS` in `messaging/models.py`, and nothing creates or lists a DM. The column accepts it; the API does not | Messaging |
 | D8c | `/search/messages` lives in Messaging vs. a dedicated search gateway | 🟡 Thin proxy in Messaging | Revisit if search grows. **Built against it 2026-09-14:** `GET /api/v1/search/messages` is a thin proxy in Messaging over the `messages` index the Worker writes from `jobs:index`. Visibility is filtered per request and results are hydrated from Postgres, so the index is never the authority — see the [ADR](../adr/260914-message-search-index-is-a-candidate-list.md) and doc 02 §3.1.6 | Messaging |
 | D8d | Edit/delete semantics and tombstone retention | 🟢 **Decided 2026-08-16** — see below | [ADR](../adr/260816-message-edit-and-delete-semantics.md) | Messaging + Worker |

@@ -317,7 +317,7 @@
         "type": "object"
       },
       "MessageResponse": {
-        "description": "A message as the API reports it (spec \u00a73.1.3).\n\nOne absence and two presences are all deliberate.\n\n`reactions` is a summary \u2014 one entry per emoji anyone used, with the count\nand whether the caller is one of them \u2014 and it is `[]` rather than absent\nwhen nobody has reacted. `attachments` is a real column read off a real row\nthat happens to be empty, because the Asset service is a skeleton rather\nthan because nothing was built.\n\nNo `workspaceId`, for the reason `ChannelResponse` gives: it is the token's\n`wsp` claim, and echoing it invites a client to start sending it.\n\n`authorId` is a bare id and there is no user expansion. Messaging owns no\nuser records and must not read Auth's tables (Conventions \u00a72); the browser\nresolves the name from Auth's own workspace directory, holding a token that\nalready entitles it to both.\n\n**`body` is `\"\"` on a deleted message, never `null` and never the original\ntext.** The redaction is server-side and the type stays non-null, so the\ngenerated TypeScript does not force a null check at every render site. The\nclient renders \"this message was deleted\" from `deletedAt`, not from an\nempty body.",
+        "description": "A message as the API reports it (spec \u00a73.1.3).\n\nOne absence and two presences are all deliberate.\n\n`replyCount` and `lastReplyAt` summarise a root's live (not deleted) replies\nand are `0` and `null` on everything else — a reply, a message nobody\nanswered, a freshly sent one. Both are required with no default, for the\nreason `ChannelResponse` gives: a default drops them from OpenAPI `required`.\nA deleted root keeps its summary (R10).\n\n`reactions` is a summary \u2014 one entry per emoji anyone used, with the count\nand whether the caller is one of them \u2014 and it is `[]` rather than absent\nwhen nobody has reacted. `attachments` is a real column read off a real row\nthat happens to be empty, because the Asset service is a skeleton rather\nthan because nothing was built.\n\nNo `workspaceId`, for the reason `ChannelResponse` gives: it is the token's\n`wsp` claim, and echoing it invites a client to start sending it.\n\n`authorId` is a bare id and there is no user expansion. Messaging owns no\nuser records and must not read Auth's tables (Conventions \u00a72); the browser\nresolves the name from Auth's own workspace directory, holding a token that\nalready entitles it to both.\n\n**`body` is `\"\"` on a deleted message, never `null` and never the original\ntext.** The redaction is server-side and the type stays non-null, so the\ngenerated TypeScript does not force a null check at every render site. The\nclient renders \"this message was deleted\" from `deletedAt`, not from an\nempty body.",
         "properties": {
           "attachments": {
             "items": {
@@ -375,12 +375,28 @@
             "title": "Id",
             "type": "string"
           },
+          "lastReplyAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastreplyat"
+          },
           "reactions": {
             "items": {
               "$ref": "#/components/schemas/ReactionSummary"
             },
             "title": "Reactions",
             "type": "array"
+          },
+          "replyCount": {
+            "title": "Replycount",
+            "type": "integer"
           },
           "threadRootId": {
             "anyOf": [
@@ -410,7 +426,9 @@
           "createdAt",
           "editedAt",
           "deletedAt",
-          "version"
+          "version",
+          "replyCount",
+          "lastReplyAt"
         ],
         "title": "MessageResponse",
         "type": "object"
@@ -455,18 +473,62 @@
         "type": "object"
       },
       "SendMessageRequest": {
-        "description": "Say something in a channel.\n\nCarries the body and nothing else. No `channelId` \u2014 it is in the path; no\n`authorId` \u2014 it is the token's `sub`; no `threadRootId` and no\n`attachmentIds`, because accepting a field the service ignores is a claim it\ndoes not honour. Both arrive with the features that need them.\n\n`max_length` here is a static outer bound and **not** the rule \u2014 see\n`MAX_BODY_FIELD_LENGTH`.",
+        "description": "Say something in a channel, or reply to a message in it.\n\nNo `channelId` \u2014 it is in the path; no `authorId` \u2014 it is the token's `sub`;\nno `attachmentIds`, because accepting a field the service ignores is a claim\nit does not honour. `threadRootId` names the message being replied to: a\nreply to a reply is filed under the root, and a root that is unknown or in\nanother channel is a 404.\n\n`max_length` here is a static outer bound and **not** the rule \u2014 see\n`MAX_BODY_FIELD_LENGTH`.",
         "properties": {
           "body": {
             "maxLength": 64000,
             "title": "Body",
             "type": "string"
+          },
+          "threadRootId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threadrootid"
           }
         },
         "required": [
           "body"
         ],
         "title": "SendMessageRequest",
+        "type": "object"
+      },
+      "ThreadResponse": {
+        "description": "A thread: its root, and a cursor page of its replies, newest first.\n\nThe root travels with every page because the panel needs it even when it is\nnot in loaded history (an old root, or one opened from the URL), and one\nrequest is one loading state. Replies include tombstones (R5).",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MessageResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextcursor"
+          },
+          "root": {
+            "$ref": "#/components/schemas/MessageResponse"
+          }
+        },
+        "required": [
+          "root",
+          "items"
+        ],
+        "title": "ThreadResponse",
         "type": "object"
       },
       "UpdateChannelRequest": {
@@ -1379,6 +1441,78 @@
         "summary": "Remove Reaction",
         "tags": [
           "reactions"
+        ]
+      }
+    },
+    "/api/v1/messages/{message_id}/thread": {
+      "get": {
+        "description": "A root and a page of its replies, newest first, tombstones included.\n\nVisibility is the guard, as on every message route (spec §3.1.1). Naming a\nreply is a 404 with its own wording: the caller can see the reply, so\nsaying what is wrong with the id leaks nothing.",
+        "operationId": "get_thread_api_v1_messages__message_id__thread_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Thread",
+        "tags": [
+          "messages"
         ]
       }
     },

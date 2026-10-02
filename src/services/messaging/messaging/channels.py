@@ -382,6 +382,8 @@ def _with_read_state(query: Select, user_id: uuid.UUID) -> Select:
             Message.channel_id == Channel.id,
             Message.author_id != user_id,
             Message.deleted_at.is_(None),
+            # A reply is not something to catch up on in the channel (R11).
+            Message.thread_root_id.is_(None),
             or_(ChannelRead.last_read_id.is_(None), Message.id > ChannelRead.last_read_id),
         )
         .correlate(Channel, ChannelRead)

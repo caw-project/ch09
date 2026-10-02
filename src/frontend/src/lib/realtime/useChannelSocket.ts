@@ -43,6 +43,12 @@
  * The first load is the same case: the event is dropped against the empty entry,
  * then applied once the history is there to hold it.
  *
+ * **Message events are routed by `threadRootId`.** A reply belongs to its
+ * thread's cache (`threadCache.ts`) and never to history; a top-level event goes
+ * to history and to the thread that message opens. The join-ack invalidations
+ * below use the channel's key as a prefix, which also reaches an open thread's
+ * nested key — so a reconnect refetches the panel with no code of its own.
+ *
  * **Read state rides on the same connection.** Every connect refetches the
  * channel list (counts changed while nobody listened), and the user's own
  * `read_receipt_updated` — another tab read — clears the count here, written
@@ -58,9 +64,17 @@ import { channelKeys } from '../../features/channels/useChannels'
 import {
   applyReaction,
   messageKeys,
+  replaceMessage,
   upsertMessage,
   type ReactionEvent,
 } from '../../features/channels/useMessages'
+import {
+  applyThreadReaction,
+  applyThreadSummary,
+  threadKeys,
+  upsertThreadMessage,
+  type ThreadSummaryEvent,
+} from '../../features/threads/threadCache'
 import { useChatStore } from '../../stores/chat'
 import { connect, type Socket } from './socket'
 
@@ -147,22 +161,55 @@ export function useChannelSocket(
       setJoinedChannel(null)
     }
 
-    function onMessage(message: Message) {
-      const key = messageKeys.list(workspaceId, message.channelId)
-      const apply = () => upsertMessage(queryClient, key, message)
+    /** Apply now, and again for each of these caches that is mid-fetch. */
+    function applyAndReapply(keys: (readonly unknown[])[], apply: () => void) {
       apply()
-      if (queryClient.isFetching({ queryKey: key, exact: true }) > 0) {
-        reapplyAfterFetch(queryClient, key, apply)
+      for (const key of keys) {
+        if (queryClient.isFetching({ queryKey: key, exact: true }) > 0) {
+          reapplyAfterFetch(queryClient, key, apply)
+        }
       }
+    }
+
+    /**
+     * Route a message event by `threadRootId` (R3, decision 28).
+     *
+     * A reply goes to its thread's cache and **never** into history. A top-level
+     * message goes to history — a new row only from `message_received` (`adds`),
+     * while an edit or delete merely replaces a row already there — and also
+     * replaces the root in the thread it opens, which is absent unless a panel
+     * has it cached.
+     */
+    function routeMessage(message: Message, adds: boolean) {
+      if (message.threadRootId !== null) {
+        const key = threadKeys.detail(workspaceId, message.channelId, message.threadRootId)
+        applyAndReapply([key], () => upsertThreadMessage(queryClient, key, message))
+        return
+      }
+
+      const key = messageKeys.list(workspaceId, message.channelId)
+      const ownThread = threadKeys.detail(workspaceId, message.channelId, message.id)
+      applyAndReapply([key, ownThread], () => {
+        if (adds) upsertMessage(queryClient, key, message)
+        else replaceMessage(queryClient, key, message)
+        upsertThreadMessage(queryClient, ownThread, message)
+      })
     }
 
     function onReaction(event: ReactionEvent) {
       const key = messageKeys.list(workspaceId, event.channelId)
-      const apply = () => applyReaction(queryClient, key, event, userId)
-      apply()
-      if (queryClient.isFetching({ queryKey: key, exact: true }) > 0) {
-        reapplyAfterFetch(queryClient, key, apply)
+      if (event.threadRootId) {
+        const thread = threadKeys.detail(workspaceId, event.channelId, event.threadRootId)
+        applyAndReapply([thread], () => applyThreadReaction(queryClient, thread, event, userId))
+        return
       }
+
+      // A reaction on a root: its history row, and the panel's copy of it.
+      const ownThread = threadKeys.detail(workspaceId, event.channelId, event.messageId)
+      applyAndReapply([key, ownThread], () => {
+        applyReaction(queryClient, key, event, userId)
+        applyThreadReaction(queryClient, ownThread, event, userId)
+      })
     }
 
     live.on('connect', onConnect)
@@ -170,9 +217,21 @@ export function useChannelSocket(
     live.on('connect_error', onConnectError)
     // All three events carry the full `Message`, including the delete — a
     // client holding only an id could not render the tombstone.
-    live.on('message_received', onMessage)
-    live.on('message_edited', onMessage)
-    live.on('message_deleted', onMessage)
+    live.on('message_received', (message: Message) => routeMessage(message, true))
+    live.on('message_edited', (message: Message) => routeMessage(message, false))
+    live.on('message_deleted', (message: Message) => routeMessage(message, false))
+    // A root's authoritative reply count: set, never added to.
+    // Re-applied after a fetch in flight like every other live event: that fetch
+    // may have read the root before the reply committed.
+    live.on('thread_summary_changed', (event: ThreadSummaryEvent) =>
+      applyAndReapply(
+        [
+          messageKeys.list(workspaceId, event.channelId),
+          threadKeys.detail(workspaceId, event.channelId, event.rootId),
+        ],
+        () => applyThreadSummary(queryClient, workspaceId, event),
+      ),
+    )
     // Its own handler, because it carries facts rather than a `Message`: the
     // DTO's `reacted` is computed for one caller and cannot be broadcast.
     live.on('reaction_changed', onReaction)

@@ -1,15 +1,15 @@
 # Test report
 
-Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `d4be439c4307`.
+Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `950e66a2d292-dirty`.
 
 ## Layers
 
 | Layer | Result | Passed | Failed | Skipped | Revision |
 |---|---|--:|--:|--:|---|
-| Lint | ✅ passed | | | | `d4be439c4307` |
-| Unit | ✅ passed | 565 | 0 | 0 | `d4be439c4307` |
-| Integration | ✅ passed | 381 | 0 | 0 | `d4be439c4307` |
-| End-to-end | ✅ passed | 20 | 0 | 0 | `d4be439c4307` |
+| Lint | ✅ passed | | | | `950e66a2d292-dirty` |
+| Unit | ✅ passed | 648 | 0 | 0 | `950e66a2d292-dirty` |
+| Integration | ✅ passed | 420 | 0 | 0 | `950e66a2d292-dirty` |
+| End-to-end | ✅ passed | 21 | 0 | 0 | `950e66a2d292-dirty` |
 
 ## Failures
 
@@ -86,6 +86,14 @@ None.
 | Following a channel link without signing in asks for sign-in | ✅ passed |
 | Ada switches workspace and leaves the demo channels behind | ✅ passed |
 
+### Threads
+
+1 of 1 passed.
+
+| Scenario | Result |
+|---|---|
+| Grace sees Ada's reply in a thread without reloading | ✅ passed |
+
 ## By service
 
 | Service | Unit | Integration |
@@ -93,11 +101,11 @@ None.
 | asset | ✅ 2 passed | — |
 | auth | ✅ 59 passed | ✅ 123 passed |
 | canvas | ✅ 2 passed | — |
-| messaging | ✅ 94 passed | ✅ 211 passed |
+| messaging | ✅ 102 passed | ✅ 250 passed |
 | shared | ✅ 87 passed | ✅ 26 passed |
 | testkit | ✅ 59 passed | ✅ 4 passed |
 | worker | ✅ 19 passed | ✅ 17 passed |
-| frontend | ✅ 243 passed | — |
+| frontend | ✅ 318 passed | — |
 
 ## Coverage
 
@@ -109,7 +117,7 @@ Unit tests only.
 | auth | `██████░░░░` 61% | `█░░░░░░░░░` 18% |
 | canvas | `█████████░` 96% | — |
 | contracts | `██████████` 100% | — |
-| messaging | `█████░░░░░` 56% | `██░░░░░░░░` 26% |
+| messaging | `█████░░░░░` 55% | `██░░░░░░░░` 23% |
 | shared | `████████░░` 89% | `███████░░░` 74% |
 | worker | `██████░░░░` 65% | `███░░░░░░░` 30% |
-| frontend | `█████████░` 93% | `████████░░` 83% |
+| frontend | `█████████░` 94% | `████████░░` 85% |

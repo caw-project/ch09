@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from messaging import reactions as reactions_domain
-from messaging import search
+from messaging import search, threads
 from messaging.db import session as db_session
 from messaging.routers.messages import _as_message
 from messaging.schemas import MessageListResponse
@@ -71,7 +71,13 @@ async def search_messages(
     summaries = await reactions_domain.summaries_for(
         session, message_ids=[m.id for m in found.items], user_id=principal.user_id
     )
+    counts = await threads.summaries_for(session, root_ids=[m.id for m in found.items])
     return MessageListResponse(
-        items=[_as_message(m, reactions=summaries.get(m.id, [])) for m in found.items],
+        items=[
+            _as_message(
+                m, reactions=summaries.get(m.id, []), thread=counts.get(m.id, threads.NO_REPLIES)
+            )
+            for m in found.items
+        ],
         next_cursor=found.next_cursor,
     )

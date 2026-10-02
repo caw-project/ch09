@@ -13,6 +13,7 @@ import {
   isPending,
   messageKeys,
   removeMessage,
+  replaceMessage,
   upsertMessage,
   useSendMessage,
   useToggleReaction,
@@ -81,6 +82,43 @@ describe('upsertMessage', () => {
     upsertMessage(queryClient, key, aMessage())
 
     expect(queryClient.getQueryData(key)).toBeUndefined()
+  })
+
+  it('ignores a reply, however it arrives, and still adds a top-level message', () => {
+    // Decision 20: a reply written into history by any path is a leak (R3).
+    const existing = aMessage({ body: 'existing' })
+    const queryClient = seeded(aMessagePage([existing]))
+    const reply = aMessage({ body: 'a reply', threadRootId: existing.id })
+    const topLevel = aMessage({ body: 'top level' })
+
+    upsertMessage(queryClient, key, reply)
+    upsertMessage(queryClient, key, topLevel)
+
+    expect(itemsIn(queryClient)).toEqual([topLevel, existing])
+  })
+})
+
+describe('replaceMessage', () => {
+  it('replaces a cached row where it sits', () => {
+    const edited = aMessage({ body: 'before' })
+    const queryClient = seeded(aMessagePage([aMessage({ body: 'newest' })], 'c2'), aMessagePage([edited]))
+
+    replaceMessage(queryClient, key, { ...edited, body: 'after' })
+
+    expect(pagesIn(queryClient)?.[1].items.map((m) => m.body)).toEqual(['after'])
+  })
+
+  it('adds nothing for an id that is not cached', () => {
+    // Decision 28: an edit of a root nobody loaded must not become the newest message.
+    const cached = aMessage({ body: 'cached' })
+    const queryClient = seeded(aMessagePage([cached]))
+
+    replaceMessage(queryClient, key, aMessage({ body: 'a stranger' }))
+    expect(itemsIn(queryClient)).toEqual([cached])
+
+    // The same call with a cached id replaces it: the silence above was the id check.
+    replaceMessage(queryClient, key, { ...cached, body: 'edited' })
+    expect(itemsIn(queryClient).map((m) => m.body)).toEqual(['edited'])
   })
 })
 

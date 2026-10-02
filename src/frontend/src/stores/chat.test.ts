@@ -27,6 +27,18 @@ describe('the chat store', () => {
     expect(useChatStore.getState().drafts).toEqual({ random: 'another' })
   })
 
+  it('keeps a thread draft per root, apart from the channel’s, and clears only the one sent', () => {
+    const { setDraft, setThreadDraft, clearThreadDraft } = useChatStore.getState()
+
+    setDraft('general', 'for the channel')
+    setThreadDraft('root-a', 'for thread a')
+    setThreadDraft('root-b', 'for thread b')
+    clearThreadDraft('root-a')
+
+    expect(useChatStore.getState().threadDrafts).toEqual({ 'root-b': 'for thread b' })
+    expect(useChatStore.getState().drafts).toEqual({ general: 'for the channel' })
+  })
+
   it('records the connection status', () => {
     useChatStore.getState().setConnectionStatus('connected')
 

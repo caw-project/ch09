@@ -49,10 +49,10 @@ blobs; messages reference asset IDs).
 | DELETE | `/channels/{id}/members/{userId}` | see §3.1.1 | Remove member. Not a member → 404; the channel's only admin → 409. |
 | GET | `/channels/{id}/messages` | see §3.1.1 | History, cursor paginated, newest-first. Includes tombstones. |
 | POST | `/channels/{id}/messages` | see §3.1.1 | Send message (REST fallback; prefer the Socket.IO event). |
-| GET | `/messages/{id}` | see §3.1.1 | Single message. No thread root — threading is unbuilt (D8a). |
+| GET | `/messages/{id}` | see §3.1.1 | Single message, with its reply summary. |
 | PATCH | `/messages/{id}` | author only — see §3.1.4 | Edit message. Takes `body` and a required `version`. No time window. |
 | DELETE | `/messages/{id}` | author or channel admin — see §3.1.4 | Tombstone the message. Returns **200 with the tombstoned `Message`**, not 204. |
-| GET | `/messages/{id}/thread` | channel member | Replies in a thread (cursor paginated). |
+| GET | `/messages/{id}/thread` | see §3.1.1 | A root and a cursor page of its replies, newest first, tombstones included (`ThreadResponse`). A reply's id → 404 "No such thread."; unknown or invisible → 404 "No such channel." Built 2026-10-02 (D8a). |
 | POST | `/messages/{id}/reactions` | see §3.1.1 | Add a reaction `{ "emoji": "thumbsup" }` — a shortcode from the server's allowlist, not a character. Idempotent. Returns **200 with the updated `Message`**. See §3.1.5. |
 | DELETE | `/messages/{id}/reactions/{emoji}` | see §3.1.1 | Remove your own reaction. Idempotent — removing one that was never there is also a 200 with the `Message`. |
 | POST | `/channels/{id}/read` | see §3.1.7 | Mark read up to `{ "messageId": "..." }`. 204; the marker only moves forward. |
@@ -250,17 +250,22 @@ and no `version`, and neither was right for what the service actually is:
 ```jsonc
 {
   "id": "uuid", "channelId": "uuid", "authorId": "uuid",
-  "threadRootId": "uuid|null",     // always null in this scope (D8a 🟡)
+  "threadRootId": "uuid|null",     // set on a reply; null on a top-level message (D8a 🟢)
   "body": "markdown text",         // "" when deletedAt is set — see §3.1.4
   "attachments": [],               // always empty; the Asset service is a skeleton
   "reactions": [                   // [] when nobody has reacted — see §3.1.5
     { "emoji": "thumbsup", "count": 3, "reacted": true }
   ],
   "createdAt": "...", "editedAt": "...|null", "deletedAt": "...|null",
-  "version": 0
+  "version": 0,
+  "replyCount": 0, "lastReplyAt": "...|null"   // a root's live replies — added 2026-10-02
 }
 ```
 
+- **`replyCount` and `lastReplyAt` — added 2026-10-02** (D8a). The count of a
+  root's non-deleted replies and the newest one's `createdAt`, aggregated per page
+  in one grouped query over `ix_messages_thread`. `0`/`null` on a reply and on a
+  message nobody answered; a deleted root keeps its summary. Required, no default.
 - **`reactions` is a summary — added 2026-09-16** (register D39). One entry per
   emoji anyone used, carrying the count and whether **the caller** is one of
   them, built by a single grouped query over a whole page of messages rather
@@ -281,13 +286,17 @@ and no `version`, and neither was right for what the service actually is:
 { "items": [ /* Message */ ], "nextCursor": "…|null" }
 
 // SendMessageRequest — POST /channels/{id}/messages
-{ "body": "markdown text" }
+{ "body": "markdown text", "threadRootId": "uuid|null" }
+
+// ThreadResponse — GET /messages/{id}/thread
+{ "root": { /* Message */ }, "items": [ /* replies, newest first */ ], "nextCursor": "…|null" }
 ```
 
 `SendMessageRequest` carries **no** `channelId` (it is in the path), no
-`authorId` (it is the token's `sub`), no `threadRootId` and no `attachmentIds`.
-Accepting a field the service ignores is a claim it does not honour; both arrive
-with the features that need them.
+`authorId` (it is the token's `sub`) and no `attachmentIds`. `threadRootId`
+(added 2026-10-02) makes the message a reply; one naming a reply is filed under
+that reply's root, and one that is unknown or in another channel is a 404 "No
+such thread." (never a 403).
 
 **Message body rules — added 2026-08-16.** §8 gave one number and no floor, no
 layer and no error key:
@@ -409,7 +418,6 @@ design doc — rather than a plan or a service README — knows which is which.
 
 | Row | Why it is not built | Register |
 |---|---|---|
-| `GET /messages/{id}/thread` | threading is unbuilt; `thread_root_id` ships as a column and is always `null` | D8a 🟡 |
 | `POST /internal/messages/sweep` | retention values are unset, and nothing hard-deletes a message | D16 🔴 |
 
 Two things the *columns* do ship for, ahead of their features, because adding a
@@ -441,7 +449,8 @@ truth** — see the [ADR](../adr/260914-message-search-index-is-a-candidate-list
   `deleted_at IS NULL` and the visible channel filter, and returned as ordinary `Message`
   DTOs in Elasticsearch's order. Index lag therefore cannot show a deleted message's text.
   (This `deleted_at` filter is not the history exception from Conventions §3: search returns
-  no tombstones.)
+  no tombstones.) Replies are dropped here too (`thread_root_id IS NULL`, §3.2.4): they are not
+  searchable in v1.
 - **A page can hold fewer than `limit` items** when hydration drops a hit. `nextCursor` comes
   from the Elasticsearch hits, so nothing is skipped; only `nextCursor: null` means the end.
 - **Failures.** Elasticsearch unreachable or erroring → 503 `service-unavailable`,
@@ -466,7 +475,8 @@ told.
   people reading a public channel no unread count at all. `0003_channel_reads`
   drops the `last_read_id` column `0001` had shipped unused.
 - **`POST /channels/{id}/read`** takes `{ "messageId": "uuid" }` and answers
-  **204** with no body. The message must be in that channel. A channel the
+  **204** with no body. The message must be in that channel, and must not be a
+  thread reply — a reply is the same 404 (§3.2.4). A channel the
   caller cannot see, a message from another channel and an unknown id are all
   the same 404, `"No such channel."`, so an id cannot be probed. A tombstone may
   be marked read — it is part of the history.
@@ -476,7 +486,8 @@ told.
   this table — the upsert is guarded by `last_read_id < excluded.last_read_id`,
   so there is no lost update to detect and nothing for a client to send back.
 - **Unread** is every message after the marker that **someone else** wrote and
-  that **is not deleted**; with no marker, every such message in the channel.
+  that **is not deleted** and **is not a thread reply** (replies never count as
+  unread, §3.2.4); with no marker, every such message in the channel.
   The count is exact and uncapped, so a public channel nobody has opened counts
   its whole history — the first thing to revisit if the sidebar gets slow.
 - **Only the reads that return a `Channel` pay for the count** — the list,
@@ -636,11 +647,22 @@ guaranteed to arrive (corrected 2026-09-15; doc 06 §5.2).
 
 #### 3.2.4 The write path — added 2026-08-16
 
-**`send_message` takes `{ channelId, body }` and nothing else.** The two
-optional fields this table used to list are out of scope: `threadRootId` has a
-column and no API (D8a), and `attachmentIds` would go to a service that is a
-skeleton. Accepting a field the handler drops on the floor is a claim the
-service does not honour; both return with the features that need them.
+**`send_message` takes `{ channelId, body, threadRootId? }`.** `threadRootId`
+(built 2026-10-02, D8a) makes the message a reply, normalised under its root as
+the REST route does; an unknown root or one in another channel acks a 404 "No
+such thread." `attachmentIds` stays out: it would go to a service that is a
+skeleton, and accepting a field the handler drops is a claim the service does
+not honour.
+
+**Thread events — added 2026-10-02.** `thread_summary_changed` →
+`{ channelId, rootId, replyCount, lastReplyAt }` to `channel:{channelId}`,
+published on every reply create and every reply delete that tombstoned, over REST
+and the socket alike. It is an idempotent set, read **after** the reply's commit
+so the last writer to commit counts everyone committed before it. Replies reach
+the room as `message_received`/`message_edited`/`message_deleted` carrying
+`threadRootId`. `reaction_changed` gains `threadRootId` (`null` on a top-level
+message) so a client writes the right cache. `mark_read` naming a reply acks a 404
+and the marker does not move; replies never count as unread.
 
 **`edit_message` carries `version`, which this table omitted.** The expected
 version is required on `PATCH /messages/{id}` (§4), and an event without one
@@ -791,9 +813,10 @@ CREATE TABLE messages (
 -- which no test that only checks results would catch.
 CREATE INDEX ix_messages_channel_time ON messages (channel_id, id DESC);
 
--- Still the eventual shape, and deliberately **not created yet**: nothing
--- queries `thread_root_id` in this scope. A *column* ships ahead of its feature
--- because adding one later rewrites the table; an index does not, so it waits.
+-- Built 2026-10-02 in migration 0005 (D8a). Partial: top-level rows, almost all
+-- of the table, never enter it. Serves the per-page reply summary
+-- (`GROUP BY thread_root_id`) and the replies page's keyset alike. Replies are
+-- kept out of history, unread and search hydration by `thread_root_id IS NULL`.
 CREATE INDEX ix_messages_thread ON messages (thread_root_id, id) WHERE thread_root_id IS NOT NULL;
 
 -- Built 2026-09-16 in migration 0004 (register D39), and named

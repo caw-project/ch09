@@ -117,10 +117,9 @@ still 🔴.
 **The `reactions` table.** Not created until reactions are built — an empty
 table is a claim about what the service does that is not yet true.
 
-**`ix_messages_thread`.** The spec's §4 DDL lists it and `0002_messages` does
-not create it. `thread_root_id` ships as a *column* because adding one later
-rewrites the table; an index supporting a query no code makes is dead weight,
-and adding it with the threading feature costs one line and no rewrite.
+**`ix_messages_thread`.** `0002_messages` did not create it; `0005_thread_index`
+does, with threads (register D8a). Partial on `thread_root_id IS NOT NULL`, it
+serves the reply summary and the replies page.
 
 ## Running it
 

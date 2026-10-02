@@ -139,12 +139,15 @@ async def create(
     author_id: uuid.UUID,
     body: str,
     max_chars: int,
+    thread_root_id: uuid.UUID | None,
 ) -> Message:
-    """Add a message to a channel.
+    """Add a message to a channel, as a reply when `thread_root_id` is set.
 
-    No `IntegrityError` branch, unlike `channels.create`: the only constraint
-    that could fire is the channel foreign key, and the caller has already
-    proved the channel is visible to get here.
+    `thread_root_id` is a required keyword so both send paths say what they
+    mean; the caller has already normalised it with `threads.resolve_root`.
+
+    No `IntegrityError` branch, unlike `channels.create`: the only constraints
+    that could fire are foreign keys the caller has already proved good.
     """
     body = validate_body(body, max_chars=max_chars)
 
@@ -152,6 +155,7 @@ async def create(
         id=uuid7(),
         channel_id=channel_id,
         author_id=author_id,
+        thread_root_id=thread_root_id,
         body=body,
     )
     session.add(message)
@@ -178,11 +182,13 @@ async def history_page(
     once, in `useMessages`'s `select`; nothing here or in the cache flips it,
     because two layers reversing is one layer too many.
 
-    No `deleted_at` filter — see the module docstring.
+    No `deleted_at` filter — see the module docstring. **Replies are not history**
+    (`thread_root_id IS NULL`): they live in their thread, and a root carries
+    their count.
     """
     query = (
         select(Message)
-        .where(Message.channel_id == channel_id)
+        .where(Message.channel_id == channel_id, Message.thread_root_id.is_(None))
         .order_by(Message.id.desc())
         .limit(page.fetch_limit)
     )

@@ -77,9 +77,9 @@ fewer moving parts than configuring a library out of doing the things it exists 
 
 **Corrected 2026-08-16.** There is no `/src/app`: the router and the providers
 are `App.tsx` and `main.tsx` at the root of `/src`, which is small enough not to
-need a folder of its own. `/features/threads`, `/features/canvas`,
-`/features/presence`, `/features/assets` and `/lib/yjs` are the eventual shape
-and do not exist yet.
+need a folder of its own. `/features/canvas`, `/features/presence`,
+`/features/assets` and `/lib/yjs` are the eventual shape and do not exist yet.
+`/features/threads` exists as of 2026-10-02 (§5.2, *Threads*).
 
 ---
 
@@ -270,6 +270,36 @@ keystroke immediately, because a trailing debounce would delay the indicator by
 its own window. There is no stop event: the receiver drops a name 4s after its
 last `user_typing`. Names are resolved through the workspace directory like
 every other name in the UI; the event carries only a user id.
+
+**Threads — added 2026-10-02** (register D8a, ADR 261002). Single-level; the code
+is in `/features/threads`.
+
+- **The panel** is `<aside aria-label="Thread">`, 20rem wide, in the channel's
+  right column **in place of** the member panel. It shows the root, the replies
+  oldest first, then a composer, and never touches the channel's read state.
+- **The URL owns it**: `?thread=<rootId>`. Opening pushes (Back steps A → B → none);
+  closing replaces and deletes only `thread`, so `?message=` survives and Back does
+  not reopen it. Switching channel drops it; a channel that 404s renders no panel.
+- **The cache**: one infinite query per root at
+  `['messages', ws, channelId, 'thread', rootId]`, nested under the channel's
+  history key so the join-ack prefix invalidation refetches an open thread. Each
+  page carries the root and its slice of replies.
+- **Event routing** by `threadRootId`: a reply goes to its thread's cache and
+  never into history; a top-level event goes to history and replaces the root in
+  its own thread entry. History takes a **new** row only from `message_received`
+  and its own sends — edits, deletes, summaries and the panel's results use
+  `replaceMessage`, which adds nothing. `thread_summary_changed` *sets*
+  `replyCount`/`lastReplyAt`, never adds, and — like every live event — is applied
+  again when a history or thread fetch in flight resolves, since that fetch may have read
+  the root before the reply; a reply's send makes no optimistic
+  count bump.
+- **Scroll**: older replies load at `scrollTop < 120` and hold position by the
+  height added; a new reply sticks to the bottom when it is yours or when the
+  reader was within 80px of it, measured before the render.
+- **Drafts**: `threadDrafts[rootId]` in the store, apart from the channel's.
+- **A thread that is not there** (no data and an error, or a root from another
+  channel) shows "This thread isn't available."; a failed refetch over loaded data
+  keeps showing the thread.
 
 ### 5.3 Canvas (Yjs over Socket.IO)
 - One `Y.Doc` per open document. A **custom Socket.IO provider** bridges Yjs ↔ the `/canvas`

@@ -36,7 +36,7 @@ import socketio
 from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from messaging import channels, indexing, messages, realtime
+from messaging import channels, indexing, messages, realtime, threads
 from messaging import reactions as reactions_domain
 from messaging.db import session as db_session
 from messaging.models import Message
@@ -46,6 +46,7 @@ from messaging.schemas import (
     MessageResponse,
     ReactionSummary,
     SendMessageRequest,
+    ThreadResponse,
 )
 from messaging.settings import Settings
 from shared import (
@@ -81,7 +82,12 @@ def _body_problem(exc: Exception, *, max_chars: int) -> ProblemException:
     return ProblemException.validation_error(message, errors={"body": [message]})
 
 
-def _as_message(row: Message, *, reactions: list[reactions_domain.Summary]) -> MessageResponse:
+def _as_message(
+    row: Message,
+    *,
+    reactions: list[reactions_domain.Summary],
+    thread: threads.Summary = threads.NO_REPLIES,
+) -> MessageResponse:
     """The DTO, with a deleted row's body redacted here rather than in the query.
 
     Server-side, and `""` rather than `null`: the DTO types `body` as a non-null
@@ -98,6 +104,13 @@ def _as_message(row: Message, *, reactions: list[reactions_domain.Summary]) -> M
     this message's reactions are, including the ones that say `[]`, because a
     default would make a forgotten aggregate look exactly like a message nobody
     reacted to.
+
+    **`thread` is a root's reply summary, and every caller that builds a DTO
+    from a stored row must pass it** — an edit, a reaction or a delete that
+    answered "no replies" would overwrite "2 replies" in every window through
+    the event it publishes. It defaults to `NO_REPLIES` only because the
+    callers that mean exactly that (a reply, a message just sent, the index
+    payload's fixtures) are the ones with nothing to look up.
     """
     return MessageResponse(
         id=row.id,
@@ -113,21 +126,48 @@ def _as_message(row: Message, *, reactions: list[reactions_domain.Summary]) -> M
         edited_at=row.edited_at,
         deleted_at=row.deleted_at,
         version=row.version,
+        reply_count=thread.reply_count,
+        last_reply_at=thread.last_reply_at,
+    )
+
+
+async def summary_of(session: AsyncSession, row: Message) -> threads.Summary:
+    """A stored row's own reply summary: a reply has none, a root is aggregated."""
+    if threads.is_reply(row):
+        return threads.NO_REPLIES
+    return await threads.summary_for(session, root_id=row.id)
+
+
+async def publish_reply_summary(
+    session: AsyncSession,
+    sio: socketio.AsyncServer | None,
+    root_id: uuid.UUID,
+    channel_id: uuid.UUID,
+) -> None:
+    """Broadcast a root's summary, **read now** — call it after the commit.
+
+    The session's next statement begins a new transaction (READ COMMITTED), so
+    it counts every reply committed so far, this one included; read before the
+    commit, two concurrent replies would each count only themselves.
+    """
+    summary = await threads.summary_for(session, root_id=root_id)
+    await realtime.publish_thread_summary_changed(
+        sio, channel_id=channel_id, root_id=root_id, summary=summary
     )
 
 
 async def _one_with_reactions(
     session: AsyncSession, principal: UserPrincipal, row: Message
 ) -> MessageResponse:
-    """One message's DTO, with its own reactions loaded.
+    """One message's DTO, with its own reactions and reply summary loaded.
 
-    The single-message counterpart to the page-wide aggregate in
-    `list_messages`: same query, one id.
+    The single-message counterpart to the page-wide aggregates in
+    `list_messages`: same queries, one id.
     """
     found = await reactions_domain.summaries_for(
         session, message_ids=[row.id], user_id=principal.user_id
     )
-    return _as_message(row, reactions=found.get(row.id, []))
+    return _as_message(row, reactions=found.get(row.id, []), thread=await summary_of(session, row))
 
 
 async def _visible_channel(
@@ -179,8 +219,14 @@ async def list_messages(
     summaries = await reactions_domain.summaries_for(
         session, message_ids=[m.id for m in found.items], user_id=principal.user_id
     )
+    counts = await threads.summaries_for(session, root_ids=[m.id for m in found.items])
     return MessageListResponse(
-        items=[_as_message(m, reactions=summaries.get(m.id, [])) for m in found.items],
+        items=[
+            _as_message(
+                m, reactions=summaries.get(m.id, []), thread=counts.get(m.id, threads.NO_REPLIES)
+            )
+            for m in found.items
+        ],
         next_cursor=found.next_cursor,
     )
 
@@ -207,6 +253,17 @@ async def send_message(
     await _visible_channel(session, principal, channel_id)
     max_chars = _settings(request).messaging_max_body_chars
 
+    root_id: uuid.UUID | None = None
+    if body.thread_root_id is not None:
+        # An unknown id and one in another channel answer the same, so ids
+        # cannot be probed (CH004). Refused before anything is created.
+        try:
+            root_id = await threads.resolve_root(
+                session, channel_id=channel_id, candidate_id=body.thread_root_id
+            )
+        except threads.NoSuchThreadError as exc:
+            raise ProblemException.not_found("No such thread.") from exc
+
     try:
         created = await messages.create(
             session,
@@ -214,16 +271,55 @@ async def send_message(
             author_id=principal.user_id,
             body=body.body,
             max_chars=max_chars,
+            thread_root_id=root_id,
         )
     except tuple(_BODY_PROBLEMS) as exc:
         raise _body_problem(exc, max_chars=max_chars) from exc
 
-    # A message nobody has seen yet has no reactions, so this one needs no query.
+    # A message nobody has seen yet has no reactions and no replies, so this one
+    # needs no query.
     response = _as_message(created, reactions=[])
     await session.commit()
     await realtime.publish_message_received(sio, response)
+    if root_id is not None:
+        await publish_reply_summary(session, sio, root_id, channel_id)
     await indexing.enqueue_upsert(jobs, response, workspace_id=principal.workspace_id)
     return response
+
+
+@router.get("/{message_id}/thread", response_model=ThreadResponse)
+async def get_thread(
+    message_id: uuid.UUID,
+    page: HistoryPage,
+    principal: UserPrincipal = Depends(require_user),
+    session: AsyncSession = Depends(db_session),
+) -> ThreadResponse:
+    """A root and a page of its replies, newest first, tombstones included.
+
+    Visibility is the guard, as on every message route (spec §3.1.1). Naming a
+    reply is a 404 with its own wording: the caller can see the reply, so
+    saying what is wrong with the id leaks nothing.
+    """
+    row = await _visible_message(session, principal, message_id)
+    if threads.is_reply(row):
+        raise ProblemException.not_found("No such thread.")
+
+    found = await threads.replies_page(session, root_id=row.id, page=page)
+    # The root and the page's replies in one reactions query.
+    ids = [row.id, *(m.id for m in found.items)]
+    reacted = await reactions_domain.summaries_for(
+        session, message_ids=ids, user_id=principal.user_id
+    )
+    root = _as_message(
+        row,
+        reactions=reacted.get(row.id, []),
+        thread=await threads.summary_for(session, root_id=row.id),
+    )
+    return ThreadResponse(
+        root=root,
+        items=[_as_message(m, reactions=reacted.get(m.id, [])) for m in found.items],
+        next_cursor=found.next_cursor,
+    )
 
 
 @router.get("/{message_id}", response_model=MessageResponse)
@@ -340,11 +436,19 @@ async def delete_message(
         # message is deleted and its reactions are still being counted.
         await reactions_domain.clear_for_message(session, message_id=message_id)
 
-    response = _as_message(result.message, reactions=[])
+    # A deleted root keeps its summary and its thread (R10).
+    response = _as_message(
+        result.message, reactions=[], thread=await summary_of(session, result.message)
+    )
     await session.commit()
     # The redacted DTO, not an id: the row stays in the history and every
     # recipient has to render the tombstone.
     await realtime.publish_message_deleted(sio, response)
+    if result.deleted_now and result.message.thread_root_id is not None:
+        # A deleted reply lowers its root's count (R4), read after the commit.
+        await publish_reply_summary(
+            session, sio, result.message.thread_root_id, result.message.channel_id
+        )
     if result.deleted_now:
         await indexing.enqueue_delete(jobs, response, workspace_id=principal.workspace_id)
     return response

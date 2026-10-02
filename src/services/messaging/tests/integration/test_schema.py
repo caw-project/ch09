@@ -139,17 +139,17 @@ async def test_the_history_index_is_not_partial(engine):
     assert "WHERE" not in definition
 
 
-async def test_the_thread_index_is_deliberately_absent(engine):
-    """`ix_messages_thread` is in the design doc and is not built yet.
+async def test_the_thread_index_is_partial_on_thread_root_id(engine):
+    """Top-level rows never enter it; breaks if it is plain, or leads with another column."""
+    rows = await _rows(
+        engine,
+        "SELECT indexdef FROM pg_indexes WHERE indexname = 'ix_messages_thread'",
+    )
 
-    Nothing queries `thread_root_id`. Unlike a column, an index can be added
-    later with no table rewrite — so it waits for the feature.
-    """
-    rows = await _rows(engine, "SELECT indexname FROM pg_indexes WHERE schemaname = 'public'")
-    names = {r[0] for r in rows}
-
-    assert "ix_messages_channel_time" in names
-    assert "ix_messages_thread" not in names
+    assert len(rows) == 1
+    definition = rows[0][0]
+    assert "(thread_root_id, id)" in definition
+    assert "WHERE (thread_root_id IS NOT NULL)" in definition
 
 
 async def test_a_message_references_its_channel_but_not_its_author(engine):

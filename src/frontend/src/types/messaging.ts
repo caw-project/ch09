@@ -294,6 +294,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/messages/{message_id}/thread": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Thread
+         * @description A root and a page of its replies, newest first, tombstones included.
+         *
+         *     Visibility is the guard, as on every message route (spec §3.1.1). Naming a
+         *     reply is a 404 with its own wording: the caller can see the reply, so
+         *     saying what is wrong with the id leaks nothing.
+         */
+        get: operations["get_thread_api_v1_messages__message_id__thread_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/search/messages": {
         parameters: {
             query?: never;
@@ -552,6 +576,12 @@ export interface components {
          *
          *     One absence and two presences are all deliberate.
          *
+         *     `replyCount` and `lastReplyAt` summarise a root's live (not deleted) replies
+         *     and are `0` and `null` on everything else — a reply, a message nobody
+         *     answered, a freshly sent one. Both are required with no default, for the
+         *     reason `ChannelResponse` gives: a default drops them from OpenAPI `required`.
+         *     A deleted root keeps its summary (R10).
+         *
          *     `reactions` is a summary — one entry per emoji anyone used, with the count
          *     and whether the caller is one of them — and it is `[]` rather than absent
          *     when nobody has reacted. `attachments` is a real column read off a real row
@@ -601,8 +631,12 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Lastreplyat */
+            lastReplyAt: string | null;
             /** Reactions */
             reactions: components["schemas"]["ReactionSummary"][];
+            /** Replycount */
+            replyCount: number;
             /** Threadrootid */
             threadRootId: string | null;
             /** Version */
@@ -646,12 +680,13 @@ export interface components {
         };
         /**
          * SendMessageRequest
-         * @description Say something in a channel.
+         * @description Say something in a channel, or reply to a message in it.
          *
-         *     Carries the body and nothing else. No `channelId` — it is in the path; no
-         *     `authorId` — it is the token's `sub`; no `threadRootId` and no
-         *     `attachmentIds`, because accepting a field the service ignores is a claim it
-         *     does not honour. Both arrive with the features that need them.
+         *     No `channelId` — it is in the path; no `authorId` — it is the token's `sub`;
+         *     no `attachmentIds`, because accepting a field the service ignores is a claim
+         *     it does not honour. `threadRootId` names the message being replied to: a
+         *     reply to a reply is filed under the root, and a root that is unknown or in
+         *     another channel is a 404.
          *
          *     `max_length` here is a static outer bound and **not** the rule — see
          *     `MAX_BODY_FIELD_LENGTH`.
@@ -659,6 +694,23 @@ export interface components {
         SendMessageRequest: {
             /** Body */
             body: string;
+            /** Threadrootid */
+            threadRootId?: string | null;
+        };
+        /**
+         * ThreadResponse
+         * @description A thread: its root, and a cursor page of its replies, newest first.
+         *
+         *     The root travels with every page because the panel needs it even when it is
+         *     not in loaded history (an old root, or one opened from the URL), and one
+         *     request is one loading state. Replies include tombstones (R5).
+         */
+        ThreadResponse: {
+            /** Items */
+            items: components["schemas"]["MessageResponse"][];
+            /** Nextcursor */
+            nextCursor?: string | null;
+            root: components["schemas"]["MessageResponse"];
         };
         /**
          * UpdateChannelRequest
@@ -1220,6 +1272,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MessageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_thread_api_v1_messages__message_id__thread_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreadResponse"];
                 };
             };
             /** @description Validation Error */
