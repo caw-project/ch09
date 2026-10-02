@@ -27,7 +27,7 @@
  * needs to read.
  */
 
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import type { Message } from '../../lib/api/messaging'
 import { ThreadSummary } from '../threads/ThreadSummary'
@@ -57,6 +57,12 @@ interface Props {
   onOpenThread?: () => void
   /** The target of a jump from search, for the two seconds it is highlighted. */
   highlighted?: boolean
+  /**
+   * The message's files, drawn by `AttachmentList`. A slot rather than props
+   * because fetching a URL needs the token and workspace, which the row has no
+   * other use for; `MessageList` fills it when the message has any.
+   */
+  attachments?: ReactNode
 }
 
 function timeOfDay(iso: string): string {
@@ -75,6 +81,7 @@ export function MessageItem({
   onToggleReaction,
   onOpenThread,
   highlighted = false,
+  attachments,
 }: Props) {
   const [editing, setEditing] = useState(false)
 
@@ -180,6 +187,9 @@ export function MessageItem({
           {message.body}
         </p>
       )}
+
+      {/* A tombstone shows no files, whatever the slot holds. */}
+      {!deleted && attachments}
 
       {!deleted && <ReactionBar reactions={message.reactions} onToggle={onToggleReaction} />}
 

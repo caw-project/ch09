@@ -36,7 +36,6 @@ def a_message() -> Callable[..., Message]:
             "author_id": uuid.uuid4(),
             "thread_root_id": None,
             "body": "hello",
-            "attachments": [],
             "created_at": AT,
             "edited_at": None,
             "deleted_at": None,

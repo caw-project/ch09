@@ -26,11 +26,13 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import httpx
 import redis.asyncio as aioredis
 import socketio
 from elasticsearch import AsyncElasticsearch
 from fastapi import FastAPI
 
+from messaging.assets import AssetClient
 from messaging.db import build_engine, build_sessions
 from messaging.realtime import RealtimeContext, build_server
 from messaging.realtime_writes import register_write_handlers
@@ -46,6 +48,7 @@ from shared import (
     JwksClient,
     KeySource,
     SecurityConfig,
+    ServiceTokenSource,
     build_health_router,
     install_cors,
     install_problem_handlers,
@@ -73,6 +76,20 @@ def create_app(settings: Settings, *, key_source: KeySource | None = None) -> Fa
         settings.elasticsearch_url, request_timeout=5, max_retries=1, retry_on_timeout=False
     )
 
+    # Asset's internal API, called with this service's own token. A short
+    # timeout: a send waits on the claim, and a slow Asset should read as down.
+    asset_http = httpx.AsyncClient(timeout=3.0)
+    assets = AssetClient(
+        base_url=settings.asset_internal_url,
+        tokens=ServiceTokenSource(
+            token_url=settings.service_token_url,
+            client_id=settings.messaging_service_client_id,
+            client_secret=settings.messaging_service_client_secret,
+            http=asset_http,
+        ),
+        http=asset_http,
+    )
+
     keys = key_source or JwksClient(settings.auth_jwks_url)
 
     @asynccontextmanager
@@ -86,6 +103,7 @@ def create_app(settings: Settings, *, key_source: KeySource | None = None) -> Fa
         await redis_client.aclose()
         await jobs.aclose()
         await search_client.close()
+        await asset_http.aclose()
 
     app = FastAPI(title="CollabHub Messaging", version="0.1.0", lifespan=lifespan)
 
@@ -98,6 +116,7 @@ def create_app(settings: Settings, *, key_source: KeySource | None = None) -> Fa
     app.state.realtime = None
     app.state.jobs = jobs
     app.state.search = search_client
+    app.state.assets = assets
 
     install_cors(app, origins=settings.cors_allowed_origins)
     install_problem_handlers(app)
@@ -154,6 +173,7 @@ def build_asgi_app(settings: Settings, *, key_source: KeySource | None = None):
         sessions=app.state.sessions,
         security=app.state.security,
         jobs=app.state.jobs,
+        assets=app.state.assets,
     )
     sio = build_server(context)
     register_write_handlers(sio, context)

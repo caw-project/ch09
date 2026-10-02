@@ -48,24 +48,32 @@ from typing import Any
 import socketio
 from pydantic import Field, ValidationError
 
-from messaging import channels, indexing, messages, reactions, read_state, realtime, threads
+from messaging import (
+    attachments,
+    channels,
+    indexing,
+    messages,
+    reactions,
+    read_state,
+    realtime,
+    threads,
+)
 from messaging.realtime import NAMESPACE, RealtimeContext, _acked, _ok
 from messaging.routers.messages import _as_message, publish_reply_summary, summary_of
 from messaging.schemas import MAX_BODY_FIELD_LENGTH, CamelRequest
-from shared import ProblemException, TokenState, UserPrincipal
+from shared import ProblemException, TokenState, UserPrincipal, uuid7
 
 _log = logging.getLogger("collabhub.messaging.realtime_writes")
 
 
 class SendMessagePayload(CamelRequest):
-    """`send_message`: `{channelId, body, threadRootId?}` (spec §3.2).
+    """`send_message`: `{channelId, body, threadRootId?, attachmentIds?}` (spec §3.2).
 
     `threadRootId` makes the message a reply, normalised under its root exactly
-    as the REST route does. The spec's `attachmentIds` stays out of scope —
-    attachments are always empty because the Asset service is a skeleton, and
-    declaring a field the handler ignores is a claim the service does not
-    honour. Nothing here forbids extra keys, so a client that sends it gets no
-    error, just no effect.
+    as the REST route does.
+
+    `attachmentIds` is optional, and a client sends it only when there are some.
+    The rules are the REST body's, checked by the same domain functions.
 
     Validated here rather than in `schemas.py`: these are not REST bodies, they
     never appear in the OpenAPI document, and they belong beside the handlers
@@ -75,6 +83,7 @@ class SendMessagePayload(CamelRequest):
     channel_id: uuid.UUID
     body: str = Field(max_length=MAX_BODY_FIELD_LENGTH)
     thread_root_id: uuid.UUID | None = None
+    attachment_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
 class EditMessagePayload(CamelRequest):
@@ -189,25 +198,52 @@ def register_write_handlers(  # noqa: C901 — a registry of handlers; mccabe co
                 except threads.NoSuchThreadError as exc:
                     raise ProblemException.not_found("No such thread.") from exc
 
+            max_attachments = context.settings.messaging_max_attachments
             try:
-                created = await messages.create(
-                    session,
-                    channel_id=event.channel_id,
-                    author_id=principal.user_id,
-                    body=event.body,
-                    max_chars=context.settings.messaging_max_body_chars,
-                    thread_root_id=root_id,
+                attachments.check_attachment_ids(
+                    event.attachment_ids, max_attachments=max_attachments
+                )
+            except (
+                attachments.TooManyAttachmentsError,
+                attachments.DuplicateAttachmentError,
+            ) as exc:
+                raise attachments.ids_problem(exc, max_attachments=max_attachments) from exc
+
+            max_chars = context.settings.messaging_max_body_chars
+            try:
+                # Before the claim: a bad body must not claim assets for a
+                # message that will never exist.
+                messages.validate_body(
+                    event.body, max_chars=max_chars, allow_empty=bool(event.attachment_ids)
                 )
             except messages.BodyRequiredError as exc:
                 raise _body_problem("A message cannot be empty.") from exc
             except messages.BodyTooLongError as exc:
-                raise _body_problem(
-                    f"A message must be {context.settings.messaging_max_body_chars} "
-                    "characters or fewer."
-                ) from exc
+                raise _body_problem(f"A message must be {max_chars} characters or fewer.") from exc
 
-            # A message nobody has seen yet has no reactions, so no query.
-            response = _as_message(created, reactions=[])
+            # Claim, then insert — the same order, and the same helper, as the
+            # REST route, so the two transports cannot refuse differently.
+            message_id = uuid7()
+            metas = await attachments.claim_for_send(
+                context.assets,
+                workspace_id=principal.workspace_id,
+                user_id=principal.user_id,
+                message_id=message_id,
+                asset_ids=event.attachment_ids,
+            )
+            created, stored = await messages.create(
+                session,
+                message_id=message_id,
+                channel_id=event.channel_id,
+                author_id=principal.user_id,
+                body=event.body,
+                max_chars=max_chars,
+                thread_root_id=root_id,
+                attachments=metas,
+            )
+
+            # A message nobody has seen yet has no reactions and no replies, so no query.
+            response = _as_message(created, reactions=[], attachments=stored)
             await session.commit()
 
             # Commit, then publish. A broadcast for a row whose transaction failed
@@ -256,14 +292,19 @@ def register_write_handlers(  # noqa: C901 — a registry of handlers; mccabe co
             if edited is None:
                 raise ProblemException.not_found("No such channel.")
 
-            # An edit changes the text and nothing else — the reactions stay.
+            # An edit changes the text and nothing else — the reactions and the
+            # attachments stay.
             summaries = (
                 await reactions.summaries_for(
                     session, message_ids=[edited.id], user_id=principal.user_id
                 )
             ).get(edited.id, [])
+            stored = await attachments.for_messages(session, [edited.id])
             response = _as_message(
-                edited, reactions=summaries, thread=await summary_of(session, edited)
+                edited,
+                reactions=summaries,
+                attachments=stored.get(edited.id, []),
+                thread=await summary_of(session, edited),
             )
             await session.commit()
 
@@ -298,8 +339,13 @@ def register_write_handlers(  # noqa: C901 — a registry of handlers; mccabe co
                 # The REST delete clears them too: one rule, both transports.
                 await reactions.clear_for_message(session, message_id=event.message_id)
 
+            # A deleted root keeps its summary (R10); a tombstone shows no
+            # attachments (`_as_message` applies `visible`).
             response = _as_message(
-                result.message, reactions=[], thread=await summary_of(session, result.message)
+                result.message,
+                reactions=[],
+                attachments=[],
+                thread=await summary_of(session, result.message),
             )
             await session.commit()
 

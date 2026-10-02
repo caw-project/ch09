@@ -16,6 +16,7 @@ export default tseslint.config(
       "dist",
       // Generated from the service's OpenAPI document (D23), never edited here.
       "src/types/messaging.ts",
+      "src/types/asset.ts",
       "openapi",
     ],
   },

@@ -163,6 +163,7 @@ cmd_app() {
         --set-string "components.messaging.env.AUTH_ISSUER=$APP_ORIGIN" \
         --set-string "components.canvas.env.AUTH_ISSUER=$APP_ORIGIN" \
         --set-string "components.asset.env.AUTH_ISSUER=$APP_ORIGIN" \
+        --set-string "components.asset.env.OBJECT_STORE_PUBLIC_ENDPOINT=$(origin_s3_endpoint "$APP_ORIGIN")" \
         --set-string "components.worker.env.REDIS_STREAMS_ADDRESS=redis-streams.$NAMESPACE.svc.cluster.local:6379" \
         ${helm_args[@]+"${helm_args[@]}"} \
         --wait --timeout 10m

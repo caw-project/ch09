@@ -14,7 +14,7 @@ import textwrap
 import pytest
 from _pytest.fixtures import FixtureFunctionDefinition
 
-from testkit import containers
+from testkit import containers, garage
 from testkit.plugin import CONTAINER_FIXTURES
 
 DEMO = "src/services/demo/tests"
@@ -311,13 +311,14 @@ def test_container_fixtures_names_every_root_fixture_in_testkit_containers():
     is listed or depends on one that is: the *roots* of the module's fixture
     graph are exactly the listed names.
 
-    Breaks if a container fixture is added to `testkit.containers` — a Garage
-    one, say — without being added to the set, or if a listed name no longer
-    exists.
+    Breaks if a container fixture is added to `testkit.containers` or
+    `testkit.garage` without being added to the set, or if a listed name no
+    longer exists.
     """
     definitions = {
         value.name: value
-        for value in vars(containers).values()
+        for module in (containers, garage)
+        for value in vars(module).values()
         if isinstance(value, FixtureFunctionDefinition)
     }
     assert definitions, "found no fixtures in testkit.containers to check"

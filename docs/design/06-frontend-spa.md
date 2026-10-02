@@ -260,9 +260,21 @@ twice.
   does not fail — it buffers, and the callback never fires — so without one the
   bubble would sit greyed forever with no error and no way out.
 - **A timed-out or refused send is never retried automatically.** It rolls back,
-  puts the text back in `drafts[channelId]`, and says why. `send_message`
-  carries no idempotency key, so an automatic retry is how one message becomes
-  two.
+  puts the text back in `drafts[channelId]` and the files back among the chips (§6), and
+  says why. `send_message` carries no idempotency key, so an automatic retry is how one
+  message becomes two — and a send that *was* saved has claimed its files, so the retry
+  is refused anyway. The timeout's wording is therefore "The server did not confirm that
+  message — it may still arrive.", not "Nothing was sent."
+- **Everything a send writes keys on the send's own channel** — `variables.channelId`,
+  never the hook's `channelId` argument. TanStack takes the observer's new options when
+  the component re-renders, so a closure over the channel the hook was rendered for cleans
+  up the wrong cache once the user has moved to another channel mid-send. The restore is in
+  the hook-level `onError` for the same family of reasons: Query keeps one `mutate`-level
+  callback, the latest call's, so a per-call `onError` misses an earlier send when a later
+  one is in flight.
+- **A refusal is per channel** (`sendErrors[channelId]`): it shows in the composer it came
+  from, not in another, comes back when the user returns, and is cleared when the next send
+  *for that channel* starts.
 - **There is no offline send queue** (§7 lists one as an aspiration). It would
   need ordering, durable storage and dedupe against a write that cannot be
   deduped, and the composer is disabled with a visible reason while the socket
@@ -356,8 +368,46 @@ Over `GET /api/v1/search/messages` (doc 02, D8c), unchanged.
 2. `PUT` the file bytes **directly to Garage** (show progress).
 3. `POST /assets/{id}/confirm`.
 4. Reference the returned `assetId` in a message (`attachments`) or canvas image node.
-5. Render via `GET /assets/{id}/download-url` / `thumbnail-url` (short-lived URLs; refetch on
-   expiry).
+5. Render through a URL **Messaging** mints —
+   `GET /messages/{id}/attachments/{assetId}/download-url` (register D43; Asset has no public
+   download route). `thumbnail-url` is not built.
+
+**Message attachments — built 2026-10 (issue 4).**
+
+- **Attach by the paperclip, a drop or a paste.** Each file becomes a *chip* (client state,
+  Zustand, keyed by channel) that uploads while the person keeps typing. The runner
+  (`features/attachments/uploads.ts`) is plain async code **outside React**, so a channel
+  switch cannot stop it and the finished upload lands in the chips of the channel it began in.
+- **Rules are checked before anything is requested**, in the server's words: PNG, JPEG, GIF,
+  WebP or PDF (no SVG), 1 byte to 50 MB, a name of 1–255 characters. A file that breaks one
+  becomes a `failed` chip saying why, counts towards ten until removed, and is never uploaded.
+- **All or none for a batch.** A batch that would take the message past ten adds nothing and
+  says "At most 10 files per message — 3 attached, 8 added."
+- **Paste.** A clipboard with text and a file (Excel, Word) pastes the text and attaches
+  nothing; files and no text attach. Only the browser's generic `image.png` is renamed
+  `Pasted image <yyyy-mm-dd hh.mm.ss>.png`, in local time.
+- **Send waits for every chip to be `ready`**, and for there to be no more than ten; a message
+  may be only files. The chips leave with the send and come back if it is refused, **in front
+  of** anything attached since, even past ten — then Send is off and the composer says "At most
+  10 files per message — remove 1." Nothing a person chose is dropped. Restored text goes in
+  front of what was typed since, joined by one line break.
+- **✕** on a chip cancels its upload (an `AbortController` per upload, checked before each of
+  the three steps and passed to each request) and removes it. A workspace switch, or the shell
+  unmounting on sign-out, cancels every upload and empties every channel's chips: a token is
+  scoped to one workspace. The asset stays `pending` in Asset (register D16).
+- **Showing a message's files.** Images inline, capped at 240 × 320 px; PDFs as a chip with
+  the name, the size and a Download button. Name, type and size are the message's own, so a
+  chip renders with no request and still does when Asset is down. A message still pending
+  (`temp:` id) shows the chips' metadata and fetches no URL; a tombstone shows nothing.
+- **A URL is stale at 780 s** (it lives 900 s), and staleness matters at three moments only: a
+  **mount** that finds it stale refetches and shows no `src` until the new one lands; a
+  **click** uses the cached URL only if it is fresh; an `<img>` that fails to load refetches
+  **once**, then offers "Couldn't load — retry". A *mounted* image keeps its URL — the query
+  refetches on no focus, no reconnect and no interval.
+- **A click opens the window synchronously**, then sends it to the URL once a fresh one has
+  arrived (`window.open` after an `await` loses its user activation in Safari and is
+  blocked). A PDF navigates the page to a URL signed `Content-Disposition: attachment`, which
+  downloads and leaves the page where it is.
 
 ---
 
@@ -389,7 +439,9 @@ Over `GET /api/v1/search/messages` (doc 02, D8c), unchanged.
   channel names. The second is that pre-validating would mean the over-long send
   never leaves the browser — no optimistic row, nothing to roll back, and the
   behaviour the rejected-send path exists to provide could not be exercised at
-  all. Attachment count and size are untouched by this and stay as written.
+  all. Attachment count and size are untouched by this and stay as written — and built as
+  written (§6): a *file's* type, size and name are checked before an upload starts, because
+  there the answer is not a send to roll back but a chip that says why.
 - PWA/offline shell for the mobile path; service worker caches the app shell, not data.
 
 ## 9. Open Decisions

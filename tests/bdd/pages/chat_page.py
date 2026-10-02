@@ -24,8 +24,10 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from pathlib import Path
 
 from playwright.sync_api import Locator, Page, expect
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 #: How long `appears_once` keeps checking the count after it first reads 1.
 #: The sender's own broadcast lands after her ack, and a blind append turns
@@ -543,6 +545,67 @@ class ChatPage:
 
     def _result(self, body: str) -> Locator:
         return self.page.get_by_test_id("search-result").filter(has_text=body).first
+
+    # --- attachments ------------------------------------------------------
+
+    def attach_files(self, files: list[dict[str, object]]) -> None:
+        """Pick files through the composer's file input, and wait until each is uploaded.
+
+        `files` are Playwright payloads — `{name, mimeType, buffer}` — so nothing
+        touches the disk. Ready means every chip says so: Send stays off until
+        then, and a step that sent early would be testing the disabled button.
+        The count is checked as well, so zero chips (an input that took nothing)
+        cannot pass as "all of them ready".
+        """
+        self.page.get_by_test_id("attach-files").set_input_files(files)
+        chips = self.page.get_by_test_id("attachment-chip")
+        expect(chips).to_have_count(len(files))
+        expect(
+            self.page.locator("[data-testid='attachment-chip']:not([data-status='ready'])")
+        ).to_have_count(0, timeout=30_000)
+
+    def has_inline_image(self, text: str, file_name: str) -> bool:
+        """Whether a message shows an attachment as an image that really loaded.
+
+        `naturalWidth > 0` is what separates a picture from a broken-image icon:
+        the element is visible either way, and a URL Garage refused would still
+        leave an `<img>` in the page. The wait is Playwright's own polling
+        `wait_for_function`, because there is no retrying `expect` for a
+        property being greater than zero.
+        """
+        self._settle_messages()
+        image = self._attachment("message-attachment-image", text, file_name)
+        if not _holds(lambda: expect(image).to_be_visible()):
+            return False
+        try:
+            self.page.wait_for_function(
+                "(el) => el.complete && el.naturalWidth > 0",
+                arg=image.element_handle(),
+                timeout=15_000,
+            )
+        except PlaywrightTimeoutError:
+            return False
+        return True
+
+    def has_file_chip(self, text: str, file_name: str) -> bool:
+        """Whether a message shows an attachment as a file chip with a download control."""
+        self._settle_messages()
+        chip = self._attachment("message-attachment-file", text, file_name)
+        return _holds(lambda: expect(chip).to_be_visible()) and _holds(
+            lambda: expect(chip.get_by_test_id("message-attachment-download")).to_be_visible()
+        )
+
+    def download_attachment(self, text: str, file_name: str) -> bytes:
+        """Click a file chip's download and return the bytes the browser received."""
+        chip = self._attachment("message-attachment-file", text, file_name)
+        with self.page.expect_download() as download:
+            chip.get_by_test_id("message-attachment-download").click()
+        return Path(download.value.path()).read_bytes()
+
+    def _attachment(self, testid: str, text: str, file_name: str) -> Locator:
+        return self._item_for(text).locator(
+            f"[data-testid='{testid}'][data-file-name='{file_name}']"
+        )
 
     # --- membership -------------------------------------------------------
 

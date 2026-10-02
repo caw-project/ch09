@@ -19,6 +19,7 @@ import type { Channel, Message } from '../../lib/api/messaging'
 import { snapshot } from '../../lib/auth/session'
 import { auth, messaging, requests } from '../../test/api'
 import {
+  anAttachment,
   aChannel,
   aMessage,
   aMessagePage,
@@ -31,6 +32,7 @@ import { giveLayout, layoutEveryElement, stubScrollIntoView } from '../../test/l
 import { setPageAttention } from '../../test/page'
 import { renderWithProviders } from '../../test/render'
 import { FakeSocket } from '../../test/socket'
+import { useChatStore } from '../../stores/chat'
 import { ChannelList } from './ChannelList'
 import { ChannelView } from './ChannelView'
 import { channelKeys } from './useChannels'
@@ -378,6 +380,66 @@ describe('ChannelView — jumping to a message', () => {
       'data-highlighted',
       'true',
     )
+  })
+})
+
+describe('ChannelView — attachments on a message (issue 4 R9)', () => {
+  it('shows a message’s image inline and its PDF as a chip, wired through the real list', async () => {
+    const { queryClient } = renderShell()
+    messaging.get('/api/v1/messages/{message_id}/attachments/{asset_id}/download-url', () => ({
+      url: 'http://garage.test/get/1',
+      expiresAt: '2026-10-01T09:15:00Z',
+    }))
+    await screen.findByText(bodyIn(GENERAL, 2))
+
+    act(() =>
+      upsertMessage(
+        queryClient,
+        messageKeys.list(WORKSPACE_ID, GENERAL),
+        messageIn(GENERAL, 3, {
+          body: 'the plans',
+          attachments: [
+            anAttachment({ fileName: 'diagram.png', contentType: 'image/png' }),
+            anAttachment({ fileName: 'notes.pdf', contentType: 'application/pdf' }),
+          ],
+        }),
+      ),
+    )
+
+    expect(await screen.findByText('the plans')).toBeInTheDocument()
+    expect(await screen.findByRole('img', { name: 'diagram.png' })).toHaveAttribute(
+      'src',
+      'http://garage.test/get/1',
+    )
+    expect(screen.getByText('notes.pdf')).toBeInTheDocument()
+  })
+})
+
+describe('ChannelView — a send error stays in its channel (issue 4 R14)', () => {
+  it('shows a refusal in the channel it was for, not in another, and again on returning', async () => {
+    const { user, socket } = renderShell()
+    useChatStore.getState().setConnectionStatus('connected')
+    socket.onEmit('send_message', () => ({
+      ok: false,
+      problem: { status: 503, title: 'Service Unavailable', detail: 'The server is unwell.' },
+    }))
+    // Both channels cached first: a first visit shows "Loading…" and unmounts the
+    // composer, which would hide an error that is simply kept in the wrong place.
+    await visitBoth()
+
+    await user.type(screen.getByRole('textbox', { name: 'Message #general' }), 'hello{Enter}')
+    expect(await screen.findByRole('alert')).toHaveTextContent('The server is unwell.')
+
+    // Another channel: the composer there has no error of its own.
+    open(/random/)
+    await screen.findByText(bodyIn(RANDOM, 2))
+    expect(screen.getByRole('textbox', { name: 'Message #random' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    // And it is still #general's when the user comes back.
+    open(/general/)
+    await screen.findByText(bodyIn(GENERAL, 2))
+    expect(await screen.findByRole('alert')).toHaveTextContent('The server is unwell.')
   })
 })
 

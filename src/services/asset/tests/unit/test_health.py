@@ -13,6 +13,8 @@ def _settings() -> Settings:
         auth_issuer="http://localhost:8001",
         auth_jwks_url="http://auth:8000/.well-known/jwks.json",
         object_store_endpoint="http://garage:3900",
+        object_store_public_endpoint="http://localhost:3900",
+        redis_cache_url="redis://redis-cache:6379/0",
     )
 
 

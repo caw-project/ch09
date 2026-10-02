@@ -95,6 +95,29 @@ services:
       - "3900:3900" # S3 API
       - "3903:3903" # admin API
 
+  garage-bootstrap:
+    # One-shot: gives a fresh Garage its layout, the bucket, the app's key and the
+    # bucket's CORS rules, then exits. Garage serves no S3 traffic until a layout
+    # is assigned, and the image has no shell to run its own CLI from, so the same
+    # stdlib script the test stack, k3d and testkit run does it over the admin API.
+    # Every step checks before it acts, so it is safe on every `up`. `asset` waits
+    # for it to complete.
+    image: python:3.12-slim
+    restart: "no"
+    command: ["python", "/bootstrap/garage-bootstrap.py"]
+    volumes:
+      - ./charts/collabhub-deps/files/garage-bootstrap.py:/bootstrap/garage-bootstrap.py:ro
+    environment:
+      GARAGE_ADMIN_URL: http://garage:3903
+      GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN}
+      GARAGE_BUCKET: ${OBJECT_STORE_BUCKET}
+      GARAGE_ACCESS_KEY_ID: ${OBJECT_STORE_ACCESS_KEY}
+      GARAGE_SECRET_ACCESS_KEY: ${OBJECT_STORE_SECRET_KEY}
+      GARAGE_CAPACITY_BYTES: "1073741824"
+      GARAGE_CORS_ORIGINS: ${GARAGE_CORS_ORIGINS}
+    depends_on:
+      garage: {condition: service_started}
+
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:9.4.3
     restart: unless-stopped
@@ -193,6 +216,12 @@ services:
       # The SPA is a separate origin locally, so the browser will not call this
       # service at all without it (Conventions §5.6).
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      # Claiming a send's attachments: Asset's internal API, called with this
+      # service's own token from Auth (Conventions §5.5).
+      SERVICE_TOKEN_URL: ${SERVICE_TOKEN_URL}
+      ASSET_INTERNAL_URL: ${ASSET_INTERNAL_URL}
+      MESSAGING_SERVICE_CLIENT_ID: ${MESSAGING_SERVICE_CLIENT_ID}
+      MESSAGING_SERVICE_CLIENT_SECRET: ${MESSAGING_SERVICE_CLIENT_SECRET}
     ports:
       - "${MESSAGING_PORT}:8000"
     depends_on:
@@ -200,6 +229,9 @@ services:
       redis-cache: {condition: service_healthy}
       redis-rt: {condition: service_healthy}
       redis-streams: {condition: service_healthy}
+      # Not a readiness dependency (a send with no files never calls Asset), but
+      # it should be there when the first attachment is sent.
+      asset: {condition: service_started}
 
   canvas:
     <<: [*service-common, *http-healthcheck]
@@ -226,17 +258,26 @@ services:
     environment:
       <<: *service-env
       POSTGRES_DSN: ${ASSET_POSTGRES_DSN}
+      # R1 for the token denylist (`require_user`), R3 for thumbnail jobs.
+      REDIS_CACHE_URL: ${REDIS_CACHE_URL}
       REDIS_STREAMS_URL: ${REDIS_STREAMS_URL}
+      # The SPA calls `upload-url` and `confirm` directly, from another origin.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
       OBJECT_STORE_ENDPOINT: ${OBJECT_STORE_ENDPOINT}
+      OBJECT_STORE_PUBLIC_ENDPOINT: ${OBJECT_STORE_PUBLIC_ENDPOINT}
       OBJECT_STORE_ACCESS_KEY: ${OBJECT_STORE_ACCESS_KEY}
       OBJECT_STORE_SECRET_KEY: ${OBJECT_STORE_SECRET_KEY}
       OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET}
+      OBJECT_STORE_PRESIGN_TTL_SECONDS: ${OBJECT_STORE_PRESIGN_TTL_SECONDS}
+      ASSET_MAX_UPLOAD_BYTES: ${ASSET_MAX_UPLOAD_BYTES}
     ports:
       - "${ASSET_PORT}:8000"
     depends_on:
       postgres: {condition: service_healthy}
+      redis-cache: {condition: service_healthy}
       redis-streams: {condition: service_healthy}
-      garage: {condition: service_started}
+      # Garage serves nothing until the bootstrap has run.
+      garage-bootstrap: {condition: service_completed_successfully}
 
   worker:
     <<: [*service-common, *http-healthcheck]

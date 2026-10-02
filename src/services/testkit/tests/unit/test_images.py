@@ -32,6 +32,7 @@ def compose_images() -> dict[str, str]:
         ("redis-streams", "REDIS"),
         ("elasticsearch", "ELASTICSEARCH"),
         ("dex", "DEX"),
+        ("garage", "GARAGE"),
     ],
 )
 def test_a_pinned_image_matches_compose(compose_images, service, pinned):

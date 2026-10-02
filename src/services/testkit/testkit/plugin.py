@@ -30,11 +30,13 @@ from pytest_socket import disable_socket, enable_socket
 #: fixture has exactly one definition — and a session fixture one container —
 #: however many services' tests request it (register D34). Nothing here imports
 #: them: a module imported before pytest registers it escapes assert rewriting.
-pytest_plugins = ["testkit.containers", "testkit.tokens"]
+pytest_plugins = ["testkit.containers", "testkit.garage", "testkit.tokens"]
 
 #: The fixtures in `testkit.containers` that start a container. A unit test
 #: depending on any of them, directly or through another fixture, stops the run.
-CONTAINER_FIXTURES = frozenset({"postgres_server", "redis_server", "elasticsearch_url"})
+CONTAINER_FIXTURES = frozenset(
+    {"postgres_server", "redis_server", "elasticsearch_url", "garage_server"}
+)
 
 UNIT = "unit"
 INTEGRATION = "integration"

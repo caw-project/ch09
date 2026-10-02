@@ -20,6 +20,27 @@ def test_an_empty_or_whitespace_only_body_is_refused(raw):
         validate_body(raw, max_chars=LIMIT)
 
 
+def test_an_empty_body_passes_when_allowed():
+    """R6: a message may be only attachments. Breaks if `allow_empty` is ignored."""
+    assert validate_body("", max_chars=LIMIT, allow_empty=True) == ""
+
+
+def test_whitespace_passes_as_empty_when_allowed():
+    """Decision 38: a blank body and an empty one read the same, and are stored as `""`."""
+    assert validate_body("  \n\t ", max_chars=LIMIT, allow_empty=True) == ""
+
+
+def test_whitespace_still_fails_when_not_allowed():
+    """The guard for the two above: `allow_empty` defaults to refusing."""
+    with pytest.raises(BodyRequiredError):
+        validate_body("   ", max_chars=LIMIT, allow_empty=False)
+
+
+def test_a_non_empty_body_is_still_returned_verbatim_when_empty_is_allowed():
+    """Breaks if `allow_empty` switches on stripping for every body."""
+    assert validate_body("  hi  ", max_chars=LIMIT, allow_empty=True) == "  hi  "
+
+
 def test_a_body_over_the_limit_is_refused():
     with pytest.raises(BodyTooLongError):
         validate_body("a" * (LIMIT + 1), max_chars=LIMIT)

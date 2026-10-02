@@ -27,3 +27,10 @@ export const MESSAGING_URL: string = baseUrlFrom(
   import.meta.env.VITE_MESSAGING_URL,
   'http://localhost:8002',
 )
+
+/**
+ * Asset's public routes: `upload-url` and `confirm`. The bytes themselves go to
+ * object storage on a presigned URL and never through here, and a download URL
+ * comes from Messaging, so this is only the handshake.
+ */
+export const ASSET_URL: string = baseUrlFrom(import.meta.env.VITE_ASSET_URL, 'http://localhost:8004')

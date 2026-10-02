@@ -19,8 +19,11 @@ read receipts, typing indicators.
 **Produces:** index jobs to `jobs:index` (R3) for Elasticsearch (consumed by Worker) — built
 2026-09-14, see §5.
 **Does NOT own:** the search index (the Worker owns its mapping and writes; this service only
-queries it through `GET /search/messages` — see §3.1.6), file attachments (Asset Service owns
-blobs; messages reference asset IDs).
+queries it through `GET /search/messages` — see §3.1.6), file blobs (Asset Service owns them).
+Messaging keeps a **metadata snapshot** of each attachment — name, type, size — in
+`message_attachments` (§4), and it **authorizes every download** (§3.1.4, register D43).
+**Calls:** Asset's internal API with its own service token (`assets:claim`, `assets:download`),
+to claim a send's files before the message exists and to mint download URLs.
 
 ---
 
@@ -53,6 +56,7 @@ blobs; messages reference asset IDs).
 | PATCH | `/messages/{id}` | author only — see §3.1.4 | Edit message. Takes `body` and a required `version`. No time window. |
 | DELETE | `/messages/{id}` | author or channel admin — see §3.1.4 | Tombstone the message. Returns **200 with the tombstoned `Message`**, not 204. |
 | GET | `/messages/{id}/thread` | see §3.1.1 | A root and a cursor page of its replies, newest first, tombstones included (`ThreadResponse`). A reply's id → 404 "No such thread."; unknown or invisible → 404 "No such channel." Built 2026-10-02 (D8a). |
+| GET | `/messages/{id}/attachments/{assetId}/download-url` | see §3.1.1 | A 15-minute URL for one attachment, for anyone who can see the message. **The only way to a file's bytes** (register D43) — see §3.1.4. Returns `{url, expiresAt}`. |
 | POST | `/messages/{id}/reactions` | see §3.1.1 | Add a reaction `{ "emoji": "thumbsup" }` — a shortcode from the server's allowlist, not a character. Idempotent. Returns **200 with the updated `Message`**. See §3.1.5. |
 | DELETE | `/messages/{id}/reactions/{emoji}` | see §3.1.1 | Remove your own reaction. Idempotent — removing one that was never there is also a 200 with the `Message`. |
 | POST | `/channels/{id}/read` | see §3.1.7 | Mark read up to `{ "messageId": "..." }`. 204; the marker only moves forward. |
@@ -252,7 +256,12 @@ and no `version`, and neither was right for what the service actually is:
   "id": "uuid", "channelId": "uuid", "authorId": "uuid",
   "threadRootId": "uuid|null",     // set on a reply; null on a top-level message (D8a 🟢)
   "body": "markdown text",         // "" when deletedAt is set — see §3.1.4
-  "attachments": [],               // always empty; the Asset service is a skeleton
+  "attachments": [                 // [] when none; in the order attached; always [] when
+    {                              // deletedAt is set — see §3.1.4. Built 2026-10 (issue 4)
+      "assetId": "uuid", "fileName": "diagram.png",
+      "contentType": "image/png", "sizeBytes": 1234
+    }
+  ],
   "reactions": [                   // [] when nobody has reacted — see §3.1.5
     { "emoji": "thumbsup", "count": 3, "reacted": true }
   ],
@@ -286,17 +295,43 @@ and no `version`, and neither was right for what the service actually is:
 { "items": [ /* Message */ ], "nextCursor": "…|null" }
 
 // SendMessageRequest — POST /channels/{id}/messages
-{ "body": "markdown text", "threadRootId": "uuid|null" }
+{ "body": "markdown text", "threadRootId": "uuid|null", "attachmentIds": ["uuid"] }   // both optional; attachmentIds default []
 
 // ThreadResponse — GET /messages/{id}/thread
 { "root": { /* Message */ }, "items": [ /* replies, newest first */ ], "nextCursor": "…|null" }
 ```
 
-`SendMessageRequest` carries **no** `channelId` (it is in the path), no
-`authorId` (it is the token's `sub`) and no `attachmentIds`. `threadRootId`
+`SendMessageRequest` carries **no** `channelId` (it is in the path) and no
+`authorId` (it is the token's `sub`). `threadRootId`
 (added 2026-10-02) makes the message a reply; one naming a reply is filed under
 that reply's root, and one that is unknown or in another channel is a 404 "No
 such thread." (never a 403).
+
+**Attachments — built 2026-10 (issue 4).** `attachmentIds` are assets the caller has
+uploaded and confirmed with Asset, in the order they should appear.
+
+- **At most `MESSAGING_MAX_ATTACHMENTS` (10), and no id twice** — 400 with the message under
+  `errors.attachmentIds` ("A message can have at most 10 attachments." / "An attachment is
+  listed twice."). A repeat is refused rather than silently de-duplicated, which would make
+  the order ambiguous.
+- **The body may be empty only when there is at least one attachment.** `""` alone is still
+  "A message cannot be empty."; a whitespace-only body with attachments is stored as `""`.
+- **Claim, then insert.** Everything refusable is refused first (visibility, count, body),
+  then the message's id is chosen (UUID v7, in the application), the assets are **claimed from
+  Asset for that id** — all or none — and only then are the message and its
+  `message_attachments` rows written, committed, then published. A refusal or an unreachable
+  Asset therefore leaves **nothing** behind. The body is validated *before* the claim, so a bad
+  body never claims files for a message that will not exist.
+- **A refused claim is 409** with `detail` for the first refused asset *in attach order*:
+  "An attachment could not be found." · "An attachment was uploaded by someone else." · "An
+  attachment has not finished uploading." · "An attachment is already on another message."
+  **Asset unreachable, or no service token obtainable, is 503** "Attachments can't be checked
+  right now. Nothing was sent."
+- **A retry after a lost ack is `already-attached`**, because the first send did claim the
+  files and was saved. The SPA's wording for a timeout says the message "may still arrive".
+- A send with no attachments **makes no call to Asset**.
+- The service token is cached until 60 s before it expires, one fetch in flight at a time, and
+  dropped and refetched once if Asset answers 401 (`shared.ServiceTokenSource`).
 
 **Message body rules — added 2026-08-16.** §8 gave one number and no floor, no
 layer and no error key:
@@ -373,10 +408,30 @@ nothing to express. The body is held to the same rules a send is (§3.1.3).
 
 ##### Tombstones in history
 
-| Row state | `body` | `editedAt` | `deletedAt` |
-|---|---|---|---|
-| live | the text | `null`, or when last edited | `null` |
-| deleted | **`""`** — empty string, never `null`, never the original text | unchanged | the delete time |
+| Row state | `body` | `attachments` | `editedAt` | `deletedAt` |
+|---|---|---|---|---|
+| live | the text | the files, in order | `null`, or when last edited | `null` |
+| deleted | **`""`** — empty string, never `null`, never the original text | **`[]`** | unchanged | the delete time |
+
+**A tombstone shows no attachments** — in the delete response, in the `message_deleted`
+payload and in history — and mints no download URL. The `message_attachments` rows and the
+blobs stay (nothing sweeps them: register D16, 🔴). **An edit keeps the attachments:** it
+changes the text and nothing else.
+
+##### Downloading an attachment — added 2026-10 (register D43)
+
+`GET /api/v1/messages/{messageId}/attachments/{assetId}/download-url` → `200 {url, expiresAt}`,
+a URL for **15 minutes** (stale at 780 s, as far as the SPA is concerned). **Asset has no public
+download route, so this is the only way to a file's bytes**, and it is where visibility is
+checked: anyone who can see the message's channel gets a URL.
+
+| Case | Result |
+|---|---|
+| no such message, or its channel is not visible | **404** "No such channel." — the existing probe-proof wording |
+| the message is deleted | **404** "No such attachment." — Messaging's own tombstone, without asking Asset (which would mint a URL) |
+| the asset is not on this message | **404** "No such attachment." — Messaging's own record decides, so an id from elsewhere cannot mint a URL through this message |
+| Asset answers 404 | **404** "No such attachment." |
+| Asset unreachable | **503** |
 
 The redaction is **server-side**, in the response mapper, so the text cannot
 reach a client whatever the column holds. The client renders "This message was
@@ -420,11 +475,11 @@ design doc — rather than a plan or a service README — knows which is which.
 |---|---|---|
 | `POST /internal/messages/sweep` | retention values are unset, and nothing hard-deletes a message | D16 🔴 |
 
-Two things the *columns* do ship for, ahead of their features, because adding a
-column later rewrites a table and adding an index or a route later does not:
-`thread_root_id` and `attachments` on `messages`. (`last_read_id` on
-`channel_members` was a third, and was dropped unused when read state was built
-in a table of its own — §3.1.7.)
+One *column* ships ahead of its feature, because adding a column later rewrites a table
+and adding an index or a route later does not: `thread_root_id` on `messages`.
+(`last_read_id` on `channel_members` was a second, dropped unused when read state was built
+in a table of its own — §3.1.7. `messages.attachments uuid[]` was a third: nothing ever
+wrote to it, and it was dropped in migration `0006` when attachments were built — §4.)
 
 #### 3.1.6 Search — added 2026-09-14
 
@@ -647,12 +702,16 @@ guaranteed to arrive (corrected 2026-09-15; doc 06 §5.2).
 
 #### 3.2.4 The write path — added 2026-08-16
 
-**`send_message` takes `{ channelId, body, threadRootId? }`.** `threadRootId`
+**`send_message` takes `{ channelId, body, threadRootId?, attachmentIds? }`.** `threadRootId`
 (built 2026-10-02, D8a) makes the message a reply, normalised under its root as
 the REST route does; an unknown root or one in another channel acks a 404 "No
-such thread." `attachmentIds` stays out: it would go to a service that is a
-skeleton, and accepting a field the handler drops is a claim the service does
-not honour.
+such thread." **`attachmentIds` is built (2026-10, issue 4)** and
+follows §3.1.3's rules exactly — the same domain functions, the same order (validate →
+claim → insert → commit → publish). The SPA sends the field **only when there are
+attachments**, so a plain send is the payload it always was. A refused claim or an
+unreachable Asset is acked as the same Problem the REST route returns: **409** with the
+reason in `detail`, **503** "Attachments can't be checked right now. Nothing was sent."
+The ack and the `message_received` broadcast carry the same `attachments`.
 
 **Thread events — added 2026-10-02.** `thread_summary_changed` →
 `{ channelId, rootId, replyCount, lastReplyAt }` to `channel:{channelId}`,
@@ -800,7 +859,8 @@ CREATE TABLE messages (
     author_id      uuid NOT NULL,
     thread_root_id uuid NULL REFERENCES messages(id), -- NULL = top-level
     body           text NOT NULL,
-    attachments    uuid[] NOT NULL DEFAULT '{}',     -- Asset service IDs
+    -- `attachments uuid[]` was here until migration 0006 (2026-10): never written, replaced
+    -- by `message_attachments` below.
     created_at     timestamptz NOT NULL DEFAULT now(),
     edited_at      timestamptz NULL,
     deleted_at     timestamptz NULL,
@@ -836,6 +896,22 @@ CREATE TABLE message_reactions (
     emoji        varchar(32) NOT NULL,
     created_at   timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (message_id, user_id, emoji)
+);
+
+-- Built 2026-10 in migration 0006 (issue 4, register D43). A SNAPSHOT of what Asset said when
+-- the message claimed the file, so a page of history costs one grouped query here and no call
+-- to Asset, and a chip cannot change under a message. Keyed by message and attach order.
+-- `asset_id` is UNIQUE — a second guard behind Asset's claim, and what refuses an id twice in
+-- one send — and has no foreign key (it is Asset's row, Conventions §2). `message_id` does,
+-- and cascades, so a future retention job (D16) cannot strand a row behind a hard delete.
+CREATE TABLE message_attachments (
+    message_id   uuid NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    position     smallint NOT NULL,                  -- attach order, 0-based
+    asset_id     uuid NOT NULL UNIQUE,
+    file_name    text NOT NULL,
+    content_type text NOT NULL,
+    size_bytes   bigint NOT NULL,
+    PRIMARY KEY (message_id, position)
 );
 ```
 
@@ -915,6 +991,14 @@ Common vars (Conventions §8): owns `POSTGRES_DSN`, uses `REDIS_CACHE_URL`,
 `REDIS_REALTIME_URL`, `REDIS_STREAMS_URL`. Plus `MESSAGING_MAX_BODY_CHARS` (default 8000),
 `MESSAGING_MAX_ATTACHMENTS` (default 10), and `ELASTICSEARCH_URL` — read-only, for
 `GET /search/messages`, and deliberately not a readiness check (§3.1.6).
+
+For attachments (2026-10): `ASSET_INTERNAL_URL` — Asset's **origin**, with no path (callers
+append `/api/v1/internal/...`); `SERVICE_TOKEN_URL` — Auth's `service-token` endpoint;
+`MESSAGING_SERVICE_CLIENT_ID` (default `messaging`) and `MESSAGING_SERVICE_CLIENT_SECRET`.
+They mirror the Worker's `WORKER_SERVICE_CLIENT_*` and default to empty, so a deployment
+without them starts and answers 503 to a send that names a file. Auth is told the same
+client with scopes `assets:claim` and `assets:download` (`AUTH_SERVICE_CLIENTS`). **Asset is
+not a readiness check:** a send with no files never calls it.
 
 ## 7. Cross-Cutting
 Auth, errors, pagination, observability, health per Conventions. Metrics:

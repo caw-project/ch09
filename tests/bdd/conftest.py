@@ -60,8 +60,15 @@ SHARED_WORKSPACE = os.environ.get("AUTH_DEMO_WORKSPACE_NAME", "CollabHub Demo")
 #: Child tables first — `messages`, `channel_reads` and `channel_members` all
 #: reference `channels`. `CASCADE` would clear `channel_reads` unlisted, but
 #: naming every table means the next one without a foreign key is not silently
-#: missed. Messaging's integration conftest lists the same set.
-MESSAGING_TABLES = "messages, channel_reads, channel_members, channels"
+#: missed. `message_attachments` references `messages` and goes first for the
+#: same reason. (Messaging's integration conftest leaves it out and relies on
+#: `CASCADE`; here every name is spelled out.)
+MESSAGING_TABLES = "message_attachments, messages, channel_reads, channel_members, channels"
+
+#: Asset's one table. Attachments are claimed in Asset and snapshotted in
+#: Messaging, so a scenario that starts with empty messaging tables and a full
+#: `assets` table would carry another scenario's uploads.
+ASSET_TABLES = "assets"
 
 #: Scenarios whose slice has not been built yet.
 #:
@@ -158,6 +165,14 @@ def messaging_dsn(bdd_postgres_port: str) -> str:
     return f"postgresql://{user}:{password}@localhost:{bdd_postgres_port}/collabhub_messaging"
 
 
+@pytest.fixture(scope="session")
+def asset_dsn(bdd_postgres_port: str) -> str:
+    """Asset's database, reached from the host as `messaging_dsn` reaches Messaging's."""
+    user = _env("POSTGRES_USER", "collabhub")
+    password = _env("POSTGRES_PASSWORD", "collabhub")
+    return f"postgresql://{user}:{password}@localhost:{bdd_postgres_port}/collabhub_asset"
+
+
 def _reachable(url: str, timeout: float = 2.0) -> bool:
     try:
         # S310: the URL is built by this harness from its own port constants,
@@ -183,6 +198,7 @@ def stack_ready(base_url: str, messaging_dsn: str, bdd_postgres_port: str) -> No
     for url in (
         f"http://localhost:{_env('BDD_AUTH_PORT', '8011')}/health/ready",
         f"http://localhost:{_env('BDD_MESSAGING_PORT', '8012')}/health/ready",
+        f"http://localhost:{_env('BDD_ASSET_PORT', '8014')}/health/ready",
         base_url,
     ):
         if not _reachable(url):
@@ -198,10 +214,10 @@ async def _ping(dsn: str) -> None:
     await (await asyncpg.connect(dsn)).close()
 
 
-async def _truncate(dsn: str) -> None:
+async def _truncate(dsn: str, tables: str = MESSAGING_TABLES) -> None:
     connection = await asyncpg.connect(dsn)
     try:
-        await connection.execute(f"TRUNCATE {MESSAGING_TABLES} RESTART IDENTITY CASCADE")
+        await connection.execute(f"TRUNCATE {tables} RESTART IDENTITY CASCADE")
     finally:
         await connection.close()
 
@@ -223,17 +239,18 @@ def _run_off_loop(work: Callable[[], Coroutine[Any, Any, None]]) -> None:
 
 
 @pytest.fixture(autouse=True)
-def reset_messaging(messaging_dsn: str, stack_ready: None) -> None:
-    """Empty the messaging tables before each scenario.
+def reset_messaging(messaging_dsn: str, asset_dsn: str, stack_ready: None) -> None:
+    """Empty the messaging tables, and Asset's, before each scenario.
 
-    Only messaging's. Truncating Auth would invalidate the sessions the
-    long-lived browser contexts are holding, and every scenario after the first
-    would find itself signed out.
+    Messaging's and Asset's only. Truncating Auth would invalidate the sessions
+    the long-lived browser contexts are holding, and every scenario after the
+    first would find itself signed out.
 
     This is why the suite insists on the test stack: `stack_ready` has already
-    proved the database on the other end of this DSN is the disposable one.
+    proved the database on the other end of these DSNs is the disposable one.
     """
     _run_off_loop(partial(_truncate, messaging_dsn))
+    _run_off_loop(partial(_truncate, asset_dsn, ASSET_TABLES))
 
 
 def _signed_in_context(browser: Browser, base_url: str, email: str) -> Iterator[BrowserContext]:

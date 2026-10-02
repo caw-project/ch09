@@ -32,6 +32,7 @@ import { ProblemBanner } from '../../components/ProblemBanner'
 import type { Message } from '../../lib/api/messaging'
 import { useSocket } from '../../lib/realtime/SocketProvider'
 import { useChatStore } from '../../stores/chat'
+import { AttachmentList } from '../attachments/AttachmentList'
 import { MessageItem } from './MessageItem'
 import { captureFor, findDivider, readTarget, type DividerCapture } from './readState'
 import { useMarkRead } from './useMarkRead'
@@ -335,6 +336,15 @@ export function MessageList({
               onToggleReaction={(emoji) => toggleReaction.mutate({ message, emoji })}
               onOpenThread={onOpenThread && (() => onOpenThread(message.id))}
               highlighted={message.id === jump.highlightedId}
+              attachments={
+                message.attachments.length > 0 ? (
+                  <AttachmentList
+                    message={message}
+                    accessToken={accessToken}
+                    workspaceId={workspaceId}
+                  />
+                ) : undefined
+              }
             />
           </Fragment>
         ))

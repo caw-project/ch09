@@ -32,7 +32,9 @@ def _settings(**overrides: Any) -> Settings:
 def _server(settings: Settings):
     # Only `settings` is read while the server is built; the rest is used by
     # handlers, which no test here invokes.
-    context = RealtimeContext(settings=settings, sessions=None, security=None, jobs=None)  # type: ignore[arg-type]
+    context = RealtimeContext(  # type: ignore[arg-type]
+        settings=settings, sessions=None, security=None, jobs=None, assets=None
+    )
     return build_server(context)
 
 

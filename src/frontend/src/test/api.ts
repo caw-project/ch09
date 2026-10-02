@@ -18,11 +18,15 @@ import { http, HttpResponse, type DefaultBodyType } from 'msw'
 import { setupServer } from 'msw/node'
 
 import type { Profile, TokenPair, Workspace, WorkspaceMember } from '../lib/auth/api'
-import { AUTH_URL, MESSAGING_URL } from '../lib/config'
+import { ASSET_URL, AUTH_URL, MESSAGING_URL } from '../lib/config'
+import type { components as AssetComponents } from '../types/asset'
 import type { paths } from '../types/messaging'
 
 // The same values the app calls, so a stub cannot drift from the real URL.
-export { AUTH_URL, MESSAGING_URL }
+export { ASSET_URL, AUTH_URL, MESSAGING_URL }
+
+/** Where the presigned PUT of the tests goes: Garage, as the browser reaches it. */
+export const GARAGE_URL = 'http://garage.test'
 
 export const server = setupServer()
 
@@ -65,7 +69,9 @@ export interface ProblemBody {
 export interface Recorded {
   method: string
   url: URL
+  /** Parsed JSON; for a body that is not JSON (a file PUT), `{ size }`. */
   body: unknown
+  contentType: string | null
 }
 
 const recorded: Recorded[] = []
@@ -80,9 +86,17 @@ export function resetRequests(): void {
 }
 
 async function record(request: Request): Promise<unknown> {
-  const text = await request.clone().text()
-  const body = text ? JSON.parse(text) : undefined
-  recorded.push({ method: request.method, url: new URL(request.url), body })
+  const contentType = request.headers.get('content-type')
+  const buffer = await request.clone().arrayBuffer()
+  let body: unknown
+  if (contentType && !contentType.includes('json')) {
+    // A file's bytes are not JSON, and a test only needs to know how many arrived.
+    body = buffer.byteLength > 0 ? { size: buffer.byteLength } : undefined
+  } else {
+    const text = new TextDecoder().decode(buffer)
+    body = text ? JSON.parse(text) : undefined
+  }
+  recorded.push({ method: request.method, url: new URL(request.url), body, contentType })
   return body
 }
 
@@ -152,6 +166,135 @@ export const messaging = {
       http[method](route(MESSAGING_URL, path), async ({ request }) => {
         await record(request)
         return problemResponse(status, body)
+      }),
+    )
+  },
+}
+
+type AssetSchemas = AssetComponents['schemas']
+
+/** Asset's public routes: what each takes, and the success body it answers with. */
+interface AssetRoutes {
+  '/api/v1/assets/upload-url': {
+    request: AssetSchemas['UploadUrlRequest']
+    response: AssetSchemas['UploadUrlResponse']
+    status: 201
+  }
+  '/api/v1/assets/{assetId}/confirm': {
+    request: undefined
+    response: AssetSchemas['AssetResponse']
+    status: 200
+  }
+}
+
+interface AssetContext<P extends keyof AssetRoutes> {
+  params: Record<string, string>
+  body: AssetRoutes[P]['request']
+  request: Request
+}
+
+type AssetReply<P extends keyof AssetRoutes> =
+  | AssetRoutes[P]['response']
+  | ((context: AssetContext<P>) => AssetRoutes[P]['response'] | Promise<AssetRoutes[P]['response']>)
+
+const ASSET_STATUS: { [P in keyof AssetRoutes]: AssetRoutes[P]['status'] } = {
+  '/api/v1/assets/upload-url': 201,
+  '/api/v1/assets/{assetId}/confirm': 200,
+}
+
+/** What `asset.acceptUploads` can hold back or change, so a test can look between steps. */
+export interface UploadScript {
+  /** Held until this settles: the step is "in flight" for as long as the test wants. */
+  hold?: { uploadUrl?: Promise<unknown>; put?: Promise<unknown>; confirm?: Promise<unknown> }
+  /** What `confirm` answers; `ready` by default. */
+  confirmAs?: { status: 'ready' | 'failed'; failureReason?: string }
+}
+
+export const asset = {
+  /** A success answer for one of Asset's public routes, typed from `types/asset.ts` (D23). */
+  post<P extends keyof AssetRoutes>(path: P, reply: AssetReply<P>): void {
+    server.use(
+      http.post(route(ASSET_URL, path), async ({ request, params: raw }) => {
+        const body = (await record(request)) as AssetRoutes[P]['request']
+        const payload =
+          typeof reply === 'function'
+            ? await (reply as (c: AssetContext<P>) => AssetRoutes[P]['response'])({
+                params: params(raw),
+                body,
+                request,
+              })
+            : reply
+        return HttpResponse.json(payload as DefaultBodyType, { status: ASSET_STATUS[path] })
+      }),
+    )
+  },
+
+  problem(path: keyof AssetRoutes, status: number, body: ProblemBody): void {
+    server.use(
+      http.post(route(ASSET_URL, path), async ({ request }) => {
+        await record(request)
+        return problemResponse(status, body)
+      }),
+    )
+  },
+
+  /**
+   * The whole handshake, working: `upload-url` reserves `asset-<fileName>`, the PUT
+   * to Garage succeeds, and `confirm` answers with the size and type it was given.
+   * `script` holds a step or fails the confirm. Returns the id each file will get.
+   */
+  acceptUploads(script: UploadScript = {}): { assetIdFor: (fileName: string) => string } {
+    const reserved = new Map<string, AssetSchemas['UploadUrlRequest']>()
+    asset.post('/api/v1/assets/upload-url', async ({ body }) => {
+      await script.hold?.uploadUrl
+      const assetId = `asset-${body.fileName}`
+      reserved.set(assetId, body)
+      return {
+        assetId,
+        uploadUrl: `${GARAGE_URL}/collabhub-assets/${assetId}`,
+        method: 'PUT',
+        headers: { 'Content-Type': body.contentType },
+        expiresAt: '2026-10-01T09:15:00Z',
+      }
+    })
+    asset.post('/api/v1/assets/{assetId}/confirm', async ({ params: { assetId } }) => {
+      await script.hold?.confirm
+      const upload = reserved.get(assetId)
+      if (!upload) throw new Error(`confirm for an asset nothing reserved: ${assetId}`)
+      const outcome = script.confirmAs ?? { status: 'ready' as const }
+      return {
+        id: assetId,
+        fileName: upload.fileName,
+        contentType: upload.contentType,
+        sizeBytes: upload.sizeBytes,
+        status: outcome.status,
+        failureReason: outcome.failureReason ?? null,
+      }
+    })
+    garage.put(200, script.hold?.put)
+    return { assetIdFor: (fileName) => `asset-${fileName}` }
+  },
+}
+
+/** The store the presigned URL points at. Only the PUT is ever called from the SPA. */
+export const garage = {
+  /** Accept every PUT; `hold` keeps it in flight until the promise settles. */
+  put(status = 200, hold?: Promise<unknown>): void {
+    server.use(
+      http.put(`${GARAGE_URL}/*`, async ({ request }) => {
+        await record(request)
+        await hold
+        return new HttpResponse(null, { status })
+      }),
+    )
+  },
+
+  /** A network error with no status: what a browser reports for a PUT Garage refused (no CORS on a failure). */
+  putFails(): void {
+    server.use(
+      http.put(`${GARAGE_URL}/*`, async ({ request }) => {
+        await record(request)
+        return HttpResponse.error()
       }),
     )
   },

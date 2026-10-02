@@ -101,7 +101,12 @@ export function ChannelView({ accessToken, workspaceId, userId }: Props) {
           {/* Enabled for any channel this view can render: visibility is the
               write test as well as the read one, so someone who can see a
               public channel can talk in it without joining. */}
+          {/* Keyed by channel, so a half-finished batch error from one channel
+              is not carried into the next. Text, chips and send errors are per
+              channel in their stores. A key of its own: the list above is
+              keyed by the same id, and siblings must not share one. */}
           <MessageComposer
+            key={`composer-${channel.id}`}
             accessToken={accessToken}
             workspaceId={workspaceId}
             channelId={channel.id}

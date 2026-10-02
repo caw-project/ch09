@@ -1,9 +1,11 @@
 """Bootstrap a fresh single-node Garage on the local k3d cluster.
 
 Run by the post-install/post-upgrade Job in `templates/garage.yaml`. It does what
-README.md lists as manual steps for Compose — assign a layout, create the bucket,
-import the key, grant it — through Garage's admin API, because the Garage image
-has no shell to run its own CLI from.
+README.md listed as manual steps for Compose — assign a layout, create the bucket,
+import the key, grant it, and set the bucket's CORS rules — through Garage's admin
+API, because the Garage image has no shell to run its own CLI from. The same
+script runs as the one-shot `garage-bootstrap` service in Compose and in the test
+stack, as the Job on k3d, and from `testkit`'s `garage_server` fixture.
 
 Every step checks before it acts, so it is safe on every upgrade. Standard
 library only: the Job runs it in a stock Python image.
@@ -56,8 +58,14 @@ def call(endpoint: str, body: dict[str, Any] | None = None, **query: str) -> Any
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             raise NotFoundError(endpoint) from None
+        if 400 <= exc.code < 500:
+            # A request Garage refused will be refused again: say why, now, rather
+            # than retrying for two minutes.
+            raise SystemExit(
+                f"{endpoint}: HTTP {exc.code}: {exc.read().decode(errors='replace')}"
+            ) from None
         # Garage answers 500 "Layout not ready" for a few seconds after a layout
-        # is applied, so anything but a 404 is worth another try.
+        # is applied, so anything else is worth another try.
         raise NotReadyError(f"{endpoint}: HTTP {exc.code}") from None
     return json.loads(payload) if payload else None
 
@@ -114,6 +122,37 @@ def ensure_key() -> None:
         log.info("key: imported")
 
 
+def ensure_cors(bucket_id: str) -> None:
+    """Let the SPA's origin PUT to and GET from the bucket directly (attachments).
+
+    A browser uploads straight to Garage with a presigned URL, so the bucket has
+    to answer the preflight for the app's origin — and for no other. Origins come
+    from `GARAGE_CORS_ORIGINS`, comma-separated; unset or empty skips the step, so
+    an environment with no browser-facing Garage grants nothing. `UpdateBucket`
+    replaces the whole rule set, so running it again changes nothing.
+    """
+    origins = [o.strip() for o in os.environ.get("GARAGE_CORS_ORIGINS", "").split(",") if o.strip()]
+    if not origins:
+        log.info("cors: no origins configured, leaving the bucket without rules")
+        return
+    # Garage's admin API takes S3's own CORSRule element names, singular and all
+    # (found against v2.3.0: `allowedOrigins` and friends are refused with a 400).
+    # **`AllowedHeader` is lower-case on purpose.** Garage compares it to the
+    # browser's `Access-Control-Request-Headers` as written, and browsers send
+    # header names lower-cased, so "Content-Type" never matches and the preflight
+    # is refused.
+    rule = {
+        "ID": "collabhub-app",
+        "AllowedOrigin": origins,
+        "AllowedMethod": ["PUT", "GET", "HEAD"],
+        "AllowedHeader": ["content-type"],
+        "ExposeHeader": ["ETag"],
+        "MaxAgeSeconds": 3600,
+    }
+    call("UpdateBucket", {"corsRules": [rule]}, id=bucket_id)
+    log.info("cors: %s may PUT to and GET from %s", ", ".join(origins), BUCKET)
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     node_id = retry("status", lambda: call("GetClusterStatus")["nodes"][0]["id"])
@@ -130,6 +169,7 @@ def main() -> None:
         ),
     )
     log.info("allow: the key can read and write %s", BUCKET)
+    retry("cors", lambda: ensure_cors(bucket_id))
 
 
 if __name__ == "__main__":

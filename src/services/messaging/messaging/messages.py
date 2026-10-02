@@ -26,15 +26,18 @@ documented, message-specific exception to Conventions §3 — and it is why
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contracts.assets import AttachmentMeta
+from messaging import attachments as attachments_domain
 from messaging import channels
 from messaging.channels import VersionConflictError
-from messaging.models import Message
-from shared import CursorPart, Page, PageRequest, build_page, uuid7
+from messaging.models import Message, MessageAttachment
+from shared import CursorPart, Page, PageRequest, build_page
 
 __all__ = [
     "AlreadyDeletedError",
@@ -77,8 +80,12 @@ class AlreadyDeletedError(Exception):
     """There is nothing left to edit — the row is a tombstone."""
 
 
-def validate_body(raw: str, *, max_chars: int) -> str:
+def validate_body(raw: str, *, max_chars: int, allow_empty: bool = False) -> str:
     """Return the body unchanged, or raise the specific rule it breaks.
+
+    `allow_empty` is for a message that carries attachments: it may say nothing.
+    A blank body is then stored as `""` — an empty and a whitespace-only body
+    read the same, and decision 38 keeps one representation of "no text".
 
     One exception per rule, so the composer can put a useful message under
     `errors.body` — the same shape `channels.validate_name` uses.
@@ -93,6 +100,8 @@ def validate_body(raw: str, *, max_chars: int) -> str:
     edit from drifting on what "too long" means.
     """
     if not raw.strip():
+        if allow_empty:
+            return ""
         raise BodyRequiredError
     if len(raw) > max_chars:
         raise BodyTooLongError
@@ -135,13 +144,23 @@ def check_deletable(message: Message, *, user_id: uuid.UUID, is_channel_admin: b
 async def create(
     session: AsyncSession,
     *,
+    message_id: uuid.UUID,
     channel_id: uuid.UUID,
     author_id: uuid.UUID,
     body: str,
     max_chars: int,
     thread_root_id: uuid.UUID | None,
-) -> Message:
-    """Add a message to a channel, as a reply when `thread_root_id` is set.
+    attachments: Sequence[AttachmentMeta] = (),
+) -> tuple[Message, list[MessageAttachment]]:
+    """Add a message to a channel — a reply when `thread_root_id` is set — with
+    the attachments its claim returned.
+
+    **The id is the caller's.** A send chooses it before the claim — Asset has to
+    know which message it is claiming for — so it is known before insert, as
+    CLAUDE.md requires of every id. The rows come back beside the message
+    because they are not on it: a message's attachments are read page-wide.
+
+    An empty body is allowed only for a message that has attachments.
 
     `thread_root_id` is a required keyword so both send paths say what they
     mean; the caller has already normalised it with `threads.resolve_root`.
@@ -149,18 +168,21 @@ async def create(
     No `IntegrityError` branch, unlike `channels.create`: the only constraints
     that could fire are foreign keys the caller has already proved good.
     """
-    body = validate_body(body, max_chars=max_chars)
+    body = validate_body(body, max_chars=max_chars, allow_empty=bool(attachments))
 
     message = Message(
-        id=uuid7(),
+        id=message_id,
         channel_id=channel_id,
         author_id=author_id,
         thread_root_id=thread_root_id,
         body=body,
     )
     session.add(message)
+    # The message first: the rows' foreign key points at it.
     await session.flush()
-    return message
+    stored = attachments_domain.add(session, message_id=message_id, metas=attachments)
+    await session.flush()
+    return message, stored
 
 
 #: What a history cursor holds: the id of the oldest message on the last page.
