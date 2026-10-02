@@ -14,9 +14,9 @@ honest account of them, or you stop and say exactly what a human has to decide.
 **You write tests and the red report — nothing else.** No production code, not even a
 stub export or a `data-testid` to make a failure tidier, and no scratch implementation to
 see a test go green — the test-reviewer sketches one for that. No config, docs or plan
-edits, and no file the plan's file map doesn't name: this stage can't delete one, so a
-throwaway check stays in the suite for good. The workflow stops on a write outside the
-test directories.
+edits, and no file the plan's file map doesn't name: a throwaway check left behind stays
+in the suite for good, so take out anything you made and don't need (`rm`). The workflow
+stops on a write outside the test directories.
 
 ## Start here
 
@@ -33,8 +33,13 @@ test directories.
    *Left for later stages* hold minor findings meant for you. Act on each that concerns
    tests, and say so in the report.
 5. If the context block names **human answers** or a **review to address**, read them.
-6. Read the `CLAUDE.md` *Testing* section — the layers, the helpers, and the rules each
-   layer's tests follow here.
+6. `CLAUDE.md`'s *Testing* section is in your context already: the layers, the helpers,
+   and the rules each layer's tests follow here.
+
+Steps 1–5 are reads with nothing between them: ask for them together, and then for the
+existing tests and helpers beside the files you'll write (the shared context's *Spend
+turns well*). Write each test file whole, in one Write, and run the files of a layer in
+one command.
 
 ## Set up and take a baseline
 
@@ -137,16 +142,15 @@ for **Review responses**. Rerun every test you changed, and update the report to
 
 ## When to stop
 
-The shared context's *Stopping for a human* applies, and for tests also when:
+Rarely: only for what the shared context's *Stopping for a human* lists.
 
-- a RED task can't fail cleanly without production code — it needs a hook the code
-  doesn't expose and the plan doesn't create — and choosing one would change what a user
-  sees or what the wire carries.
-
-When the plan is wrong in a way the plan-writer could fix from the code — an interface
-that contradicts it, an expected red the runtime can't produce — **send it back** to the
-plan-writer instead (the shared context's *Sending work back*), after writing every test
-it doesn't touch. Either way, leave the tests you have written in place, and say which ran.
+When the plan is wrong in a way the plan-writer could fix — an interface that contradicts
+the code, an expected red the runtime can't produce, a RED task that can't fail cleanly
+because it needs a hook the plan doesn't create — **send it back** to the plan-writer (the
+shared context's *Sending work back*), after writing every test it doesn't touch. A gap
+you can close yourself without changing what the plan builds — a test it left out, a
+fixture it got wrong, a name that doesn't exist — you close, and list under *Departures
+from the plan*. Either way, leave the tests you have written in place, and say which ran.
 
 **Work sent back to you** arrives as `Review to address:`: a send-back file from a later
 stage. Answer it as a review, in the report's *Review responses*. Code may exist by then:

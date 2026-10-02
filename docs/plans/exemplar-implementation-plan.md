@@ -86,6 +86,7 @@ Taken in this plan — each needs the plan-reviewer's yes or no:
 | 5 | The sixth pin | `409` with the reason `"This channel already has 5 pinned messages."` | 422 would mean the body was malformed, and it wasn't |
 | 6 | What the broadcast carries | The whole list, not a delta | The same reasoning as reactions' authoritative count (D39): idempotent, and safe to apply from the response *and* the echo |
 | 7 | The register | New entry D43, 🟢 once built | No existing entry covers pins |
+| 8 | Pinning a message that is already pinned — **assumed** | `204`, the list unchanged, no broadcast | The issue doesn't say. Reactions treat a repeat as a no-op (doc 02 §3.1.6), and a `409` would make a double click an error. Changing it later is one branch in the route and one test |
 
 Nothing here touches a 🔴 entry. **D16** (tombstone retention) is close, but not touched: a pin is
 removed when its message is deleted, not when the tombstone is purged.
@@ -93,7 +94,10 @@ removed when its message is deleted, not when the tombstone is purged.
 > **Why:** splitting *agreed* from *taken here* is what made the ch07 plans reviewable before any
 > code existed (`10-test-report…:10-29`, `02-read-markers…:46-86`). Each call carries its
 > alternative, so the reviewer can reject one without re-deriving it. Naming the nearest 🔴 and
-> why it isn't touched is what a reviewer checks first.
+> why it isn't touched is what a reviewer checks first. A row marked **assumed** fills a gap in
+> the issue that nothing written settles: the run carries on with the best-fitting reading
+> instead of stopping, and the human sees every such row at the end — so it says what changing
+> it would cost.
 
 ## Corrections to the issue
 
@@ -103,8 +107,9 @@ this back into doc 02.
 
 > **Why:** a correction made while planning goes back into the spec in the same slice
 > (`02-message-reactions…:34-47`, which the design doc now records at `01-…design.md:206-207`).
-> If the issue is wrong in a way you can't correct from the code and docs, that is `needs_human`,
-> not a correction.
+> If the issue is wrong in a way the code and docs don't correct, pick the reading that fits best
+> and record it as an **assumed** decision row; it is `needs_human` only for what the shared
+> context's *Stopping for a human* lists.
 
 ## Test approach — recommendation to the test pair
 
@@ -340,7 +345,7 @@ op.create_table(
   and a pin toggle in `MessageItem`'s menu.
 - [ ] `useChannelSocket` routes `pins_changed` into the cache. Update its existing tests' fake
   socket expectations.
-- [ ] Task 3's Vitest passes, and `tsc` is clean. Then `scripts/test.sh e2e -- -k pins`.
+- [ ] Task 3's Vitest passes, and `tsc` is clean. The journey runs in Task 8.
 - [ ] Leave uncommitted.
 
 ## Task 7: The record
@@ -357,8 +362,9 @@ op.create_table(
 
 ## Task 8: Verification
 
-- [ ] `scripts/test.sh lint unit integration`, then `scripts/test.sh e2e -- -k pins`: green, counts
-  at or above the baseline.
+- [ ] `scripts/test.sh lint unit integration`, then `scripts/test.sh e2e`: green, counts at or
+  above the baseline. Each layer once: the whole e2e layer is the journey's first run, and
+  `-- -k pins` is for iterating if it fails.
 - [ ] `python3 .claude/hooks/checks/conventions.py $(git diff --name-only HEAD)`, **and**
   `.claude/hooks/security.sh`: semgrep and gitleaks as well. A waiver names every checker that fires
   on its line.
@@ -372,6 +378,9 @@ op.create_table(
 - [ ] Fill in *Found while building*. Leave the worktree dirty and report.
 
 > **Why:**
+> - Name the layers the change can reach, and no others: `integration` here because a service's
+>   SQL changes; an SPA-only plan names `lint unit` and `e2e`. A filtered e2e run followed by the
+>   whole layer builds the test stack twice.
 > - A plan checked only by render and lint shipped a KEDA address bug, found at the next branch's
 >   first deploy (`01-build-deploy-test-scripts-design.md:239`).
 > - Portable deployment's live run found a Socket.IO rejection in two files its map never named

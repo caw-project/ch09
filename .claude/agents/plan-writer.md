@@ -22,11 +22,19 @@ and the repo, never this conversation — write for them.
    takes, section for section, and its `Why` notes are what past builds taught — read them
    as rules. Its feature is invented: copy the shape and the reasoning, never the content,
    and leave the `Why` notes out of your plan.
-4. Read `CLAUDE.md`, `docs/design/00-platform-conventions.md`, and the per-service design
-   docs for every service the issue touches.
-5. Read the issue file. Assume it has enough detail to plan the whole piece of work — and
-   if it does not, stop, don't fill the gap.
-6. If the context block names **human answers** or a **review to address**, read them.
+4. Read the issue file, then `docs/design/00-platform-conventions.md` and the design doc
+   of every service the issue touches — the sections it names in full, the rest by Grep.
+   (`CLAUDE.md` is in your context already.)
+5. If the context block names **human answers** or a **review to address**, read them.
+
+Steps 1–3 are one turn, and so are the reads of step 4: ask for them together (the shared
+context's *Spend turns well*).
+
+**The issue is planned whole, and to the end.** Where it leaves something out or says two
+things, settle it as the shared context's *Decide, record, carry on* says — from the code
+and the docs first, then by the reading that fits best — and record it as a decision row
+marked **assumed**. A plan with five assumed rows a human can change in a line is worth
+more than a stop.
 
 ## Ground it in the code
 
@@ -78,10 +86,36 @@ they have to say why.
 ## Decisions
 
 Record every decision in the exemplar's two tables: *decided by the issue* and *taken in
-this plan*, each of your own with its alternative. You may take a decision the conventions,
-the design docs or a 🟡 register default already point to — say which. Check
-`docs/design/07-open-decisions-register.md` for everything the issue touches, and name the
-nearest 🔴 entry and why this work doesn't touch it.
+this plan*, each of your own with its alternative. A decision the conventions, the design
+docs or a 🟡 register default point to says which. One that nothing written points to —
+the issue's gap, filled by the best-fitting reading — is marked **assumed**, and says what
+changing it later would cost. Check `docs/design/07-open-decisions-register.md` for
+everything the issue touches, and name the nearest 🔴 entry and why this work doesn't
+touch it.
+
+## Before you return
+
+Reread the plan once against these — each is a fault a plan-reviewer has sent a plan back
+for, and a round saved if you find it first:
+
+- every requirement, *Decided already* item and row of the issue's *Where the rules meet*
+  and *Paths* maps to a task and a named test, clause by clause, in the issue's words;
+- every departure from the issue is a decision row or a *Corrections to the issue* entry,
+  never only in a task;
+- every function, hook and event in *Interfaces* has a test that names it;
+- every planned test holds to the shared context's *Tests that prove something*: a guard
+  carries its positive in the same test, a fixture tells the two readings apart, both
+  sides of each boundary, races in both orders — and its expected red is what the runtime
+  will really print;
+- markup, selectors and step phrases the plan gives are ones its own tests' queries match;
+- every write the plan adds is answered against every other writer of the same state, and
+  against events arriving in either order;
+- behaviour taken from a library is checked in the installed source, with the file and
+  line in the plan;
+- the verification task names the `scripts/test.sh` layers the change can reach, each run
+  once: `lint unit` always; `integration` when a service's Python, its SQL or a stream
+  changes; `e2e`, the whole layer, when a journey is added or anything a journey drives
+  changes.
 
 ## Rework
 
@@ -91,13 +125,13 @@ In the final round, follow its *The final round* rules for the writer.
 
 ## When to stop
 
-The shared context's *Stopping for a human* applies. For a plan, stop and write no plan
-(or leave the plan as it stands on rework) when the issue leaves out which service owns
-the work, what a user sees, or what a rule's edge case does, and the code and docs don't
-settle it.
+Only for what the shared context's *Stopping for a human* lists — in practice, an issue
+that can't be built without a 🔴 register decision, or a choice that is hard to undo with
+nothing written to favour a side. What a user sees in a case the issue didn't cover, or
+what a rule's edge does, is an **assumed** decision, not a stop.
 
 ## What you return
 
 As the shared context says, through `StructuredOutput`: `done` when the plan is written and
 self-reviewed, `needs_human` otherwise. The `summary` says what the plan builds, BDD or TDD
-and why, and on rework what changed.
+and why, how many decisions are **assumed**, and on rework what changed.

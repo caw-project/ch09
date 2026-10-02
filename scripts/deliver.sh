@@ -8,6 +8,8 @@
 # The issue file must name its number near the top — `Issue: 42`, `Issue #42`
 # or `# Issue 42 — Pin a message`. The work happens in the worktree
 # ../caw-issue-<N>, on branch feature/issue-<N>, created from main if missing.
+# DELIVER_RUN=<name> builds the same issue again beside it, in
+# ../caw-issue-<N>-<name> on feature/issue-<N>-<name>.
 #
 # Six stages, a writer and a reviewer for each of plan, tests and code. What
 # every agent needs to know about this workflow — the context block, rounds, the
@@ -28,16 +30,26 @@
 # can't be written to. The stage writes why to the send-back file its context
 # block names, and stops. The earlier pair takes a new round: its writer answers
 # the file as it answers a review, its reviewer gates the fix, and the workflow
-# comes forward from there as usual. The stage that sent it back is told, when
-# it runs again, what it is resuming after. Test stages send back to the
-# plan-writer, code stages to the test-writer; the plan pair can't send back.
+# comes forward from there as usual. Every stage on the way is told what changed
+# since the send-back, and the stage that sent it back what it is resuming
+# after. Test stages send back to the plan-writer, code stages to the
+# test-writer; the plan pair can't send back. A reviewer that sends back has
+# reviewed too: its pair's round advances, so its next review is a new file, and
+# its own writer gets the review to answer when the flow comes forward to it.
 #
 # A writer and its reviewer get DELIVER_MAX_ROUNDS reviews (default 3). The last
 # is the final round, and it is cut down so a disagreement cannot run on: both
 # agents get fewer turns and less effort, and are told so. The final reviewer
 # may only approve — leaving minor findings to the stages after it — or stop for
 # a human over something critical or a deadlock; `changes_requested` there stops
-# for a human too. A stage that runs out of turns stops for a human as well.
+# for a human too. A send-back is not a disagreement inside the pair, so it
+# never lands in a final round: the pair it reaches, and the pair of a reviewer
+# that sent it, always have one ordinary review and a final one ahead. What
+# bounds it instead is DELIVER_MAX_SENDBACKS, the send-backs one pair will take.
+#
+# A stage that runs out of turns is resumed once, in the same session, and told
+# to finish; one that dies without a result is run once more. Only when that
+# fails too does the run stop.
 #
 # Answer the questions under each **Answer:** in
 # docs/plans/issue-<N>/needs-human.md, then run the same command again: it
@@ -48,18 +60,24 @@
 # it again once the agent exists.
 #
 #   DELIVER_MAX_ROUNDS       reviews per writer/reviewer pair. Default: 3
-#   DELIVER_MAX_TURNS        turns for a stage before the final round — a guard
-#                            against a runaway, not a budget. Default: 150
-#   DELIVER_FINAL_MAX_TURNS  turns for a stage in the final round. Default: 40
+#   DELIVER_MAX_SENDBACKS    send-backs one pair takes before a human sees the
+#                            next. Default: 3
+#   DELIVER_MAX_TURNS        turns for a stage's first pass — a guard against a
+#                            runaway, not a budget. Default: by stage, 150–250
+#                            (first_pass_turns)
+#   DELIVER_REWORK_MAX_TURNS turns for a pass that answers a review or follows a
+#                            send-back. Default: 100
+#   DELIVER_FINAL_MAX_TURNS  turns for a stage in the final round. Default: 60
 #   DELIVER_FINAL_EFFORT     effort for a stage in the final round. Default: medium
 #   DELIVER_BASE             the branch a new worktree starts from. Default: main
+#   DELIVER_RUN              a name for a second build of the same issue (above)
 #   DELIVER_MODEL            overrides every agent's model, e.g. for a cheap dry run
 #   DELIVER_PERMISSION_MODE  default: dontAsk — anything a stage is not allowed
 #                            below is refused, never prompted for
 #
 # Exit status: 0 done · 1 error · 2 needs a human · 3 paused at an unbuilt stage.
 # Progress and every agent's full JSON result are in build/delivery/ in the
-# worktree.
+# worktree; history.log there has each stage's verdict, time, turns and cost.
 #
 set -euo pipefail
 # shellcheck source=lib/common.sh
@@ -68,8 +86,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 STAGES=(plan-writer plan-reviewer test-writer test-reviewer code-writer code-reviewer)
 
 DELIVER_MAX_ROUNDS="${DELIVER_MAX_ROUNDS:-3}"
-DELIVER_MAX_TURNS="${DELIVER_MAX_TURNS:-150}"
-DELIVER_FINAL_MAX_TURNS="${DELIVER_FINAL_MAX_TURNS:-40}"
+DELIVER_MAX_SENDBACKS="${DELIVER_MAX_SENDBACKS:-3}"
+DELIVER_MAX_TURNS="${DELIVER_MAX_TURNS:-}"
+DELIVER_REWORK_MAX_TURNS="${DELIVER_REWORK_MAX_TURNS:-100}"
+DELIVER_FINAL_MAX_TURNS="${DELIVER_FINAL_MAX_TURNS:-60}"
+DELIVER_RUN="${DELIVER_RUN:-}"
 DELIVER_FINAL_EFFORT="${DELIVER_FINAL_EFFORT:-medium}"
 DELIVER_BASE="${DELIVER_BASE:-main}"
 DELIVER_MODEL="${DELIVER_MODEL:-}"
@@ -111,11 +132,17 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$issue_file" ] || die "usage: scripts/deliver.sh <issue-file> [--restart]"
 [ -f "$issue_file" ] || die "no such issue file: $issue_file"
-for setting in DELIVER_MAX_ROUNDS DELIVER_MAX_TURNS DELIVER_FINAL_MAX_TURNS; do
+for setting in DELIVER_MAX_ROUNDS DELIVER_MAX_SENDBACKS DELIVER_REWORK_MAX_TURNS DELIVER_FINAL_MAX_TURNS; do
     case "${!setting}" in
         '' | *[!0-9]* | 0) die "$setting must be a positive number" ;;
     esac
 done
+case "$DELIVER_MAX_TURNS" in
+    *[!0-9]* | 0) die "DELIVER_MAX_TURNS must be a positive number" ;;
+esac
+case "$DELIVER_RUN" in
+    *[!a-zA-Z0-9_-]*) die "DELIVER_RUN may hold letters, digits, - and _ only" ;;
+esac
 case "$DELIVER_FINAL_EFFORT" in
     low | medium | high | xhigh | max) ;;
     *) die "DELIVER_FINAL_EFFORT must be low, medium, high, xhigh or max" ;;
@@ -154,8 +181,8 @@ issue_file="$(cd "$(dirname "$issue_file")" && pwd)/$(basename "$issue_file")"
 ISSUE="$(head -n 20 "$issue_file" | grep -m1 -oiE 'issue[[:space:]:#]*[0-9]+' | grep -oE '[0-9]+' || true)"
 [ -n "$ISSUE" ] || die "$issue_file names no issue number in its first 20 lines (e.g. 'Issue: 42')"
 
-BRANCH="feature/issue-$ISSUE"
-WORKTREE="$(dirname "$REPO_ROOT")/caw-issue-$ISSUE"
+BRANCH="feature/issue-$ISSUE${DELIVER_RUN:+-$DELIVER_RUN}"
+WORKTREE="$(dirname "$REPO_ROOT")/caw-issue-$ISSUE${DELIVER_RUN:+-$DELIVER_RUN}"
 
 # Paths the agents see are relative to the worktree root.
 PLAN_DIR="docs/plans/issue-$ISSUE"
@@ -201,8 +228,17 @@ STATUS=running
 STEP=0
 REVIEW=""
 ROUNDS_plan=1 ROUNDS_test=1 ROUNDS_code=1
-# The stage waiting on a send-back, and the file that says why.
-SENT_BACK_BY="" SENT_BACK_FILE=""
+# The round that is each pair's final one. A send-back moves it out (see the
+# send_back case), so it is state, not a setting.
+FINAL_plan="$DELIVER_MAX_ROUNDS" FINAL_test="$DELIVER_MAX_ROUNDS" FINAL_code="$DELIVER_MAX_ROUNDS"
+# Send-backs each pair has taken.
+SENDBACKS_plan=0 SENDBACKS_test=0
+# A send-back still open, by the stage that sent it: the file that says why.
+# Open until that stage runs again. More than one can be open — a code stage
+# sends back to the test pair, whose reviewer then sends back to the plan pair.
+SB_test_writer="" SB_test_reviewer="" SB_code_writer="" SB_code_reviewer=""
+# A reviewer's review, written as it sent work back, waiting for its own writer.
+PENDING_test="" PENDING_code=""
 
 if $restart; then
     rm -f "$STATE"
@@ -215,22 +251,75 @@ save_state() {
     {
         printf 'STAGE=%q\nSTATUS=%q\nSTEP=%q\nREVIEW=%q\n' "$STAGE" "$STATUS" "$STEP" "$REVIEW"
         printf 'ROUNDS_plan=%q ROUNDS_test=%q ROUNDS_code=%q\n' "$ROUNDS_plan" "$ROUNDS_test" "$ROUNDS_code"
-        printf 'SENT_BACK_BY=%q SENT_BACK_FILE=%q\n' "$SENT_BACK_BY" "$SENT_BACK_FILE"
+        printf 'FINAL_plan=%q FINAL_test=%q FINAL_code=%q\n' "$FINAL_plan" "$FINAL_test" "$FINAL_code"
+        printf 'SENDBACKS_plan=%q SENDBACKS_test=%q\n' "$SENDBACKS_plan" "$SENDBACKS_test"
+        printf 'SB_test_writer=%q SB_test_reviewer=%q SB_code_writer=%q SB_code_reviewer=%q\n' \
+            "$SB_test_writer" "$SB_test_reviewer" "$SB_code_writer" "$SB_code_reviewer"
+        printf 'PENDING_test=%q PENDING_code=%q\n' "$PENDING_test" "$PENDING_code"
     } >"$STATE"
 }
 
 pair_of() { printf '%s' "${1%-*}"; }  # plan-writer -> plan
 role_of() { printf '%s' "${1##*-}"; } # plan-writer -> writer
 
-rounds_of() { eval "printf '%s' \"\$ROUNDS_$1\""; }
-set_rounds() { eval "ROUNDS_$1=$2"; }
+# Per-pair and per-stage variables, read and written by name.
+get_var() { eval "printf '%s' \"\${$1:-}\""; }
+set_var() { eval "$1=\$2"; }
+rounds_of() { get_var "ROUNDS_$1"; }
+set_rounds() { set_var "ROUNDS_$1" "$2"; }
+final_of() { get_var "FINAL_$1"; }
+# The variable that holds a stage's open send-back: test-writer -> SB_test_writer.
+sb_var() { printf 'SB_%s' "${1//-/_}"; }
+
+SENDERS=(test-writer test-reviewer code-writer code-reviewer)
 
 # The pair's last permitted review — and every round after it, which only a
 # human's answers can reach.
-is_final_round() { [ "$(rounds_of "$(pair_of "$1")")" -ge "$DELIVER_MAX_ROUNDS" ]; }
+is_final_round() {
+    local pair
+    pair="$(pair_of "$1")"
+    [ "$(rounds_of "$pair")" -ge "$(final_of "$pair")" ]
+}
+
+# A pass that answers a review or follows a send-back: the work exists, and the
+# stage changes or rechecks part of it.
+is_rework() {
+    local sender
+    [ "$(rounds_of "$(pair_of "$1")")" -gt 1 ] && return 0
+    [ "$(role_of "$1")" = writer ] && [ -n "$REVIEW" ] && return 0
+    for sender in "${SENDERS[@]}"; do
+        # A writer coming back to its own send-back carries on with a first
+        # pass it could not finish.
+        [ "$sender" != "$1" ] || [ "$(role_of "$1")" != writer ] || continue
+        [ -z "$(get_var "$(sb_var "$sender")")" ] || return 0
+    done
+    return 1
+}
+
+# A first pass's cap by stage: the stages that run tests and builds take more
+# turns than the ones that read and write. Measured on issue 1: plan pair 58–71,
+# test-writer 93–103, test-reviewer 64–146, code-writer 108–128, code-reviewer
+# 78–103.
+first_pass_turns() {
+    if [ -n "$DELIVER_MAX_TURNS" ]; then
+        printf '%s' "$DELIVER_MAX_TURNS"
+        return
+    fi
+    case "$1" in
+        plan-*) printf 150 ;;
+        test-writer) printf 200 ;;
+        *) printf 250 ;;
+    esac
+}
 
 turns_for() {
-    if is_final_round "$1"; then printf '%s' "$DELIVER_FINAL_MAX_TURNS"; else printf '%s' "$DELIVER_MAX_TURNS"; fi
+    if is_final_round "$1"; then
+        printf '%s' "$DELIVER_FINAL_MAX_TURNS"
+    elif is_rework "$1"; then
+        printf '%s' "$DELIVER_REWORK_MAX_TURNS"
+    else
+        first_pass_turns "$1"
+    fi
 }
 
 # The stage after this one, or `done`.
@@ -288,15 +377,33 @@ test_bash() {
         'Bash(uv run pytest *)' 'Bash(uv sync*)'
 }
 
+# The static checks scripts/test.sh's lint layer runs, one at a time, for a
+# stage that changes or reviews Python, a chart or a script. `ruff format` only
+# with --check for a reviewer: without it, it writes.
+check_bash() {
+    printf '%s\n' \
+        'Bash(uv run ruff check *)' 'Bash(uv run ruff format --check *)' \
+        'Bash(helm lint *)' 'Bash(helm template *)' 'Bash(bash -n *)' \
+        'Bash(python3 .claude/hooks/checks/conventions.py*)'
+}
+
+# Taking a file out of the tree. The write check sees a deletion as it sees a
+# write, so each writer can only remove what it could have written.
+remove_bash() {
+    printf '%s\n' 'Bash(rm src/*)' 'Bash(rm tests/*)' 'Bash(rm docs/*)' \
+        'Bash(rm charts/*)' 'Bash(rm docker/*)' 'Bash(rm scripts/*)'
+}
+
 allowed_tools() {
     case "$1" in
         plan-writer)
             printf '%s\n' Read Grep Glob Write Edit Skill
             read_only_bash
             ;;
-        # Writes only its review, so no Edit: it never touches the plan.
+        # Edit is for its own review, written in two goes — expectations, then
+        # the rest. The write check holds it to that file.
         plan-reviewer)
-            printf '%s\n' Read Grep Glob Write Skill
+            printf '%s\n' Read Grep Glob Write Edit Skill
             read_only_bash
             ;;
         # The first stage that runs anything, so the first that installs: a
@@ -308,6 +415,7 @@ allowed_tools() {
                 'Bash(npm --prefix src/frontend ci*)' 'Bash(uv run ruff *)'
             read_only_bash
             test_bash
+            remove_bash
             ;;
         # Runs the tests to see them fail, and writes only its review. Edit and
         # the sketch are for a throwaway implementation under build/sketch/,
@@ -321,18 +429,22 @@ allowed_tools() {
         # stage that runs scripts/test.sh, because its final run writes the
         # committed docs/test-report.md that goes with the code. e2e brings up
         # the Compose test stack, one run per machine at a time. The contract
-        # regeneration is here for an issue that changes an API.
+        # regeneration is here for an issue that changes an API, and the
+        # installs for one that adds a dependency.
         code-writer)
             printf '%s\n' Read Grep Glob Write Edit Skill \
                 'Bash(npm --prefix src/frontend ci*)' \
+                'Bash(npm --prefix src/frontend install *)' \
                 'Bash(npm --prefix src/frontend run build*)' \
                 'Bash(npm --prefix src/frontend run generate:api*)' \
                 'Bash(uv run ruff *)' 'Bash(uv run alembic *)' 'Bash(uv run python -m *)' \
+                'Bash(uv add *)' 'Bash(uv lock*)' \
                 'Bash(scripts/test.sh *)' \
-                'Bash(python3 .claude/hooks/checks/conventions.py*)' \
                 'Bash(.claude/hooks/security.sh*)'
             read_only_bash
             test_bash
+            check_bash
+            remove_bash
             ;;
         # Runs every check but scripts/test.sh, whose layers it reads from the
         # report the code-writer left, and writes only its review. The sketch is
@@ -340,10 +452,10 @@ allowed_tools() {
         # which mistakes the tests would catch.
         code-reviewer)
             printf '%s\n' Read Grep Glob Write Edit Skill 'Bash(.claude/delivery/sketch.sh *)' \
-                'Bash(npm --prefix src/frontend run build*)' \
-                'Bash(python3 .claude/hooks/checks/conventions.py*)'
+                'Bash(npm --prefix src/frontend run build*)'
             read_only_bash
             test_bash
+            check_bash
             ;;
         *) die "no tools are allowed for $1 yet — add its entry to allowed_tools" ;;
     esac
@@ -367,7 +479,10 @@ write_scope() {
         # Production code, config and docs anywhere — then write_denied takes
         # the tests back out. The plan only for its *Found while building*.
         code-reviewer) printf '^%s/reviews/' "$PLAN_DIR" ;;
-        code-writer) printf '^(src/|docs/|charts/|docker/|scripts/|\.env\.example$|docker-compose)' ;;
+        code-writer)
+            printf '^(src/|docs/|charts/|docker/|scripts/|\.github/|\.env\.example$|docker-compose|%s)' \
+                '(pyproject\.toml|uv\.lock|ruff\.toml|README\.md)$'
+            ;;
     esac
 }
 
@@ -408,9 +523,11 @@ context_block() {
     # The code pair: what was built, and what ran, as the code-writer reports it.
     [ "$pair" != code ] || printf 'Green report: %s\n' "$GREEN_REPORT"
     printf 'Worktree: %s (branch %s)\n' "$WORKTREE" "$BRANCH"
-    printf 'Stage: %s, round %s of %s\n' "$stage" "$(rounds_of "$pair")" "$DELIVER_MAX_ROUNDS"
+    printf 'Stage: %s, round %s of %s\n' "$stage" "$(rounds_of "$pair")" "$(final_of "$pair")"
     if is_final_round "$stage"; then
         printf 'Final round: yes — %s turns. Follow your *Final round* rules.\n' "$(turns_for "$stage")"
+    elif is_rework "$stage"; then
+        printf 'Rework pass: yes — %s turns. Follow *A rework pass*.\n' "$(turns_for "$stage")"
     else
         printf 'Turns: %s\n' "$(turns_for "$stage")"
     fi
@@ -432,10 +549,18 @@ context_block() {
         printf 'Send-back file, if you send work back: %s\n' "$(sendback_path "$stage")"
     fi
     # Every stage the flow passes through on its way back to the stage that sent
-    # work back — the work each takes over has changed since it last saw it.
-    if [ -n "$SENT_BACK_BY" ] && [ "$REVIEW" != "$SENT_BACK_FILE" ]; then
-        printf 'After a send-back by %s: %s\n' "$SENT_BACK_BY" "$SENT_BACK_FILE"
-    fi
+    # work back — the work each takes over has changed since it last saw it, and
+    # the list says where, so the pass can keep to that.
+    local sender file changed
+    for sender in "${SENDERS[@]}"; do
+        file="$(get_var "$(sb_var "$sender")")"
+        [ -n "$file" ] || continue
+        [ "$REVIEW" = "$file" ] || printf 'After a send-back by %s: %s\n' "$sender" "$file"
+        [ -f "$RUN_DIR/sendback-$sender.snapshot" ] || continue
+        changed="$(touched_between "$(cat "$RUN_DIR/sendback-$sender.snapshot")" "$(snapshot)" |
+            grep -v "^$PLAN_DIR/reviews/" | head -n 40 | tr '\n' ' ' || true)"
+        [ -z "$changed" ] || printf 'Changed since the send-back by %s: %s\n' "$sender" "$changed"
+    done
 }
 
 # Every uncommitted path outside build/, tracked or not, with a hash of what is
@@ -455,37 +580,74 @@ touched_between() {
         sed 's/^[[:space:]]*[^ ]* //' | grep -v '^$' | sort -u || true
 }
 
+# One headless run of a stage's agent: its JSON result goes to the file named
+# first; everything after is passed to claude. A stage that runs out of turns
+# exits non-zero with a JSON result, so the result decides whether it failed,
+# not the exit status.
+invoke_agent() {
+    local out="$1"
+    shift
+    (cd "$WORKTREE" && claude "$@" \
+        --output-format json \
+        --json-schema "$RESULT_SCHEMA" \
+        --permission-mode "$DELIVER_PERMISSION_MODE") >"$out" || true
+}
+
 # Runs a stage and prints its structured result as compact JSON. Called in a
 # subshell, so it changes no state: the caller counts $STEP. Bash 3.2 does not
 # carry errexit into a command substitution, hence the set -e.
 run_stage() {
     set -e
-    local stage="$1" out head before scope strays prompt tool_list t turns subtype round
-    out="$RUN_DIR/$(printf '%02d' "$STEP")-$stage.json"
+    local stage="$1" out base head before scope strays prompt tool_list t turns more subtype round session
+    base="$RUN_DIR/$(printf '%02d' "$STEP")-$stage"
+    out="$base.json"
     prompt="$(context_block "$stage")"
     tool_list="$(allowed_tools "$stage")"
     local tools=()
     while IFS= read -r t; do tools+=("$t"); done <<<"$tool_list"
     turns="$(turns_for "$stage")"
     round="$(rounds_of "$(pair_of "$stage")")"
-    local extra_args=(--max-turns "$turns")
+    local extra_args=()
     [ -z "$DELIVER_MODEL" ] || extra_args+=(--model "$DELIVER_MODEL")
     ! is_final_round "$stage" || extra_args+=(--effort "$DELIVER_FINAL_EFFORT")
 
     log "$stage — round $round, $turns turns (log: ${out#"$WORKTREE"/})"
     head="$(git -C "$WORKTREE" rev-parse HEAD)"
     before="$(snapshot)"
-    # A stage that runs out of turns exits non-zero with a JSON result, so the
-    # result decides whether this failed, not the exit status.
-    (cd "$WORKTREE" && claude -p "$prompt" \
-        --agent "$stage" \
-        --output-format json \
-        --json-schema "$RESULT_SCHEMA" \
-        --permission-mode "$DELIVER_PERMISSION_MODE" \
-        --allowedTools "${tools[@]}" \
-        "${extra_args[@]}") >"$out" || true
+    invoke_agent "$out" -p "$prompt" --agent "$stage" --max-turns "$turns" \
+        --allowedTools "${tools[@]}" ${extra_args[@]+"${extra_args[@]}"}
     subtype="$(jq -r '.subtype // empty' "$out" 2>/dev/null || true)"
-    [ -n "$subtype" ] || die "$stage failed — see $out"
+
+    # No result at all, or an error that isn't the turn cap: the API or the
+    # network, not the agent. Run it once more from the top — a writer finds its
+    # partial work in place and a reviewer its partial review.
+    if [ -z "$subtype" ] || { [ "$subtype" != error_max_turns ] && [ "$(jq -r '.is_error' "$out")" != false ]; }; then
+        log "$stage failed without a result (${subtype:-no output}) — running it once more"
+        mv "$out" "$base.failed.json"
+        sleep "${DELIVER_RETRY_WAIT:-30}"
+        invoke_agent "$out" -p "$prompt" --agent "$stage" --max-turns "$turns" \
+            --allowedTools "${tools[@]}" ${extra_args[@]+"${extra_args[@]}"}
+        subtype="$(jq -r '.subtype // empty' "$out" 2>/dev/null || true)"
+        [ -n "$subtype" ] || die "$stage failed twice — see $out"
+    fi
+
+    # Out of turns is the cap working, not a crash. Resume the same session once,
+    # with half as many turns again and told to finish: everything it has read
+    # is still in its context, so this costs far less than a rerun.
+    if [ "$subtype" = error_max_turns ]; then
+        session="$(jq -r '.session_id // empty' "$out")"
+        more=$((turns / 2))
+        [ "$more" -ge 30 ] || more=30
+        if [ -n "$session" ]; then
+            log "$stage used all $turns turns — resuming it with $more more to finish"
+            mv "$out" "$base.out-of-turns.json"
+            invoke_agent "$out" -p "You ran out of turns before you finished. Everything you wrote is in place, and this is the same session: don't start again, and don't reread what you have read. You have $more more turns. Finish what is left, most important first, write your output file, and return your result through StructuredOutput. If it can't all be done in that, say in the output file what is done and what is not, and return anyway." \
+                --resume "$session" --agent "$stage" --max-turns "$more" \
+                --allowedTools "${tools[@]}" ${extra_args[@]+"${extra_args[@]}"}
+            subtype="$(jq -r '.subtype // empty' "$out" 2>/dev/null || true)"
+            [ -n "$subtype" ] || die "$stage failed when resumed — see $out"
+        fi
+    fi
 
     # The rules no agent may break, checked rather than trusted — before anything
     # else, because a stage stopped mid-way may still have broken one.
@@ -504,14 +666,14 @@ $strays"
 $strays"
     fi
 
-    # Out of turns is the cap working, not a crash: hand it to a human as a
-    # needs_human result, with its partial work left where it is.
+    # Still out of turns after the resume: hand it to a human as a needs_human
+    # result, with its partial work left where it is.
     if [ "$subtype" = error_max_turns ]; then
         jq -nc --arg stage "$stage" --arg turns "$turns" --arg round "$round" --arg out "${out#"$WORKTREE"/}" '{
             status: "needs_human",
-            summary: "\($stage) used all \($turns) turns in round \($round) without finishing. Its transcript is in \($out); anything it wrote is left in place.",
+            summary: "\($stage) used all \($turns) turns in round \($round), and the turns it was resumed with, without finishing. Its transcript is in \($out); anything it wrote is left in place.",
             files: [],
-            questions: ["\($stage) ran out of turns. Rerun it as it is, rerun with a larger DELIVER_MAX_TURNS or DELIVER_FINAL_MAX_TURNS, or answer here what it was stuck on — which?"]
+            questions: ["\($stage) ran out of turns twice. Rerun it as it is, rerun with a larger DELIVER_MAX_TURNS, DELIVER_REWORK_MAX_TURNS or DELIVER_FINAL_MAX_TURNS, or answer here what it was stuck on — which?"]
         }'
         return
     fi
@@ -521,6 +683,13 @@ $strays"
         die "$stage returned no structured result — see $out"
 
     jq -c '.structured_output' "$out"
+}
+
+# A step's minutes, turns and cost, over every run it took — a retry and a
+# resume each leave a file of their own beside the result.
+step_stats() {
+    jq -rs '"\(map(.duration_ms // 0) | add / 60000 * 10 | round / 10)m \(map(.num_turns // 0) | add) turns $\(map(.total_cost_usd // 0) | add * 100 | round / 100)"' \
+        "$RUN_DIR/$(printf '%02d' "$STEP")"-*.json 2>/dev/null || printf 'no stats'
 }
 
 # Appends a stop to needs-human.md, with a space under each question to answer.
@@ -563,12 +732,16 @@ while [ "$STAGE" != done ]; do
     result="$(run_stage "$STAGE")"
     status="$(jq -r '.status' <<<"$result")"
     summary="$(jq -r '.summary' <<<"$result")"
-    printf '%02d %s %s: %s\n' "$STEP" "$STAGE" "$status" "$summary" >>"$RUN_DIR/history.log"
-    log "$STAGE: $status — $summary"
+    stats="$(step_stats)"
+    printf '%02d %s %s [%s]: %s\n' "$STEP" "$STAGE" "$status" "$stats" "$summary" >>"$RUN_DIR/history.log"
+    log "$STAGE: $status [$stats] — $summary"
 
     pair="$(pair_of "$STAGE")"
     # The stage a send-back was waiting on has now run with it in view.
-    [ "$SENT_BACK_BY" != "$STAGE" ] || SENT_BACK_BY="" SENT_BACK_FILE=""
+    if [ "$pair" != plan ] && [ -n "$(get_var "$(sb_var "$STAGE")")" ]; then
+        set_var "$(sb_var "$STAGE")" ""
+        rm -f "$RUN_DIR/sendback-$STAGE.snapshot"
+    fi
     case "$(role_of "$STAGE"):$status" in
         writer:done)
             output="$(writer_output "$STAGE")"
@@ -584,6 +757,12 @@ while [ "$STAGE" != done ]; do
                 die "$STAGE approved but wrote no $(review_path "$STAGE")"
             REVIEW=""
             STAGE="$(next_stage "$STAGE")"
+            # Coming forward after a reviewer's send-back: its own writer now
+            # gets the review that reviewer wrote as it sent the work back.
+            if [ "$STAGE" != done ] && [ "$(role_of "$STAGE")" = writer ]; then
+                REVIEW="$(get_var "PENDING_$(pair_of "$STAGE")")"
+                set_var "PENDING_$(pair_of "$STAGE")" ""
+            fi
             ;;
         reviewer:changes_requested)
             REVIEW="$(review_path "$STAGE")"
@@ -591,32 +770,52 @@ while [ "$STAGE" != done ]; do
             rounds="$(rounds_of "$pair")"
             # The final reviewer is told to approve or escalate, never to send
             # the plan back — if it does anyway, a human settles it.
-            if [ "$rounds" -ge "$DELIVER_MAX_ROUNDS" ]; then
+            if [ "$rounds" -ge "$(final_of "$pair")" ]; then
                 record_needs_human "$STAGE" \
-                    "The $pair reviewer asked for changes in the final round ($rounds of $DELIVER_MAX_ROUNDS), where it may only approve or escalate. The last review is $REVIEW, and the writer's answers to it are in its Review responses." \
+                    "The $pair reviewer asked for changes in the final round ($rounds of $(final_of "$pair")), where it may only approve or escalate. The last review is $REVIEW, and the writer's answers to it are in its Review responses." \
                     '["Settle the findings in the last review that are still open: which should the writer take, and which should the reviewer drop?"]'
             fi
             # The writer takes the review, and the answers too when there are
             # some — every round past the limit comes back through a human.
             set_rounds "$pair" $((rounds + 1))
             STAGE="$pair-writer"
-            [ "$rounds" -lt "$DELIVER_MAX_ROUNDS" ] || stop_for_human
+            # Checked against the round the review was in: the limit can't have
+            # moved since, so this is the same test as the one above.
+            [ "$rounds" -lt "$(final_of "$pair")" ] || stop_for_human
             ;;
         *:send_back)
             earlier="$(earlier_pair "$STAGE")"
             [ -n "$earlier" ] || die "$STAGE may not send work back — there is no pair before it"
             file="$(sendback_path "$STAGE")"
             [ -s "$WORKTREE/$file" ] || die "$STAGE sent work back but wrote no $file"
+            # The earlier pair takes a new round, with an ordinary review and a
+            # final one ahead of it whatever it had used before.
             rounds=$(($(rounds_of "$earlier") + 1))
             set_rounds "$earlier" "$rounds"
-            SENT_BACK_BY="$STAGE" SENT_BACK_FILE="$file"
+            [ "$(final_of "$earlier")" -gt "$rounds" ] || set_var "FINAL_$earlier" $((rounds + 1))
+            taken=$(($(get_var "SENDBACKS_$earlier") + 1))
+            set_var "SENDBACKS_$earlier" "$taken"
+            # A reviewer has reviewed as well as sent back. Its review waits for
+            # its own writer, and its pair moves on a round, so its next review
+            # is a new file and the writer's pass before it is a rework pass.
+            if [ "$(role_of "$STAGE")" = reviewer ]; then
+                review="$(review_path "$STAGE")"
+                [ -s "$WORKTREE/$review" ] || die "$STAGE sent work back but wrote no $review"
+                set_var "PENDING_$pair" "$review"
+                rounds=$(($(rounds_of "$pair") + 1))
+                set_rounds "$pair" "$rounds"
+                [ "$(final_of "$pair")" -gt "$rounds" ] || set_var "FINAL_$pair" $((rounds + 1))
+            fi
+            set_var "$(sb_var "$STAGE")" "$file"
+            snapshot >"$RUN_DIR/sendback-$STAGE.snapshot"
+            sender="$STAGE"
             REVIEW="$file"
             STAGE="$earlier-writer"
-            # A new round like any other: past the limit, a human sees it first.
-            if [ "$rounds" -gt "$DELIVER_MAX_ROUNDS" ]; then
-                record_needs_human "$SENT_BACK_BY" \
-                    "$SENT_BACK_BY sent work back to the $earlier pair, which has used its $DELIVER_MAX_ROUNDS rounds. Why is in $file." \
-                    '["Should the '"$earlier"' pair take this send-back as a further round? Answer, then rerun to send it."]'
+            # Bounded by count, not by rounds: past it, a human sees it first.
+            if [ "$taken" -gt "$DELIVER_MAX_SENDBACKS" ]; then
+                record_needs_human "$sender" \
+                    "$sender sent work back to the $earlier pair, which has already taken $DELIVER_MAX_SENDBACKS send-backs. Why is in $file." \
+                    '["Should the '"$earlier"' pair take this send-back too? Answer, then rerun to send it."]'
                 stop_for_human
             fi
             ;;
@@ -632,3 +831,6 @@ done
 STATUS=done
 save_state
 log "Issue #$ISSUE is ready for review: $WORKTREE, branch $BRANCH. Nothing is committed"
+log "Start with $PLAN_DIR/03-green-report.md and the last code review's *Left for the human* in $PLAN_DIR/reviews/"
+# What the run took, a line a step.
+sed -E 's/^([0-9]+ [a-z-]+ [a-z_]+ \[[^]]*\]).*/  \1/' "$RUN_DIR/history.log" >&2

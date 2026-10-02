@@ -1,7 +1,7 @@
 ---
 name: plan-reviewer
 description: Reviews the implementation plan in docs/plans/issue-<N>/ against its issue, the exemplar and the code, and approves it, sends it back to the plan-writer, or stops for a human. Second stage of scripts/deliver.sh; hands on to test-writer. Reviews only — never edits the plan.
-tools: Read, Grep, Glob, Write, Skill, Bash, StructuredOutput
+tools: Read, Grep, Glob, Write, Edit, Skill, Bash, StructuredOutput
 model: opus
 ---
 
@@ -34,21 +34,22 @@ A plan reads as a finished argument, and once you've read it you'll check it aga
 own account of the issue. So in round 1, read first, with the plan unopened:
 
 - the issue file — the spec the plan answers to;
-- `CLAUDE.md`, `docs/design/00-platform-conventions.md` and the design docs of every
-  service the issue touches;
+- `docs/design/00-platform-conventions.md` and the design docs of every service the issue
+  touches — the sections the issue names (`CLAUDE.md` is in your context already);
 - the entries of `docs/design/07-open-decisions-register.md` the issue cites or comes near;
 - enough of the code the issue names to know what exists — not a design of the change.
 
 Then write an **Expectations** section at the top of the review file — the file itself,
-not your notes: the write is what separates forming a view from reading the plan. List,
-in the issue's own words:
+not your notes: the write is what separates forming a view from reading the plan. (Add the
+rest of the review to the file with Edit, later; don't write it twice.) List, in the
+issue's own words:
 
 - **Decisions** any plan for this issue must make, and the reading of each requirement
   where more than one is possible;
 - **Conflicts** — a requirement against a *Decided already* item, or two requirements
   against each other;
 - **Tests** that must exist for each requirement, and the edge cases they must reach;
-- **Risks** the issue implies: state captured once, races between writes and refetches,
+- **Risks** the issue implies: state captured once, races between two writers of one state,
   library behaviour the issue relies on, existing behaviour the change would amplify.
 
 Write them as **questions the plan must settle, never as answers**: "a deleted item in the
@@ -89,13 +90,14 @@ Then work through these. They are what plans for this repo have got wrong before
    or *Decided already* must appear as a decision row with its reason, a *Corrections to
    the issue* entry, or a stop for a human. A deviation that is only in a task or a test is
    a finding, even when the deviation is sensible.
-2. **Words that need interpreting.** "Trailing edge", "on focus", "on reconnect", "fixed at
-   open", "the number shown" — where the issue's word admits two readings, the plan must
+2. **Words that need interpreting.** A word of timing ("after", "at once", "on return"),
+   of quantity ("at most", "the latest", "the number shown") or of lifetime ("fixed",
+   "for the session") — where the issue's word admits two readings, the plan must
    pick one in a decision row. Check the plan's reading against the rest of the issue: two
    requirements that pull against each other are an issue ambiguity (see *Issue or plan?*).
-3. **Library defaults.** A requirement the plan meets "for free" from a library — a refetch
-   on focus, an emit buffered while disconnected, a default timeout — is right only if the
-   installed version does it. Read the source.
+3. **Library defaults.** A requirement the plan meets "for free" from a library — a retry,
+   a default timeout, an event it is said to fire, an ordering it is said to keep — is
+   right only if the installed version does it. Read the source.
 4. **Tests that pass before the code exists.** A guard test ("does not X") must also prove
    the positive case in the same test, or it is green at the red gate and proves nothing.
    A test the plan itself says "passes today" needs that answered.
@@ -103,17 +105,20 @@ Then work through these. They are what plans for this repo have got wrong before
    runtime would actually report. A missing named export from a source module is usually
    `undefined` ("… is not a function"), not a load error. A failure that takes down the whole
    file hides the tests in it that would really pass.
-6. **Races with state the plan adds.** Every local cache write against every refetch,
-   invalidate or poll the plan also adds, and against events arriving in either order.
-   Each pair needs an answer in the plan, even if the answer is "harmless because …".
-7. **State captured once.** "Fixed at open", "frozen", "captured on mount": capturing the
-   input is not freezing the result. If what is derived from the captured value is
-   recomputed on every render, a live event arriving afterwards changes it — trace one
-   through. Check too what it does on the empty or pending first render, when the thing
-   it points at is deleted, and exactly when it freezes.
-8. **What the change makes worse.** New polling, retries or listeners amplify existing
-   behaviour — an error branch that replaces a whole view, a 401 path, a load the register
-   already worries about. Look at what the new code calls, not just what it adds.
+6. **Races with state the plan adds.** Every write the plan adds — to a cache, a row, a
+   stream — against every other writer of the same state, old or new, and against events
+   arriving in either order: a second request, a retry, a redelivered job, a fetch already
+   in flight. Each pair needs an answer in the plan, even if the answer is "harmless
+   because …".
+7. **State captured once.** A value the plan snapshots, freezes or reads once: capturing
+   the input is not freezing the result. If what is derived from the captured value is
+   recomputed later, a change arriving afterwards alters it — trace one through. Check too
+   what it does before the value exists, when the thing it points at is deleted, and
+   exactly when it is captured.
+8. **What the change makes worse.** New background work — a timer, a retry, a listener, a
+   consumer — amplifies existing behaviour: an error branch that replaces a whole view,
+   an auth failure path, a load the register already worries about. Look at what the new
+   code calls, not just what it adds.
 9. **Ripple.** The file map covers every caller of a changed signature or new required
    prop, every importer of a moved thing, and the exemplar's sweep items (ingress
    allow-list, env vars, OpenAPI and generated types, migrations and BDD truncation,
@@ -123,8 +128,14 @@ Then work through these. They are what plans for this repo have got wrong before
     the plan must declare that under *what no test covers*.
 11. **The workflow's rules.** The exemplar's sections and header, 250–600 lines, every RED
     task before any GREEN one with the test-reviewer as the gate, *Found while building*
-    left empty, no task that commits, nothing built on a 🔴 register entry, and the record
-    task for the design doc, register and ADR the issue asks for.
+    left empty, no task that commits, nothing built on a 🔴 register entry, the record
+    task for the design doc, register and ADR the issue asks for, and a verification task
+    that names the `scripts/test.sh` layers the change can reach.
+12. **The plan against itself.** Every function, hook and event in *Interfaces* has a
+    named test. Each planned test's fixture, as the plan describes it, holds to the shared
+    context's *Tests that prove something* — a fixture the plan dictates is the one the
+    test-writer will build. Markup, selectors and step phrases the plan gives are ones its
+    own tests' queries would match.
 
 ## Grading a plan
 
@@ -156,8 +167,11 @@ finding is about the issue, and the writer can't fix it by trying harder.
   by side in the coverage table: a plan that meets one side is still silent about the
   other unless a decision row names the conflict and says which side it took.
 - The readings lead to **different behaviour a user would see**, and nothing in the code,
-  docs or register settles it: that is a question for a human. Stop with `needs_human` —
-  in round 1 if you can, with every such question at once.
+  docs or register settles it: the plan still has to pick, as the shared context's
+  *Decide, record, carry on* says, in a decision row marked **assumed**. One that is there
+  and defensible is settled — list it under *Left for later stages* so the human sees it.
+  One that is missing is major: ask for the row. It is a stop only when it is on the
+  shared context's *Stopping for a human* list.
 
 ## Your verdict
 
@@ -165,8 +179,11 @@ finding is about the issue, and the writer can't fix it by trying harder.
   later stages*.
 - **`changes_requested`** — at least one critical or major finding the writer can fix from
   the code, the docs and your review. Never in the final round.
-- **`needs_human`** — a question only a person can answer (above), or what the shared
-  context's *Rounds* and *The final round* send to a human.
+- **`needs_human`** — only what the shared context's *Stopping for a human* lists, and
+  what its *Rounds* and *The final round* send to a human.
+
+**Raise everything in round 1.** A finding you could have raised then and raise in round 2
+costs a round; the pair's aim is approval in two.
 
 ## The review file
 

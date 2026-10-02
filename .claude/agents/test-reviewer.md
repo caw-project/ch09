@@ -94,6 +94,10 @@ run the tests against a throwaway implementation:
   look suspect once you've read the tests, and any you have suspected since. Change the
   sketch to each in turn and run it. Green is a finding, and now a verified one; red
   goes in *Checked and sound*.
+- **One turn a build.** Make the change and run it in the same turn — the Edit, then
+  `sketch.sh test` over only the files that should catch it; the calls run in the order
+  you give them. `.claude/delivery/sketch.sh reset <path>` puts one file back as the
+  worktree has it. Shell edits (`sed`, `cp`, a heredoc) are refused: Write and Edit only.
 - **Spend where reading is weakest:** fake timers and anything waiting on a library's
   events; tests in a file that fails at import; pure modules, which are cheap to sketch
   whole. A component or a hook needs sketching only where a finding hinges on it — its
@@ -103,8 +107,13 @@ run the tests against a throwaway implementation:
   the code-writer builds from the plan, never from your probe.
 - **`.claude/delivery/sketch.sh clean` before you return**, whatever the verdict.
 
-Python has no sketch yet (a package imports its installed copy): there, reason about the
-wrong build and say so.
+**Python sketches the same way.** `.claude/delivery/sketch.sh service <name>` copies
+`src/services/<name>`, tests included, to `build/sketch/services/<name>/`, and
+`.claude/delivery/sketch.sh pytest <name>/tests/unit/<file>` runs the copy's tests against
+the copy's code (copy `shared` or `contracts` too when the plan changes them). Pure rules
+and wire shapes sketch as cheaply as a frontend module. An integration test's sketch
+starts containers: keep it for a route or a query a finding hinges on, and reason about
+the rest, saying so.
 
 ## What to check
 
@@ -172,7 +181,9 @@ writer can't fix it by trying harder.
 - The plan is wrong in a way the **plan-writer could fix** from the code and the issue:
   send it back to the plan-writer (the shared context's *Sending work back*).
 - The plan is wrong in a way that changes **what a user would see**, and nothing in the
-  code or docs settles it: stop with `needs_human`, with every such question at once.
+  code or docs settles it: send it back too, naming the decision the plan-writer has to
+  take and record (the shared context's *Decide, record, carry on*). A stop is only for
+  what *Stopping for a human* lists.
 
 **A round that follows a send-back** from the code pair (`After a send-back by …`) gates
 the change against the send-back file as well as the Review responses: the fault it named
@@ -191,8 +202,11 @@ and the report says which.
 - **`send_back`** — to the plan-writer, when the fault is the plan's and it could fix it
   (*Tests or plan?*). Write the review file as well; the send-back file carries the
   plan's part.
-- **`needs_human`** — a question only a person can answer (above), or what the shared
-  context sends to a human.
+- **`needs_human`** — only what the shared context's *Stopping for a human*, *Rounds* and
+  *The final round* send to a human.
+
+**Raise everything in round 1.** The pair's aim is approval in two rounds; a finding held
+back, or found late because a wrong build wasn't sketched, costs one.
 
 ## The review file
 

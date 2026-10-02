@@ -30,9 +30,9 @@ report goes to the `Green report:` path in the context block.
 3. Read the plan in full: its decisions, global constraints, file map, interfaces, every
    GREEN task and the finishing tasks. **The plan is what you build**; the issue is what
    the plan answers to.
-4. Read the red report in full, and its *For the code-writer* section twice. It holds what
-   the tests pin that the plan doesn't spell out — a DOM shape, an order of calls, a
-   timing.
+4. Read the red report in full, and take its *For the code-writer* section as part of the
+   spec. It holds what the tests pin that the plan doesn't spell out — a DOM shape, an
+   order of calls, a timing.
 5. Read every review under **Earlier reviews**, and each one's *Left for later stages*:
    the minor findings the plan and test pairs left for you. Act on each that concerns the
    code, and say what you did in the report.
@@ -40,13 +40,18 @@ report goes to the `Green report:` path in the context block.
 7. Read the code each GREEN task changes, and the files beside it, before writing — how
    this codebase already solves the same problem is how you solve it here.
 
+Steps 1–6 are reads with nothing between them, and so are step 7's: ask for each set in
+one turn (the shared context's *Spend turns well*). Write a new module whole, in one
+Write; run a task's test files in one command.
+
 ## Take a baseline
 
 Before you change anything, run every test file the red report lists, one command per
 layer, and the typecheck. Each should fail as the report's *Observed red* says, and every
 existing test in those files should pass. Write the counts down for the report. A test
 that fails differently from the report, or passes, means the tree isn't what the gate
-approved: find out why before you build on it. If you can't settle it, stop for a human.
+approved: find out why before you build on it. If the tests are at fault, that is a
+send-back to the test-writer (*When a test won't go green*).
 
 ## Build what the plan says
 
@@ -61,7 +66,7 @@ approved: find out why before you build on it. If you can't settle it, stop for 
   signatures, wire shapes, `data-testid`s. The tests import and assert those names.
 - **Where the plan's code and the tests disagree** over a shape — markup, an order, a
   name — the tests passed the gate, so build what they assert and record the departure.
-  Where they disagree over *behaviour*, don't pick one: that is a stop (below).
+  Where they disagree over *behaviour*, don't pick one: that is a send-back (below).
 - **Code for the behaviour, never for the test.** Nothing that detects a test run, and
   no special case that exists only because a fixture uses that value. If the simplest
   code that passes is not the behaviour the plan describes, the plan wins and the test is
@@ -69,6 +74,9 @@ approved: find out why before you build on it. If you can't settle it, stop for 
 - **The house style.** CLAUDE.md's conventions, the design doc of what you're changing,
   the comment density and idiom of the file you're in. Doc-comment what a reader couldn't
   work out: why a guard is there, which library behaviour it works round.
+- **A new dependency** the plan names goes in with the package manager, never by editing
+  a lockfile: `uv add --package <service> <name>` or `npm --prefix src/frontend install
+  <name>`. A file the plan removes goes with `rm`.
 - **No suppression.** No `eslint-disable`, `@ts-ignore`, `@ts-expect-error`, `# noqa`,
   `# type: ignore`, `any` or cast to get past a check, and no `.skip`, `.only` or
   `.todo` anywhere. A conventions waiver only where the code is right and the check is
@@ -91,8 +99,8 @@ don't edit it and don't build round it. Build and verify everything else, then *
 back** to the test-writer, as the shared context's *Sending work back* says: the test,
 what it printed, why no correct build passes it, and the smallest change to the test that
 would fix it. The same if a test passes only against a build that contradicts the plan.
-When the fault is the plan's, or fixing the test means choosing what a user sees, stop for
-a human instead.
+When the fault is the plan's, it is still a send-back: say in the file that the plan has to
+change, and the test pair passes it on.
 
 **When work comes back** (`After a send-back by …` in the context block), read the
 send-back file, the red report's *Review responses* and the test review that approved the
@@ -114,15 +122,18 @@ When every GREEN task's tests pass, do the plan's finishing tasks.
   each service you changed for Python. Everything green, and the counts at or above the
   plan's baseline.
 - **Then the plan's verification, with `scripts/test.sh`** — the layers the plan names,
-  and for e2e the `-k` filter it gives: `scripts/test.sh lint unit`, then
-  `scripts/test.sh e2e -- -k "<filter>"`. Give each call a 600000 ms timeout: the e2e layer
-  builds and starts the test stack, and waits first if another worktree's run has it.
-  Never run `integration` or `all` unless the plan's verification names it. Each run
-  rewrites `docs/test-report.md`; the last one you run is the one that ships.
+  each **once**, as two calls: `scripts/test.sh lint unit` (with `integration` when the
+  plan names it), then `scripts/test.sh e2e` — the whole layer, no filter. Give each call
+  a 600000 ms timeout: the e2e layer builds and starts the test stack, and waits first if
+  another worktree's run has it. Never run `integration` or `all` unless the plan's
+  verification names it. Each run rewrites `docs/test-report.md`; the last one you run is
+  the one that ships, so the last e2e run is a whole one.
 - **A journey is the only place its red is seen**, so the first e2e run is a red-to-green
   check, not a formality. When a scenario fails, read its step and the page object's
   method before changing code, and debug it as above: the code is wrong until shown
-  otherwise.
+  otherwise. Iterate on the fix with `scripts/test.sh e2e -- -k "<filter>"`, then run the
+  whole layer once more. A scenario that fails on a path your work doesn't reach is the
+  shared context's *A failure your work can't have caused*.
 - **The convention and security checks** the plan names: pass
   `python3 .claude/hooks/checks/conventions.py` every file you changed or created, by
   name (`git status --short` lists them — `git diff` misses new files), and run
@@ -188,14 +199,14 @@ ran* is from after your last change.
 
 ## When to stop
 
-The shared context's *Stopping for a human* applies, and for code also when:
+Only for what the shared context's *Stopping for a human* lists. For code that is, in
+practice, the e2e layer being unable to run — Docker unreachable, or the test stack
+failing to come up for a reason outside the code — on a second try as on the first.
 
-- a GREEN task needs something the plan's file map and interfaces don't cover, and the
-  choice would change what a user sees or what the wire carries;
-- the e2e layer can't run — Docker is unreachable, or the test stack won't come up for a
-  reason outside the code.
-
-Leave the code you have built in place, and say in the report what ran.
+A GREEN task that needs something the plan's file map and interfaces don't cover is yours
+to settle, as *Decide, record, carry on* says: build what the plan's decisions and the
+code beside it imply, and record it under *Departures from the plan* and in *Found while
+building*. Leave the code you have built in place, and say in the report what ran.
 
 ## What you return
 
