@@ -145,6 +145,29 @@ class ChatPage:
         error.wait_for(state="visible", timeout=10_000)
         return error.inner_text()
 
+    def has_unread_badge(self, name: str, count: int) -> bool:
+        """Whether a channel's sidebar badge shows `count`, waiting for it to.
+
+        Read from `data-count`, the number as displayed, so the assertion does
+        not depend on how the pill is laid out.
+        """
+        self._settle()
+        return _holds(lambda: expect(self._badge(name)).to_have_attribute("data-count", str(count)))
+
+    def lacks_unread_badge(self, name: str) -> bool:
+        """Whether a channel shows no badge, once its item is on screen.
+
+        The item is the anchor: the badge renders in the same render as the
+        item, so a list still loading cannot pass this by having nothing in it.
+        """
+        self._settle()
+        if not _holds(lambda: expect(self._channel_item(name)).to_be_visible()):
+            return False
+        return _holds(lambda: expect(self._badge(name)).to_have_count(0))
+
+    def _badge(self, name: str) -> Locator:
+        return self._channel_item(name).get_by_test_id("channel-unread-badge")
+
     def _channel_item(self, name: str) -> Locator:
         return self.page.locator(f"[data-testid='channel-list-item'][data-channel-name='{name}']")
 
@@ -165,13 +188,21 @@ class ChatPage:
         self.page.get_by_test_id("create-channel-submit").click()
 
     def create_channel_and_wait(self, name: str) -> None:
-        """Create a channel and wait until the app has navigated into it."""
+        """Create a channel and wait until the app has navigated into it.
+
+        The view **named** after the channel, not any `channel-view`: when
+        several channels are created in a row the previous one is still open, so
+        waiting on any view passes at once.
+        """
         self.create_channel(name)
-        expect(self.page.get_by_test_id("channel-view")).to_be_visible()
+        expect(self._view_of(name)).to_be_visible()
 
     def create_private_channel_and_wait(self, name: str) -> None:
         self.create_channel(name, kind="private")
-        expect(self.page.get_by_test_id("channel-view")).to_be_visible()
+        expect(self._view_of(name)).to_be_visible()
+
+    def _view_of(self, name: str) -> Locator:
+        return self.page.locator(f"[data-testid='channel-view'][data-channel-name='{name}']")
 
     # --- messages ---------------------------------------------------------
 

@@ -10,6 +10,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
 
 import {
   archiveChannel,
@@ -26,12 +27,54 @@ export const channelKeys = {
     ['channel', workspaceId, channelId] as const,
 }
 
+/**
+ * How often the sidebar refetches, so unread counts for channels the user is
+ * not looking at stay current. Polling, not push (see the ADR on unread state).
+ * `refetchIntervalInBackground` stays false: TanStack skips a tick while the
+ * tab is hidden, which is the "none while hidden" the counts need.
+ */
+export const CHANNEL_POLL_MS = 30_000
+
 export function useChannels(accessToken: string, workspaceId: string | null) {
   return useQuery({
     queryKey: channelKeys.list(workspaceId),
     queryFn: () => listChannels(accessToken),
     select: (page) => page.items,
+    refetchInterval: CHANNEL_POLL_MS,
+    // Off, because `useChannelListRefresh` answers a return to the tab itself:
+    // TanStack hears `visibilitychange` only, so a window that regained focus
+    // would not refetch, and leaving both on would cancel and restart a fetch
+    // that a tab return starts twice.
+    refetchOnWindowFocus: false,
   })
+}
+
+/**
+ * Refetch the channel list once when the user comes back — the window gains
+ * focus, or the tab becomes visible. A return fires both events; with
+ * `cancelRefetch: false` the second joins the fetch already in flight.
+ */
+export function useChannelListRefresh(workspaceId: string | null): void {
+  const queryClient = useQueryClient()
+
+  useEffect(() => {
+    function refetch() {
+      void queryClient.refetchQueries(
+        { queryKey: channelKeys.list(workspaceId) },
+        { cancelRefetch: false },
+      )
+    }
+    function onVisibility() {
+      if (document.visibilityState === 'visible') refetch()
+    }
+
+    window.addEventListener('focus', refetch)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('focus', refetch)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [queryClient, workspaceId])
 }
 
 export function useCreateChannel(accessToken: string, workspaceId: string | null) {

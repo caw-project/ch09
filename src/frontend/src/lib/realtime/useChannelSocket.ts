@@ -42,12 +42,19 @@
  * message arriving while the history loads or refetches vanishes until a reload.
  * The first load is the same case: the event is dropped against the empty entry,
  * then applied once the history is there to hold it.
+ *
+ * **Read state rides on the same connection.** Every connect refetches the
+ * channel list (counts changed while nobody listened), and the user's own
+ * `read_receipt_updated` — another tab read — clears the count here, written
+ * directly when it covers everything cached and refetched when it does not.
  */
 
 import { hashKey, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 
 import type { Message } from '../api/messaging'
+import { applyReadReceipt, type ReadReceiptEvent } from '../../features/channels/readCache'
+import { channelKeys } from '../../features/channels/useChannels'
 import {
   applyReaction,
   messageKeys,
@@ -113,6 +120,9 @@ export function useChannelSocket(
 
     function onConnect() {
       setConnectionStatus('connected')
+      // Counts change while no one is listening; a connection is the moment to
+      // ask again, whichever channel is open.
+      void queryClient.invalidateQueries({ queryKey: channelKeys.list(workspaceId) })
 
       const current = activeChannel.current
       if (!current) return
@@ -166,6 +176,10 @@ export function useChannelSocket(
     // Its own handler, because it carries facts rather than a `Message`: the
     // DTO's `reacted` is computed for one caller and cannot be broadcast.
     live.on('reaction_changed', onReaction)
+    // The user's own marker moved elsewhere (another tab): clear the count here.
+    live.on('read_receipt_updated', (event: ReadReceiptEvent) =>
+      applyReadReceipt(queryClient, workspaceId, event, userId),
+    )
 
     return () => {
       live.close()

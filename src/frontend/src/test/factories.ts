@@ -18,6 +18,17 @@ function id(): string {
   return crypto.randomUUID()
 }
 
+/**
+ * A UUIDv7-shaped message id that sorts by `n`.
+ *
+ * `aMessage()` ids are UUIDv4, so their string order means nothing; the read
+ * rules compare ids as strings (UUIDv7 is time order), so a test that needs
+ * "older" and "newer" builds its ids with this. `messageIdAt(2) > messageIdAt(1)`.
+ */
+export function messageIdAt(n: number): string {
+  return `0199a000-0000-7000-8000-${n.toString(16).padStart(12, '0')}`
+}
+
 export function aChannel(overrides: Partial<Channel> = {}): Channel {
   return {
     id: id(),
