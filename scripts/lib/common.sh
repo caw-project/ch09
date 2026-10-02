@@ -102,3 +102,14 @@ origin_host() {
     host="${host%%/*}"
     printf '%s' "${host%%:*}"
 }
+
+# Where a browser reaches object storage for an origin: the same scheme and port on
+# an `s3.` host of its own — http://a.localhost:8080 → http://s3.a.localhost:8080.
+# A presigned URL's host is part of its signature and the SPA's origin routes to the
+# SPA, so Garage's S3 API gets a host (and an Ingress, in charts/collabhub-deps).
+origin_s3_endpoint() {
+    local scheme="${1%%://*}" rest="${1#*://}" port=""
+    rest="${rest%%/*}"
+    case "$rest" in *:*) port=":${rest##*:}" ;; esac
+    printf '%s://s3.%s%s' "$scheme" "$(origin_host "$1")" "$port"
+}

@@ -15,6 +15,7 @@ dependencies = [
     "redis>=5.2",
     "python-socketio>=5.12",
     "elasticsearch[async]>=9.1,<10",
+    "httpx>=0.28",
 ]
 
 [dependency-groups]

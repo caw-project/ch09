@@ -30,6 +30,13 @@ interface ChatState {
    * a half-typed reply can never be the channel's draft (R14) by construction.
    */
   threadDrafts: Record<string, string>
+  /**
+   * Per-channel "your last send was refused" text. Keyed by channel because a
+   * refusal belongs to the composer it came from: it must not follow the user
+   * into another channel (issue 4 R14), and it is cleared when the next send for
+   * that channel starts.
+   */
+  sendErrors: Record<string, string>
   connectionStatus: ConnectionStatus
   /**
    * The channel whose room the server has put this connection in — set when it
@@ -51,6 +58,8 @@ interface ChatState {
   clearDraft: (channelId: string) => void
   setThreadDraft: (rootId: string, text: string) => void
   clearThreadDraft: (rootId: string) => void
+  /** `null` clears the channel's error. */
+  setSendError: (channelId: string, text: string | null) => void
   setConnectionStatus: (status: ConnectionStatus) => void
   setJoinedChannel: (channelId: string | null) => void
 }
@@ -59,6 +68,7 @@ export const useChatStore = create<ChatState>((set) => ({
   activeChannelId: null,
   drafts: {},
   threadDrafts: {},
+  sendErrors: {},
   connectionStatus: 'disconnected',
   joinedChannelId: null,
   readingChannelId: null,
@@ -68,6 +78,14 @@ export const useChatStore = create<ChatState>((set) => ({
   setJoinedChannel: (channelId) => set({ joinedChannelId: channelId }),
   setDraft: (channelId, text) =>
     set((state) => ({ drafts: { ...state.drafts, [channelId]: text } })),
+  setSendError: (channelId, text) =>
+    set((state) => {
+      if (text === null) {
+        const { [channelId]: _cleared, ...rest } = state.sendErrors
+        return { sendErrors: rest }
+      }
+      return { sendErrors: { ...state.sendErrors, [channelId]: text } }
+    }),
   clearDraft: (channelId) =>
     set((state) => {
       const { [channelId]: _removed, ...rest } = state.drafts

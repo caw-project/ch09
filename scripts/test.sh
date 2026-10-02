@@ -86,6 +86,7 @@ DEPS_TEST_CREDENTIALS=(
     --set-string dex.clientSecret=lint-client-secret
     --set-string 'dex.passwordHash=$2b$10$lintlintlintlintlintlO0000000000000000000000000000000'
     --set-string workerClientSecret=lint-worker-secret
+    --set-string messagingClientSecret=lint-messaging-secret
 )
 
 layer_lint() {

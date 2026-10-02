@@ -10,15 +10,17 @@
  * value `ChannelView` sets — so the hook follows navigation without owning it.
  */
 
-import type { ReactNode } from 'react'
+import { type ReactNode, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import * as session from '../../lib/auth/session'
 import type { Session } from '../../lib/auth/session'
 import { SocketProvider } from '../../lib/realtime/SocketProvider'
 import { useChannelSocket } from '../../lib/realtime/useChannelSocket'
+import { useAttachmentStore } from '../../stores/attachments'
 import { useChatStore } from '../../stores/chat'
 import { SearchBox } from '../search/SearchBox'
+import { cancelAll } from '../attachments/uploads'
 import { ChannelList } from './ChannelList'
 import { CreateChannelDialog } from './CreateChannelDialog'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
@@ -39,6 +41,19 @@ export function ChatLayout({ current, children }: Props) {
   const activeChannelId = useChatStore((state) => state.activeChannelId)
   const connectionStatus = useChatStore((state) => state.connectionStatus)
   const joinedChannelId = useChatStore((state) => state.joinedChannelId)
+
+  // A token is scoped to one workspace, so an upload started under the old one
+  // must not carry on and a chip from it must not be offered in the new. The
+  // cleanup runs when the workspace changes and when the shell goes away
+  // (sign-out unmounts it); a reload loses chips by itself, they are in memory.
+  const workspaceId = current.activeWorkspaceId
+  useEffect(
+    () => () => {
+      cancelAll()
+      useAttachmentStore.getState().reset()
+    },
+    [workspaceId],
+  )
 
   const socket = useChannelSocket(
     current.accessToken,

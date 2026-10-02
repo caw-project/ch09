@@ -35,8 +35,19 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Index, Integer, String, Text, func, text
-from sqlalchemy.dialects.postgresql import ARRAY, TIMESTAMP, UUID
+from sqlalchemy import (
+    BigInteger,
+    ForeignKey,
+    Index,
+    Integer,
+    SmallInteger,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
+from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 # Every timestamp on the platform is UTC `timestamptz` (Conventions §3).
@@ -146,12 +157,12 @@ class ChannelRead(Base):
 class Message(Base):
     """Something somebody said in a channel (spec §4).
 
-    `thread_root_id` makes a row a reply (single-level threads, register D8a);
-    `attachments` shipped ahead of its feature (the Asset service is a skeleton),
-    on the rule `0001_channels` set: adding a column later churns the table.
-    `version` is not idle — it is the
-    optimistic-concurrency guard for the edit in the next slice, and the
-    external version an Elasticsearch index would use (register D25).
+    `thread_root_id` makes a row a reply (single-level threads, register D8a).
+    `version` is the optimistic-concurrency guard for edits and the external
+    version an Elasticsearch index uses (register D25).
+
+    A message's attachments are not a column: they are `MessageAttachment` rows,
+    read page-wide the way reactions are (`0006_message_attachments`).
 
     `channel_id` carries a foreign key and `author_id` does not, and that is the
     Conventions §2 boundary drawn in DDL: a channel is this service's row, and a
@@ -185,15 +196,34 @@ class Message(Base):
         UUID(as_uuid=True), ForeignKey("messages.id"), nullable=True
     )
     body: Mapped[str] = mapped_column(Text, nullable=False)
-    attachments: Mapped[list[uuid.UUID]] = mapped_column(
-        ARRAY(UUID(as_uuid=True)), nullable=False, server_default=text("'{}'")
-    )
     created_at: Mapped[datetime] = mapped_column(
         Timestamp, nullable=False, server_default=func.now()
     )
     edited_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+
+
+class MessageAttachment(Base):
+    """A file on a message: a snapshot of what Asset said when it was claimed.
+
+    Keyed on the message and the attach order. `asset_id` is `UNIQUE` — a second
+    guard behind Asset's claim — and carries no foreign key, because the asset is
+    Asset's row (Conventions §2). `message_id` does, and it cascades. See
+    `0006_message_attachments`.
+    """
+
+    __tablename__ = "message_attachments"
+    __table_args__ = (UniqueConstraint("asset_id"),)
+
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), primary_key=True
+    )
+    position: Mapped[int] = mapped_column(SmallInteger, primary_key=True, autoincrement=False)
+    asset_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    file_name: Mapped[str] = mapped_column(Text, nullable=False)
+    content_type: Mapped[str] = mapped_column(Text, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
 class Reaction(Base):

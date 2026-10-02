@@ -89,6 +89,11 @@ otelCollector:
 # Required. The Worker's client-credentials secret (Conventions §5.5).
 workerClientSecret: ""
 
+# Required. Messaging's, for claiming a send's attachments from Asset
+# (Conventions §5.5). Auth is told the same value with the `assets:claim` and
+# `assets:download` scopes.
+messagingClientSecret: ""
+
 auth:
   # Optional: Auth's RS256 signing key as PEM, e.g.
   # `--set-file auth.signingKey=signing.pem`. Empty means generate one on first

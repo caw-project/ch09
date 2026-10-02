@@ -14,8 +14,13 @@
 # CORS at all. The identity provider is not routed here: it is a dependency, and
 # the chart that deploys it routes it on the same host.
 #
-# Canvas and Asset have no public API yet. When Canvas gains real-time it will
-# want /socket.io too, which Messaging already holds.
+# Canvas has no public API yet. When it gains real-time it will want /socket.io
+# too, which Messaging already holds.
+#
+# Asset's public prefix is /api/v1/assets and nothing else: `upload-url` and
+# `confirm`. Its internal routes (claim, download-url) sit under
+# /api/v1/internal/ and are never routed (Conventions §5.5). Downloads are not
+# routed through Asset at all — Messaging mints them (register D43).
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -60,6 +65,18 @@ spec:
             backend:
               service:
                 name: {{ $messaging }}
+                port:
+                  name: http
+          {{- end }}
+          {{- end }}
+          {{- if $components.asset.enabled }}
+          {{- $asset := include "collabhub.componentFullname" (dict "root" $ "name" "asset") }}
+          {{- range list "/api/v1/assets" }}
+          - path: {{ . }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $asset }}
                 port:
                   name: http
           {{- end }}

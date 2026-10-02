@@ -108,8 +108,10 @@ and search is out of scope. The `version` column ships anyway because it earns
 its place on optimistic concurrency alone (Conventions §3), so adding the
 producer later is purely additive.
 
-**`attachments` in the API.** The column arrives with `messages`; the Asset
-service is still a skeleton.
+**`attachments` in the API.** Built with issue 4: a send may name up to ten uploaded
+assets, which Messaging claims from Asset before inserting the message, snapshots in
+`message_attachments`, and serves downloads for (design doc 02 §3.1.3–4). The `uuid[]`
+column on `messages` that used to stand in for this is gone.
 
 **`POST /api/v1/internal/messages/sweep`.** Retention values are register D16,
 still 🔴.

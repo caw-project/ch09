@@ -3,11 +3,13 @@
 What lives here is the platform's shared contract, implemented once so five
 services cannot drift: RFC 7807 Problem Details, UUID v7 keys, JWKS-backed token
 verification with `require_user` / `require_service`, the Redis token denylist,
-the health router, and the job envelope and queue (Conventions §7), which
-arrived with message search.
+the health router, the job envelope and queue (Conventions §7), which
+arrived with message search, and `ServiceTokenSource`, a service's own cached
+client-credentials token (Conventions §5.5), which arrived with attachments.
 
-Still to arrive with the services that need them: the `ObjectStore` protocol,
-and structlog + OpenTelemetry setup.
+Still to arrive with the services that need them: structlog + OpenTelemetry
+setup. (The `ObjectStore` protocol lives in Asset, the only service that
+speaks to object storage.)
 See docs/design/00-platform-conventions.md.
 """
 
@@ -56,6 +58,7 @@ from shared.security import (
     require_user_sensitive,
     verify_user_token,
 )
+from shared.service_tokens import ServiceTokenSource, ServiceTokenUnavailableError
 
 __all__ = [
     "DEFAULT_LIMIT",
@@ -77,6 +80,8 @@ __all__ = [
     "SecurityConfig",
     "SecurityContext",
     "ServicePrincipal",
+    "ServiceTokenSource",
+    "ServiceTokenUnavailableError",
     "StaticKeySource",
     "TokenState",
     "UnknownKeyError",

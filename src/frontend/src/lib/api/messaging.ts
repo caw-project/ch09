@@ -28,6 +28,7 @@ export type Message = components['schemas']['MessageResponse']
 export type MessagePage = components['schemas']['MessageListResponse']
 export type Reaction = components['schemas']['ReactionSummary']
 export type ThreadPage = components['schemas']['ThreadResponse']
+export type Attachment = components['schemas']['Attachment']
 
 const client = createClient<paths>({ baseUrl: MESSAGING_URL })
 
@@ -292,6 +293,29 @@ export async function addReaction(
     params: { path: { message_id: messageId } },
     body: { emoji },
   })
+  if (error !== undefined) throw problem(response.status, error)
+  return data
+}
+
+/**
+ * A short-lived URL for one file on a message.
+ *
+ * Messaging mints it, and only for someone who can see the message: Asset has no
+ * public download route, so this is the one way to a file's bytes (register D43).
+ * The URL lasts 15 minutes; `useAttachmentUrl` decides when to ask for another.
+ */
+export async function getAttachmentUrl(
+  accessToken: string,
+  messageId: string,
+  assetId: string,
+): Promise<{ url: string; expiresAt: string }> {
+  const { data, error, response } = await client.GET(
+    '/api/v1/messages/{message_id}/attachments/{asset_id}/download-url',
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      params: { path: { message_id: messageId, asset_id: assetId } },
+    },
+  )
   if (error !== undefined) throw problem(response.status, error)
   return data
 }

@@ -156,10 +156,17 @@ export interface paths {
         put?: never;
         /**
          * Send Message
-         * @description Say something in a channel the caller can see.
+         * @description Say something in a channel the caller can see, with up to ten files.
          *
          *     Spec §3.1 keeps this as the REST fallback once the Socket.IO send exists;
          *     both call the same domain function, so the rules cannot drift between them.
+         *
+         *     **Claim, then insert.** Everything that can be refused is refused first —
+         *     visibility, the attachment count, the body — then the message's id is
+         *     chosen, its assets are claimed from Asset for that id, and only then is the
+         *     message written. A refused or unreachable claim (409, 503) leaves nothing
+         *     behind. The body is checked *before* the claim: a bad body must not claim
+         *     assets for a message that will never exist.
          */
         post: operations["send_message_api_v1_channels__channel_id__messages_post"];
         delete?: never;
@@ -243,6 +250,35 @@ export interface paths {
          *     There is no time window (register D8d).
          */
         patch: operations["edit_message_api_v1_messages__message_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/messages/{message_id}/attachments/{asset_id}/download-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Attachment Download Url
+         * @description A short-lived URL for one attachment, for anyone who can see the message.
+         *
+         *     **This is where download authorization lives** (register D43): Asset has no
+         *     public download route, so a file can only be fetched through a message, and a
+         *     message can only be seen by someone who can see its channel.
+         *
+         *     A channel the caller cannot see, or no such message, is the usual `No such
+         *     channel.`. After that Messaging's *own* record decides: a deleted message, or
+         *     an asset that is not on this one, is `No such attachment.` without asking
+         *     Asset, which would happily mint a URL for either. 503 when Asset is down.
+         */
+        get: operations["attachment_download_url_api_v1_messages__message_id__attachments__asset_id__download_url_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/messages/{message_id}/reactions": {
@@ -403,6 +439,40 @@ export interface components {
              * Format: uuid
              */
             userId: string;
+        };
+        /**
+         * Attachment
+         * @description A file on a message: what the Asset service said when it was claimed.
+         *
+         *     **No URL.** A URL is short-lived and per-viewer, so it is minted on demand
+         *     by `GET /messages/{id}/attachments/{assetId}/download-url`, which checks the
+         *     caller can see the message. This is only enough to draw a chip.
+         */
+        Attachment: {
+            /**
+             * Assetid
+             * Format: uuid
+             */
+            assetId: string;
+            /** Contenttype */
+            contentType: string;
+            /** Filename */
+            fileName: string;
+            /** Sizebytes */
+            sizeBytes: number;
+        };
+        /**
+         * AttachmentDownloadResponse
+         * @description A short-lived URL to GET one attachment's bytes from object storage.
+         */
+        AttachmentDownloadResponse: {
+            /**
+             * Expiresat
+             * Format: date-time
+             */
+            expiresAt: string;
+            /** Url */
+            url: string;
         };
         /**
          * ChannelListResponse
@@ -584,9 +654,9 @@ export interface components {
          *
          *     `reactions` is a summary — one entry per emoji anyone used, with the count
          *     and whether the caller is one of them — and it is `[]` rather than absent
-         *     when nobody has reacted. `attachments` is a real column read off a real row
-         *     that happens to be empty, because the Asset service is a skeleton rather
-         *     than because nothing was built.
+         *     when nobody has reacted. `attachments` is `[]` when there are none, in the
+         *     order the sender attached them, and **always `[]` on a deleted message**:
+         *     the tombstone shows no files.
          *
          *     No `workspaceId`, for the reason `ChannelResponse` gives: it is the token's
          *     `wsp` claim, and echoing it invites a client to start sending it.
@@ -604,7 +674,7 @@ export interface components {
          */
         MessageResponse: {
             /** Attachments */
-            attachments: string[];
+            attachments: components["schemas"]["Attachment"][];
             /**
              * Authorid
              * Format: uuid
@@ -680,18 +750,25 @@ export interface components {
         };
         /**
          * SendMessageRequest
-         * @description Say something in a channel, or reply to a message in it.
+         * @description Say something in a channel, or reply to a message in it, optionally with files.
          *
-         *     No `channelId` — it is in the path; no `authorId` — it is the token's `sub`;
-         *     no `attachmentIds`, because accepting a field the service ignores is a claim
-         *     it does not honour. `threadRootId` names the message being replied to: a
-         *     reply to a reply is filed under the root, and a root that is unknown or in
-         *     another channel is a 404.
+         *     No `channelId` — it is in the path; no `authorId` — it is the token's `sub`.
+         *     `threadRootId` names the message being replied to: a reply to a reply is
+         *     filed under the root, and a root that is unknown or in another channel is a
+         *     404.
          *
-         *     `max_length` here is a static outer bound and **not** the rule — see
+         *     `attachmentIds` are assets the caller has uploaded and confirmed, in the
+         *     order they should appear. How many, and whether any is listed twice, are
+         *     rules checked in the domain so the answer can say which — not a Pydantic
+         *     bound from the wrong layer. The body may be empty only when there is at least
+         *     one.
+         *
+         *     `max_length` on the body is a static outer bound and **not** the rule — see
          *     `MAX_BODY_FIELD_LENGTH`.
          */
         SendMessageRequest: {
+            /** Attachmentids */
+            attachmentIds?: string[];
             /** Body */
             body: string;
             /** Threadrootid */
@@ -1205,6 +1282,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MessageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    attachment_download_url_api_v1_messages__message_id__attachments__asset_id__download_url_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: string;
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentDownloadResponse"];
                 };
             };
             /** @description Validation Error */

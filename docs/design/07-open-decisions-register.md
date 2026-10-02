@@ -49,6 +49,11 @@ every credential it renders is required, with no default.
 lab is plain HTTP; nowhere else does.
 [ADR](../adr/260916-per-environment-values-and-an-opt-in-ingress.md).
 
+**Settled 2026-10-02:** D15 — no virus scan; the content-type allow-list (no SVG) is the
+mitigation — and D43 — attachment downloads follow message visibility, minted through
+Messaging, and a send claims its files before the message exists.
+[ADR](../adr/261002-attachment-downloads-follow-message-visibility.md).
+
 - 🟢 **Identity federation** [D5] — Auth is an OIDC *relying party*, never a provider. Dex is
   the upstream locally; a customer's own IdP elsewhere. `dev-login` is deleted.
   [ADR](../adr/260728-federate-to-an-upstream-oidc-provider.md)
@@ -108,7 +113,9 @@ in this scope deletes one: the stored `body` is left intact on delete, no
 retention job exists, and `POST /api/v1/internal/messages/sweep` is not built.
 D8d settles the semantics of edit and delete and not the retention half of its
 original title — a distinction worth keeping, because it means message text
-outlives a user pressing "delete" until D16 says otherwise.
+outlives a user pressing "delete" until D16 says otherwise. **Attachments add to that
+(2026-10-02):** unsent `pending` assets, a deleted message's `message_attachments` rows and
+its blobs in Garage all accumulate, and nothing sweeps any of them.
 
 ## Canvas
 
@@ -123,9 +130,10 @@ outlives a user pressing "delete" until D16 says otherwise.
 
 | ID | Decision | Default in docs | Recommendation | Scope |
 |----|----------|-----------------|----------------|-------|
-| D13 | Avatars/exports in shared bucket vs. dedicated buckets | 🔴 Open | — | Asset |
+| D13 | Avatars/exports in shared bucket vs. dedicated buckets | 🔴 Open | — **Built against it 2026-10-02:** attachments use the one bucket `collabhub-assets`; nothing here decides avatars or exports | Asset |
 | D14 | How Worker reports generated variants back | 🟢 **Decided (2026-07-27):** internal endpoint `POST /api/v1/internal/assets/{id}/variants`, authenticated with an Auth-issued service token | See [ADR 260727](../adr/260727-service-tokens-for-internal-calls.md) | Cross-cutting (Asset, Worker) |
-| D15 | Virus/malware scan before marking `ready` | 🔴 Open | Add a scan hook if uploads are user-shared | Asset |
+| D15 | Virus/malware scan before marking `ready` | 🟢 **Decided (2026-10-02):** no scan | The mitigation is the allow-list: PNG, JPEG, GIF, WebP and PDF only, **no SVG** (it runs script when opened), a constant in `asset/rules.py` and not a setting. A scan would add a state between `pending` and `ready`. See doc 04 §3 | Asset |
+| D43 | Who authorizes an attachment download, and how a send gets its files (raised 2026-10-02 by issue 4) | 🟢 **Decided (2026-10-02):** Messaging, through `GET /messages/{id}/attachments/{assetId}/download-url`, for anyone who can see the message; Asset has no public download route. A send **claims** its assets from Asset (all or none) before inserting the message | Visibility has one implementation. A send with files depends on Asset and Auth being reachable (503 otherwise, nothing saved). See [ADR 261002](../adr/261002-attachment-downloads-follow-message-visibility.md), doc 02 §3.1.3–4 and doc 04 §3 | Cross-cutting (Messaging, Asset) |
 | D15b | Azure phase: direct Blob SDK vs. S3-compat layer | 🟡 S3-compat | Keep S3-compat behind the `ObjectStore` protocol | Asset |
 
 ## Worker
@@ -158,7 +166,7 @@ outlives a user pressing "delete" until D16 says otherwise.
 | D37 | What the SPA does when a REST call returns 401: a token revoked before it expires (raised 2026-09-15 by the test-gaps review; doc 06 says renewal is scheduled ahead of expiry and "not reactive on a 401", and nothing else) | 🔴 Open. Today the `ProblemError` is shown in a banner and the user stays "signed in" with a dead token | Recommendation: try one renewal, retry the call once, and sign out if that fails. Needs single-flight renewal, which landed with [plan 07](../plans/ch07/07-test-gaps-backfill-implementation-plan.md) | Frontend |
 | D38 | Whether a renewal that fails with a network error (no response at all) signs the user out (raised 2026-09-15 by the test-gaps review) | 🔴 Open. `session.ts` signs out on every failure, including `restore()` at page load while Auth is down | Doc 06 §4.5 gives rotation as the reason to sign out, but a request that never reached Auth spent nothing — though a lost *response* may have. Tied to cross-tab renewal, which is also unsolved | Frontend (+ Auth) |
 | D32 | Test strategy: what each layer is for (raised 2026-09-15; the docs listed four layers and no rule for choosing between them) | 🟢 **Decided (2026-09-15):** a test pyramid — unit tests for all functionality, integration tests for each service's public boundary against dependencies testcontainers starts, BDD for key user journeys only | The directory decides the layer (`tests/unit/`, `tests/integration/`), enforced by the `testkit` pytest plugin, which also cuts unit tests off from the network and Docker. Rules become pure functions; nothing fakes a repository. Contract tests fold into unit; the SPA gets Vitest. The BDD suite is the `e2e` layer of `scripts/test.sh` (in `all`, not the default), which brings the test stack up with `--wait`, runs it and tears it down; that needed a Compose healthcheck on `frontend`, probing `/` as the chart's probes do ([plan D](../plans/ch07/06-test-pyramid-e2e-script-and-triage-implementation-plan.md)). See [ADR 260915](../adr/260915-a-test-pyramid-with-journeys-at-the-top.md) and [the design](../plans/ch07/01-test-pyramid-design.md) | Cross-cutting (every service, Frontend, testing) |
-| D34 | Integration test infrastructure: how many containers, where the fixtures live, how the stores are separated (raised 2026-09-15 by the integration handoff) | 🟢 **Decided (2026-09-15):** one container per store per test session, registered once from the `testkit` plugin; a database per service on one Postgres; a database index per Redis role (R1 `/0`, R2 `/1`, R3 `/2`); Elasticsearch started only on request | A unit test depending on a container fixture stops the run. Pub/Sub is not index-scoped, so R2 is checked by connection. Garage waits for the `ObjectStore` slice. Messaging's search tests seed the index with the Worker's own mapping and handlers through `testkit.search`. See [ADR 260915](../adr/260915-integration-tests-share-one-container-per-store.md) and [plan 05](../plans/ch07/05-test-pyramid-integration-framework-implementation-plan.md) | Cross-cutting (every service, testing) |
+| D34 | Integration test infrastructure: how many containers, where the fixtures live, how the stores are separated (raised 2026-09-15 by the integration handoff) | 🟢 **Decided (2026-09-15):** one container per store per test session, registered once from the `testkit` plugin; a database per service on one Postgres; a database index per Redis role (R1 `/0`, R2 `/1`, R3 `/2`); Elasticsearch started only on request | A unit test depending on a container fixture stops the run. Pub/Sub is not index-scoped, so R2 is checked by connection. Garage landed with attachments (2026-10-02): a `garage_server` fixture, bootstrapped by the real `garage-bootstrap.py`. Messaging's search tests seed the index with the Worker's own mapping and handlers through `testkit.search`. See [ADR 260915](../adr/260915-integration-tests-share-one-container-per-store.md) and [plan 05](../plans/ch07/05-test-pyramid-integration-framework-implementation-plan.md) | Cross-cutting (every service, testing) |
 
 ---
 

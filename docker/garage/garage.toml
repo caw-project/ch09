@@ -1,9 +1,9 @@
 # Single-node Garage for local development (docs/platform/versions.md, garage
 # entry). Nothing here is a real secret.
 #
-# Garage will not serve S3 traffic until a cluster layout is assigned. That is a
-# one-off manual step after first start — see the "Object storage" section of
-# README.md.
+# Garage will not serve S3 traffic until a cluster layout is assigned, and has no
+# bucket, key or CORS rules. The `garage-bootstrap` service in docker-compose.yml
+# does all of that on every `up` — see the "Object storage" section of README.md.
 
 metadata_dir = "/var/lib/garage/meta"
 data_dir = "/var/lib/garage/data"

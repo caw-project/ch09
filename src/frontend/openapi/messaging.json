@@ -25,6 +25,56 @@
         "title": "AddChannelMemberRequest",
         "type": "object"
       },
+      "Attachment": {
+        "description": "A file on a message: what the Asset service said when it was claimed.\n\n**No URL.** A URL is short-lived and per-viewer, so it is minted on demand\nby `GET /messages/{id}/attachments/{assetId}/download-url`, which checks the\ncaller can see the message. This is only enough to draw a chip.",
+        "properties": {
+          "assetId": {
+            "format": "uuid",
+            "title": "Assetid",
+            "type": "string"
+          },
+          "contentType": {
+            "title": "Contenttype",
+            "type": "string"
+          },
+          "fileName": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "sizeBytes": {
+            "title": "Sizebytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "assetId",
+          "fileName",
+          "contentType",
+          "sizeBytes"
+        ],
+        "title": "Attachment",
+        "type": "object"
+      },
+      "AttachmentDownloadResponse": {
+        "description": "A short-lived URL to GET one attachment's bytes from object storage.",
+        "properties": {
+          "expiresAt": {
+            "format": "date-time",
+            "title": "Expiresat",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "expiresAt"
+        ],
+        "title": "AttachmentDownloadResponse",
+        "type": "object"
+      },
       "ChannelListResponse": {
         "description": "The list envelope from Conventions \u00a74.1.",
         "properties": {
@@ -317,12 +367,11 @@
         "type": "object"
       },
       "MessageResponse": {
-        "description": "A message as the API reports it (spec \u00a73.1.3).\n\nOne absence and two presences are all deliberate.\n\n`replyCount` and `lastReplyAt` summarise a root's live (not deleted) replies\nand are `0` and `null` on everything else — a reply, a message nobody\nanswered, a freshly sent one. Both are required with no default, for the\nreason `ChannelResponse` gives: a default drops them from OpenAPI `required`.\nA deleted root keeps its summary (R10).\n\n`reactions` is a summary \u2014 one entry per emoji anyone used, with the count\nand whether the caller is one of them \u2014 and it is `[]` rather than absent\nwhen nobody has reacted. `attachments` is a real column read off a real row\nthat happens to be empty, because the Asset service is a skeleton rather\nthan because nothing was built.\n\nNo `workspaceId`, for the reason `ChannelResponse` gives: it is the token's\n`wsp` claim, and echoing it invites a client to start sending it.\n\n`authorId` is a bare id and there is no user expansion. Messaging owns no\nuser records and must not read Auth's tables (Conventions \u00a72); the browser\nresolves the name from Auth's own workspace directory, holding a token that\nalready entitles it to both.\n\n**`body` is `\"\"` on a deleted message, never `null` and never the original\ntext.** The redaction is server-side and the type stays non-null, so the\ngenerated TypeScript does not force a null check at every render site. The\nclient renders \"this message was deleted\" from `deletedAt`, not from an\nempty body.",
+        "description": "A message as the API reports it (spec \u00a73.1.3).\n\nOne absence and two presences are all deliberate.\n\n`replyCount` and `lastReplyAt` summarise a root's live (not deleted) replies\nand are `0` and `null` on everything else \u2014 a reply, a message nobody\nanswered, a freshly sent one. Both are required with no default, for the\nreason `ChannelResponse` gives: a default drops them from OpenAPI `required`.\nA deleted root keeps its summary (R10).\n\n`reactions` is a summary \u2014 one entry per emoji anyone used, with the count\nand whether the caller is one of them \u2014 and it is `[]` rather than absent\nwhen nobody has reacted. `attachments` is `[]` when there are none, in the\norder the sender attached them, and **always `[]` on a deleted message**:\nthe tombstone shows no files.\n\nNo `workspaceId`, for the reason `ChannelResponse` gives: it is the token's\n`wsp` claim, and echoing it invites a client to start sending it.\n\n`authorId` is a bare id and there is no user expansion. Messaging owns no\nuser records and must not read Auth's tables (Conventions \u00a72); the browser\nresolves the name from Auth's own workspace directory, holding a token that\nalready entitles it to both.\n\n**`body` is `\"\"` on a deleted message, never `null` and never the original\ntext.** The redaction is server-side and the type stays non-null, so the\ngenerated TypeScript does not force a null check at every render site. The\nclient renders \"this message was deleted\" from `deletedAt`, not from an\nempty body.",
         "properties": {
           "attachments": {
             "items": {
-              "format": "uuid",
-              "type": "string"
+              "$ref": "#/components/schemas/Attachment"
             },
             "title": "Attachments",
             "type": "array"
@@ -473,8 +522,16 @@
         "type": "object"
       },
       "SendMessageRequest": {
-        "description": "Say something in a channel, or reply to a message in it.\n\nNo `channelId` \u2014 it is in the path; no `authorId` \u2014 it is the token's `sub`;\nno `attachmentIds`, because accepting a field the service ignores is a claim\nit does not honour. `threadRootId` names the message being replied to: a\nreply to a reply is filed under the root, and a root that is unknown or in\nanother channel is a 404.\n\n`max_length` here is a static outer bound and **not** the rule \u2014 see\n`MAX_BODY_FIELD_LENGTH`.",
+        "description": "Say something in a channel, or reply to a message in it, optionally with files.\n\nNo `channelId` \u2014 it is in the path; no `authorId` \u2014 it is the token's `sub`.\n`threadRootId` names the message being replied to: a reply to a reply is\nfiled under the root, and a root that is unknown or in another channel is a\n404.\n\n`attachmentIds` are assets the caller has uploaded and confirmed, in the\norder they should appear. How many, and whether any is listed twice, are\nrules checked in the domain so the answer can say which \u2014 not a Pydantic\nbound from the wrong layer. The body may be empty only when there is at least\none.\n\n`max_length` on the body is a static outer bound and **not** the rule \u2014 see\n`MAX_BODY_FIELD_LENGTH`.",
         "properties": {
+          "attachmentIds": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Attachmentids",
+            "type": "array"
+          },
           "body": {
             "maxLength": 64000,
             "title": "Body",
@@ -1100,7 +1157,7 @@
         ]
       },
       "post": {
-        "description": "Say something in a channel the caller can see.\n\nSpec \u00a73.1 keeps this as the REST fallback once the Socket.IO send exists;\nboth call the same domain function, so the rules cannot drift between them.",
+        "description": "Say something in a channel the caller can see, with up to ten files.\n\nSpec \u00a73.1 keeps this as the REST fallback once the Socket.IO send exists;\nboth call the same domain function, so the rules cannot drift between them.\n\n**Claim, then insert.** Everything that can be refused is refused first \u2014\nvisibility, the attachment count, the body \u2014 then the message's id is\nchosen, its assets are claimed from Asset for that id, and only then is the\nmessage written. A refused or unreachable claim (409, 503) leaves nothing\nbehind. The body is checked *before* the claim: a bad body must not claim\nassets for a message that will never exist.",
         "operationId": "send_message_api_v1_channels__channel_id__messages_post",
         "parameters": [
           {
@@ -1337,6 +1394,60 @@
         ]
       }
     },
+    "/api/v1/messages/{message_id}/attachments/{asset_id}/download-url": {
+      "get": {
+        "description": "A short-lived URL for one attachment, for anyone who can see the message.\n\n**This is where download authorization lives** (register D43): Asset has no\npublic download route, so a file can only be fetched through a message, and a\nmessage can only be seen by someone who can see its channel.\n\nA channel the caller cannot see, or no such message, is the usual `No such\nchannel.`. After that Messaging's *own* record decides: a deleted message, or\nan asset that is not on this one, is `No such attachment.` without asking\nAsset, which would happily mint a URL for either. 503 when Asset is down.",
+        "operationId": "attachment_download_url_api_v1_messages__message_id__attachments__asset_id__download_url_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Asset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentDownloadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Attachment Download Url",
+        "tags": [
+          "messages"
+        ]
+      }
+    },
     "/api/v1/messages/{message_id}/reactions": {
       "post": {
         "description": "React to a message. Reacting again with the same emoji changes nothing.\n\n**200 rather than 201.** The useful answer is the message's new counts, and\na repeat is not a creation \u2014 there is no new resource to point at either\ntime, because a reaction is not addressable on its own.",
@@ -1446,7 +1557,7 @@
     },
     "/api/v1/messages/{message_id}/thread": {
       "get": {
-        "description": "A root and a page of its replies, newest first, tombstones included.\n\nVisibility is the guard, as on every message route (spec §3.1.1). Naming a\nreply is a 404 with its own wording: the caller can see the reply, so\nsaying what is wrong with the id leaks nothing.",
+        "description": "A root and a page of its replies, newest first, tombstones included.\n\nVisibility is the guard, as on every message route (spec \u00a73.1.1). Naming a\nreply is a 404 with its own wording: the caller can see the reply, so\nsaying what is wrong with the id leaks nothing.",
         "operationId": "get_thread_api_v1_messages__message_id__thread_get",
         "parameters": [
           {

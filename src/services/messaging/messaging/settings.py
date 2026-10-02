@@ -35,6 +35,15 @@ class Settings(BaseSettings):
     messaging_max_body_chars: int = 8000
     messaging_max_attachments: int = 10
 
+    # Asset's internal API, and the Auth endpoint that mints the service token
+    # Messaging calls it with (Conventions §5.5). Mirrors the Worker's
+    # `WORKER_SERVICE_CLIENT_*`: empty means no attachment can be claimed, and a
+    # send that names one answers 503 rather than the service failing to start.
+    service_token_url: str = ""
+    asset_internal_url: str = ""
+    messaging_service_client_id: str = "messaging"
+    messaging_service_client_secret: str = ""
+
     # Engine.IO heartbeat. python-socketio's own defaults: a dropped connection
     # is noticed within interval + timeout, ~45s. Only the BDD stack shortens
     # them, so a "connection drops" journey does not wait that long.

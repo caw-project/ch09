@@ -19,6 +19,7 @@ from elasticsearch import AsyncElasticsearch
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from messaging import attachments as attachments_domain
 from messaging import reactions as reactions_domain
 from messaging import search, threads
 from messaging.db import session as db_session
@@ -72,10 +73,14 @@ async def search_messages(
         session, message_ids=[m.id for m in found.items], user_id=principal.user_id
     )
     counts = await threads.summaries_for(session, root_ids=[m.id for m in found.items])
+    stored = await attachments_domain.for_messages(session, [m.id for m in found.items])
     return MessageListResponse(
         items=[
             _as_message(
-                m, reactions=summaries.get(m.id, []), thread=counts.get(m.id, threads.NO_REPLIES)
+                m,
+                reactions=summaries.get(m.id, []),
+                attachments=stored.get(m.id, []),
+                thread=counts.get(m.id, threads.NO_REPLIES),
             )
             for m in found.items
         ],

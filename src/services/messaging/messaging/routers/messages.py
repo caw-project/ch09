@@ -36,11 +36,15 @@ import socketio
 from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from messaging import attachments as attachments_domain
 from messaging import channels, indexing, messages, realtime, threads
 from messaging import reactions as reactions_domain
+from messaging.assets import AssetClient, AssetUnavailableError, AttachmentNotFoundError
 from messaging.db import session as db_session
-from messaging.models import Message
+from messaging.models import Message, MessageAttachment
 from messaging.schemas import (
+    Attachment,
+    AttachmentDownloadResponse,
     EditMessageRequest,
     MessageListResponse,
     MessageResponse,
@@ -56,6 +60,7 @@ from shared import (
     UserPrincipal,
     page_request_for,
     require_user,
+    uuid7,
 )
 
 #: Two prefixes, one surface. History and sending hang off the channel that owns
@@ -77,6 +82,11 @@ def _settings(request: Request) -> Settings:
     return request.app.state.settings
 
 
+def _assets(request: Request) -> AssetClient:
+    """The app's Asset client — one per process, built in `create_app`."""
+    return request.app.state.assets
+
+
 def _body_problem(exc: Exception, *, max_chars: int) -> ProblemException:
     message = _BODY_PROBLEMS[type(exc)].format(max_chars=max_chars)
     return ProblemException.validation_error(message, errors={"body": [message]})
@@ -86,6 +96,7 @@ def _as_message(
     row: Message,
     *,
     reactions: list[reactions_domain.Summary],
+    attachments: list[MessageAttachment],
     thread: threads.Summary = threads.NO_REPLIES,
 ) -> MessageResponse:
     """The DTO, with a deleted row's body redacted here rather than in the query.
@@ -100,10 +111,12 @@ def _as_message(
     into a query per message. So there is nothing on the row for
     `model_validate` to read.
 
-    **`reactions` is required and keyword-only.** Every caller has to say what
-    this message's reactions are, including the ones that say `[]`, because a
-    default would make a forgotten aggregate look exactly like a message nobody
-    reacted to.
+    **`reactions` and `attachments` are required and keyword-only.** Every
+    caller has to say what this message's are, including the ones that say `[]`,
+    because a default would make a forgotten aggregate look exactly like a
+    message nobody reacted to or attached anything to. Both are loaded page-wide
+    by the caller. `attachments` is passed through `visible`, so a tombstone
+    shows none however the caller loaded them.
 
     **`thread` is a root's reply summary, and every caller that builds a DTO
     from a stored row must pass it** — an edit, a reaction or a delete that
@@ -118,7 +131,15 @@ def _as_message(
         author_id=row.author_id,
         thread_root_id=row.thread_root_id,
         body="" if row.deleted_at else row.body,
-        attachments=row.attachments,
+        attachments=[
+            Attachment(
+                asset_id=a.asset_id,
+                file_name=a.file_name,
+                content_type=a.content_type,
+                size_bytes=a.size_bytes,
+            )
+            for a in attachments_domain.visible(row, attachments)
+        ],
         reactions=[
             ReactionSummary(emoji=s.emoji, count=s.count, reacted=s.reacted) for s in reactions
         ],
@@ -167,7 +188,13 @@ async def _one_with_reactions(
     found = await reactions_domain.summaries_for(
         session, message_ids=[row.id], user_id=principal.user_id
     )
-    return _as_message(row, reactions=found.get(row.id, []), thread=await summary_of(session, row))
+    stored = await attachments_domain.for_messages(session, [row.id])
+    return _as_message(
+        row,
+        reactions=found.get(row.id, []),
+        attachments=stored.get(row.id, []),
+        thread=await summary_of(session, row),
+    )
 
 
 async def _visible_channel(
@@ -220,10 +247,14 @@ async def list_messages(
         session, message_ids=[m.id for m in found.items], user_id=principal.user_id
     )
     counts = await threads.summaries_for(session, root_ids=[m.id for m in found.items])
+    stored = await attachments_domain.for_messages(session, [m.id for m in found.items])
     return MessageListResponse(
         items=[
             _as_message(
-                m, reactions=summaries.get(m.id, []), thread=counts.get(m.id, threads.NO_REPLIES)
+                m,
+                reactions=summaries.get(m.id, []),
+                attachments=stored.get(m.id, []),
+                thread=counts.get(m.id, threads.NO_REPLIES),
             )
             for m in found.items
         ],
@@ -244,14 +275,23 @@ async def send_message(
     session: AsyncSession = Depends(db_session),
     sio: socketio.AsyncServer | None = Depends(realtime.server),
     jobs: JobQueue = Depends(indexing.queue),
+    assets: AssetClient = Depends(_assets),
 ) -> MessageResponse:
-    """Say something in a channel the caller can see.
+    """Say something in a channel the caller can see, with up to ten files.
 
     Spec §3.1 keeps this as the REST fallback once the Socket.IO send exists;
     both call the same domain function, so the rules cannot drift between them.
+
+    **Claim, then insert.** Everything that can be refused is refused first —
+    visibility, the attachment count, the body — then the message's id is
+    chosen, its assets are claimed from Asset for that id, and only then is the
+    message written. A refused or unreachable claim (409, 503) leaves nothing
+    behind. The body is checked *before* the claim: a bad body must not claim
+    assets for a message that will never exist.
     """
     await _visible_channel(session, principal, channel_id)
-    max_chars = _settings(request).messaging_max_body_chars
+    settings = _settings(request)
+    max_chars = settings.messaging_max_body_chars
 
     root_id: uuid.UUID | None = None
     if body.thread_root_id is not None:
@@ -265,20 +305,46 @@ async def send_message(
             raise ProblemException.not_found("No such thread.") from exc
 
     try:
-        created = await messages.create(
-            session,
-            channel_id=channel_id,
-            author_id=principal.user_id,
-            body=body.body,
-            max_chars=max_chars,
-            thread_root_id=root_id,
+        attachments_domain.check_attachment_ids(
+            body.attachment_ids, max_attachments=settings.messaging_max_attachments
+        )
+    except (
+        attachments_domain.TooManyAttachmentsError,
+        attachments_domain.DuplicateAttachmentError,
+    ) as exc:
+        raise attachments_domain.ids_problem(
+            exc, max_attachments=settings.messaging_max_attachments
+        ) from exc
+    try:
+        messages.validate_body(
+            body.body, max_chars=max_chars, allow_empty=bool(body.attachment_ids)
         )
     except tuple(_BODY_PROBLEMS) as exc:
         raise _body_problem(exc, max_chars=max_chars) from exc
 
+    message_id = uuid7()
+    metas = await attachments_domain.claim_for_send(
+        assets,
+        # The token's `wsp` and `sub`: the claim is for the caller, in their workspace.
+        workspace_id=principal.workspace_id,
+        user_id=principal.user_id,
+        message_id=message_id,
+        asset_ids=body.attachment_ids,
+    )
+    created, stored = await messages.create(
+        session,
+        message_id=message_id,
+        channel_id=channel_id,
+        author_id=principal.user_id,
+        body=body.body,
+        max_chars=max_chars,
+        thread_root_id=root_id,
+        attachments=metas,
+    )
+
     # A message nobody has seen yet has no reactions and no replies, so this one
     # needs no query.
-    response = _as_message(created, reactions=[])
+    response = _as_message(created, reactions=[], attachments=stored)
     await session.commit()
     await realtime.publish_message_received(sio, response)
     if root_id is not None:
@@ -305,19 +371,24 @@ async def get_thread(
         raise ProblemException.not_found("No such thread.")
 
     found = await threads.replies_page(session, root_id=row.id, page=page)
-    # The root and the page's replies in one reactions query.
+    # The root and the page's replies in one reactions query, and one attachments query.
     ids = [row.id, *(m.id for m in found.items)]
     reacted = await reactions_domain.summaries_for(
         session, message_ids=ids, user_id=principal.user_id
     )
+    stored = await attachments_domain.for_messages(session, ids)
     root = _as_message(
         row,
         reactions=reacted.get(row.id, []),
+        attachments=stored.get(row.id, []),
         thread=await threads.summary_for(session, root_id=row.id),
     )
     return ThreadResponse(
         root=root,
-        items=[_as_message(m, reactions=reacted.get(m.id, [])) for m in found.items],
+        items=[
+            _as_message(m, reactions=reacted.get(m.id, []), attachments=stored.get(m.id, []))
+            for m in found.items
+        ],
         next_cursor=found.next_cursor,
     )
 
@@ -331,6 +402,46 @@ async def get_message(
     """One message, if the caller can see the channel it is in."""
     row = await _visible_message(session, principal, message_id)
     return await _one_with_reactions(session, principal, row)
+
+
+@router.get(
+    "/{message_id}/attachments/{asset_id}/download-url",
+    response_model=AttachmentDownloadResponse,
+)
+async def attachment_download_url(
+    message_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    principal: UserPrincipal = Depends(require_user),
+    session: AsyncSession = Depends(db_session),
+    assets: AssetClient = Depends(_assets),
+) -> AttachmentDownloadResponse:
+    """A short-lived URL for one attachment, for anyone who can see the message.
+
+    **This is where download authorization lives** (register D43): Asset has no
+    public download route, so a file can only be fetched through a message, and a
+    message can only be seen by someone who can see its channel.
+
+    A channel the caller cannot see, or no such message, is the usual `No such
+    channel.`. After that Messaging's *own* record decides: a deleted message, or
+    an asset that is not on this one, is `No such attachment.` without asking
+    Asset, which would happily mint a URL for either. 503 when Asset is down.
+    """
+    message = await _visible_message(session, principal, message_id)
+    stored = await attachments_domain.for_messages(session, [message.id])
+    if attachments_domain.find_on(message, stored.get(message.id, []), asset_id) is None:
+        raise ProblemException.not_found("No such attachment.")
+
+    try:
+        minted = await assets.download_url(
+            workspace_id=principal.workspace_id, message_id=message.id, asset_id=asset_id
+        )
+    except AttachmentNotFoundError as exc:
+        raise ProblemException.not_found("No such attachment.") from exc
+    except AssetUnavailableError as exc:
+        raise ProblemException.service_unavailable(
+            "Attachments can't be fetched right now."
+        ) from exc
+    return AttachmentDownloadResponse(url=minted.url, expires_at=minted.expires_at)
 
 
 @router.patch("/{message_id}", response_model=MessageResponse)
@@ -386,7 +497,8 @@ async def edit_message(
     if edited is None:
         raise ProblemException.not_found("No such channel.")
 
-    # An edit changes the text and nothing else — the reactions stay.
+    # An edit changes the text and nothing else — the reactions and the
+    # attachments stay.
     response = await _one_with_reactions(session, principal, edited)
     await session.commit()
     await realtime.publish_message_edited(sio, response)
@@ -436,9 +548,14 @@ async def delete_message(
         # message is deleted and its reactions are still being counted.
         await reactions_domain.clear_for_message(session, message_id=message_id)
 
-    # A deleted root keeps its summary and its thread (R10).
+    # A deleted root keeps its summary and its thread (R10). No attachments: a
+    # tombstone shows none (`_as_message` applies `visible`), so there is
+    # nothing to load. The rows and the blobs stay (register D16).
     response = _as_message(
-        result.message, reactions=[], thread=await summary_of(session, result.message)
+        result.message,
+        reactions=[],
+        attachments=[],
+        thread=await summary_of(session, result.message),
     )
     await session.commit()
     # The redacted DTO, not an id: the row stays in the history and every

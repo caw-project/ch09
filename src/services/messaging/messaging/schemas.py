@@ -186,6 +186,27 @@ class ReactionRequest(CamelRequest):
     emoji: str = Field(max_length=32)
 
 
+class Attachment(CamelModel):
+    """A file on a message: what the Asset service said when it was claimed.
+
+    **No URL.** A URL is short-lived and per-viewer, so it is minted on demand
+    by `GET /messages/{id}/attachments/{assetId}/download-url`, which checks the
+    caller can see the message. This is only enough to draw a chip.
+    """
+
+    asset_id: uuid.UUID
+    file_name: str
+    content_type: str
+    size_bytes: int
+
+
+class AttachmentDownloadResponse(CamelModel):
+    """A short-lived URL to GET one attachment's bytes from object storage."""
+
+    url: str
+    expires_at: datetime
+
+
 class MessageResponse(CamelModel):
     """A message as the API reports it (spec §3.1.3).
 
@@ -199,9 +220,9 @@ class MessageResponse(CamelModel):
 
     `reactions` is a summary — one entry per emoji anyone used, with the count
     and whether the caller is one of them — and it is `[]` rather than absent
-    when nobody has reacted. `attachments` is a real column read off a real row
-    that happens to be empty, because the Asset service is a skeleton rather
-    than because nothing was built.
+    when nobody has reacted. `attachments` is `[]` when there are none, in the
+    order the sender attached them, and **always `[]` on a deleted message**:
+    the tombstone shows no files.
 
     No `workspaceId`, for the reason `ChannelResponse` gives: it is the token's
     `wsp` claim, and echoing it invites a client to start sending it.
@@ -223,7 +244,7 @@ class MessageResponse(CamelModel):
     author_id: uuid.UUID
     thread_root_id: uuid.UUID | None
     body: str
-    attachments: list[uuid.UUID]
+    attachments: list[Attachment]
     reactions: list[ReactionSummary]
     created_at: datetime
     edited_at: datetime | None
@@ -269,20 +290,26 @@ class ThreadSummaryChanged(CamelModel):
 
 
 class SendMessageRequest(CamelRequest):
-    """Say something in a channel, or reply to a message in it.
+    """Say something in a channel, or reply to a message in it, optionally with files.
 
-    No `channelId` — it is in the path; no `authorId` — it is the token's `sub`;
-    no `attachmentIds`, because accepting a field the service ignores is a claim
-    it does not honour. `threadRootId` names the message being replied to: a
-    reply to a reply is filed under the root, and a root that is unknown or in
-    another channel is a 404.
+    No `channelId` — it is in the path; no `authorId` — it is the token's `sub`.
+    `threadRootId` names the message being replied to: a reply to a reply is
+    filed under the root, and a root that is unknown or in another channel is a
+    404.
 
-    `max_length` here is a static outer bound and **not** the rule — see
+    `attachmentIds` are assets the caller has uploaded and confirmed, in the
+    order they should appear. How many, and whether any is listed twice, are
+    rules checked in the domain so the answer can say which — not a Pydantic
+    bound from the wrong layer. The body may be empty only when there is at least
+    one.
+
+    `max_length` on the body is a static outer bound and **not** the rule — see
     `MAX_BODY_FIELD_LENGTH`.
     """
 
     body: str = Field(max_length=MAX_BODY_FIELD_LENGTH)
     thread_root_id: uuid.UUID | None = None
+    attachment_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
 class EditMessageRequest(CamelRequest):

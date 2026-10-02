@@ -116,10 +116,15 @@ components:
       MESSAGING_MAX_ATTACHMENTS: "10"
       MESSAGING_SOCKET_PING_INTERVAL_SECONDS: "25"
       MESSAGING_SOCKET_PING_TIMEOUT_SECONDS: "20"
+      # Claiming a send's attachments: Asset's origin (callers append the path),
+      # and the client id Auth knows this service by.
+      ASSET_INTERNAL_URL: http://collabhub-asset:8000
+      MESSAGING_SERVICE_CLIENT_ID: messaging
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       # See templates/messaging/migrate-job.yaml.
       RUN_MIGRATIONS: "false"
-    # Supplies POSTGRES_DSN, all three REDIS_*_URL values and ELASTICSEARCH_URL.
+    # Supplies POSTGRES_DSN, all three REDIS_*_URL values, ELASTICSEARCH_URL,
+    # SERVICE_TOKEN_URL and MESSAGING_SERVICE_CLIENT_SECRET.
     envFromSecrets:
       - collabhub-messaging
 
@@ -173,8 +178,19 @@ components:
       OBJECT_STORE_BUCKET: collabhub-assets
       OBJECT_STORE_PRESIGN_TTL_SECONDS: "900"
       ASSET_MAX_UPLOAD_BYTES: "52428800"
+      # What a browser reaches the object store on: presigned URLs are signed
+      # for this host. Derived from APP_ORIGIN (s3.<host>) and set by
+      # scripts/deploy.sh, never here, because it depends on where the instance
+      # is reached. Left empty, Asset fails at startup rather than minting URLs
+      # no browser can use.
+      OBJECT_STORE_PUBLIC_ENDPOINT: ""
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
-    # Supplies POSTGRES_DSN, REDIS_STREAMS_URL, OBJECT_STORE_*_KEY.
+      # templates/asset/migrate-job.yaml migrates once per release instead of
+      # every replica migrating as it starts (docker/asset/entrypoint.sh).
+      RUN_MIGRATIONS: "false"
+    # No CORS_ALLOWED_ORIGINS: behind the one ingress the SPA and the API share
+    # an origin. Supplies POSTGRES_DSN, REDIS_CACHE_URL, REDIS_STREAMS_URL,
+    # OBJECT_STORE_ENDPOINT and OBJECT_STORE_*_KEY.
     envFromSecrets:
       - collabhub-asset
 
@@ -203,7 +219,8 @@ components:
       WORKER_BATCH_SIZE: "16"
       WORKER_DEAD_LETTER_MAXLEN: "10000"
       OBJECT_STORE_BUCKET: collabhub-assets
-      ASSET_INTERNAL_URL: http://collabhub-asset:8000/api/v1/internal
+      # Asset's origin, with no path: callers append `/api/v1/internal/...`.
+      ASSET_INTERNAL_URL: http://collabhub-asset:8000
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       # For KEDA, not the Worker process: the Redis Streams scaler takes
       # host:port and cannot parse the REDIS_STREAMS_URL the Worker uses. Must

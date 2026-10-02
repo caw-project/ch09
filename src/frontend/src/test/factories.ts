@@ -6,9 +6,10 @@
  * Ids are fresh per call so two factory values never collide by accident.
  */
 
-import type { Channel, Message, MessagePage, ThreadPage } from '../lib/api/messaging'
+import type { Attachment, Channel, Message, MessagePage, ThreadPage } from '../lib/api/messaging'
 import type { WorkspaceMember } from '../lib/auth/api'
 import type { Session } from '../lib/auth/session'
+import type { Chip } from '../stores/attachments'
 
 const AT = '2026-09-15T09:00:00Z'
 
@@ -62,6 +63,33 @@ export function aMessage(overrides: Partial<Message> = {}): Message {
     version: 0,
     replyCount: 0,
     lastReplyAt: null,
+    ...overrides,
+  }
+}
+
+/** What a message carries for one file (R8), as the server sends it. */
+export function anAttachment(overrides: Partial<Attachment> = {}): Attachment {
+  return {
+    assetId: id(),
+    fileName: 'diagram.png',
+    contentType: 'image/png',
+    sizeBytes: 1234,
+    ...overrides,
+  }
+}
+
+/** A chip in the composer, already uploaded unless a test says otherwise. */
+export function aChip(overrides: Partial<Chip> = {}): Chip {
+  const localId = overrides.localId ?? id()
+  return {
+    localId,
+    fileName: 'diagram.png',
+    contentType: 'image/png',
+    sizeBytes: 1234,
+    status: 'ready',
+    progress: 1,
+    assetId: `asset-${localId}`,
+    error: null,
     ...overrides,
   }
 }

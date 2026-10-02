@@ -52,6 +52,7 @@ from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from messaging import channels, threads
+from messaging.assets import AssetClient
 from messaging.schemas import MessageResponse, ThreadSummaryChanged
 from messaging.settings import Settings
 from shared import (
@@ -113,6 +114,9 @@ class RealtimeContext:
     security: SecurityContext
     #: The `jobs:index` producer's queue, shared with the REST routers.
     jobs: JobQueue
+    #: The Asset client the REST routers use, so a socket send claims its
+    #: attachments through the same token cache.
+    assets: AssetClient
 
 
 # --- the ack envelope ------------------------------------------------------

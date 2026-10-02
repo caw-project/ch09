@@ -22,12 +22,14 @@ name: collabhub-test
 services:
   # --- ports that actually get used ---------------------------------------
   #
-  # Only five things are reached from the host: Postgres (the suite truncates
+  # Only seven things are reached from the host: Postgres (the suite truncates
   # over it), Dex and Auth (the browser is redirected through both to sign in),
-  # Messaging (the readiness probe) and the frontend. Everything else is spoken
-  # to over the Compose network by service name, which project isolation already
-  # keeps separate — so republishing it would collide with the development stack
-  # for nothing.
+  # Messaging (the readiness probe), the frontend, and — for attachments — Asset
+  # (the browser asks it for an upload URL and confirms) and Garage (the browser
+  # PUTs the file to it and GETs it back with presigned URLs). Everything else is
+  # spoken to over the Compose network by service name, which project isolation
+  # already keeps separate — so republishing it would collide with the
+  # development stack for nothing.
   #
   # `!override` throughout because Compose *concatenates* `ports` when merging
   # files. Without it these would be published on both the old and new ports.
@@ -81,8 +83,29 @@ services:
       args:
         VITE_AUTH_URL: http://localhost:${BDD_AUTH_PORT:-8011}
         VITE_MESSAGING_URL: http://localhost:${BDD_MESSAGING_PORT:-8012}
+        VITE_ASSET_URL: http://localhost:${BDD_ASSET_PORT:-8014}
     ports: !override
       - "${BDD_FRONTEND_PORT:-5183}:8080"
+
+  asset:
+    environment:
+      # Verifies the tokens Auth stamps with the issuer the browser reaches it on.
+      AUTH_ISSUER: http://localhost:${BDD_AUTH_PORT:-8011}
+      CORS_ALLOWED_ORIGINS: '["http://localhost:${BDD_FRONTEND_PORT:-5183}"]'
+      # The host a browser reaches Garage on: URLs are signed for it, and the
+      # host is part of the signature.
+      OBJECT_STORE_PUBLIC_ENDPOINT: http://localhost:${BDD_GARAGE_PORT:-3910}
+    ports: !override
+      - "${BDD_ASSET_PORT:-8014}:8000"
+
+  garage:
+    ports: !override
+      - "${BDD_GARAGE_PORT:-3910}:3900"
+
+  garage-bootstrap:
+    environment:
+      # The one origin allowed to PUT to the bucket: this stack's frontend.
+      GARAGE_CORS_ORIGINS: http://localhost:${BDD_FRONTEND_PORT:-5183}
 
   # --- ports nothing reaches from the host --------------------------------
   #
@@ -93,16 +116,10 @@ services:
   canvas:
     ports: !override []
 
-  asset:
-    ports: !override []
-
   worker:
     ports: !override []
 
   elasticsearch:
-    ports: !override []
-
-  garage:
     ports: !override []
 
   otel-collector:

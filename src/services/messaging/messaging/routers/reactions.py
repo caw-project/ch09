@@ -27,6 +27,7 @@ import socketio
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from messaging import attachments as attachments_domain
 from messaging import reactions, realtime
 from messaging.db import session as db_session
 from messaging.models import Message
@@ -79,9 +80,15 @@ async def _respond(
     summaries = (
         await reactions.summaries_for(session, message_ids=[message.id], user_id=principal.user_id)
     ).get(message.id, [])
+    stored = await attachments_domain.for_messages(session, [message.id])
     # A root keeps its reply summary through a reaction, or the event the client
     # applies it from would zero "2 replies".
-    response = _as_message(message, reactions=summaries, thread=await summary_of(session, message))
+    response = _as_message(
+        message,
+        reactions=summaries,
+        attachments=stored.get(message.id, []),
+        thread=await summary_of(session, message),
+    )
     await session.commit()
 
     count, reacted = _state_of(summaries, emoji)

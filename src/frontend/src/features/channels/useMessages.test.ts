@@ -254,7 +254,9 @@ describe('useSendMessage', () => {
     socket.onEmit('send_message', () => new Promise((resolve) => (confirm = resolve)))
     const { result } = renderSend(queryClient, socket)
 
-    act(() => result.current.mutate('lunch is at one'))
+    act(() =>
+      result.current.mutate({ channelId: CHANNEL, body: 'lunch is at one', attachments: [] }),
+    )
 
     await vi.waitFor(() => expect(itemsIn(queryClient)).toHaveLength(1))
     const [pending] = itemsIn(queryClient)
@@ -277,7 +279,7 @@ describe('useSendMessage', () => {
     socket.onEmit('send_message', () => new Promise((resolve) => (confirm = resolve)))
     const { result } = renderSend(queryClient, socket)
 
-    act(() => result.current.mutate('race'))
+    act(() => result.current.mutate({ channelId: CHANNEL, body: 'race', attachments: [] }))
     await vi.waitFor(() => expect(itemsIn(queryClient)).toHaveLength(1))
     // What `useChannelSocket` does with `message_received`.
     upsertMessage(queryClient, key, confirmed)
@@ -301,7 +303,9 @@ describe('useSendMessage', () => {
     }))
     const { result } = renderSend(queryClient, socket)
 
-    act(() => result.current.mutate('a'.repeat(8001)))
+    act(() =>
+      result.current.mutate({ channelId: CHANNEL, body: 'a'.repeat(8001), attachments: [] }),
+    )
 
     await vi.waitFor(() => expect(result.current.isError).toBe(true))
     expect(itemsIn(queryClient)).toEqual([])
@@ -316,7 +320,9 @@ describe('useSendMessage', () => {
     const queryClient = seeded(aMessagePage([]))
     const { result } = renderSend(queryClient, new FakeSocket('token'))
 
-    act(() => result.current.mutate('into the void'))
+    act(() =>
+      result.current.mutate({ channelId: CHANNEL, body: 'into the void', attachments: [] }),
+    )
     await act(() => vi.advanceTimersByTimeAsync(4_999))
     expect(itemsIn(queryClient)).toHaveLength(1)
 
@@ -324,7 +330,7 @@ describe('useSendMessage', () => {
 
     await vi.waitFor(() =>
       expect(result.current.error?.message).toBe(
-        'The server did not confirm that message. Nothing was sent.',
+        'The server did not confirm that message — it may still arrive.',
       ),
     )
     expect(itemsIn(queryClient)).toEqual([])
@@ -334,7 +340,7 @@ describe('useSendMessage', () => {
     const queryClient = seeded(aMessagePage([]))
     const { result } = renderSend(queryClient, null)
 
-    act(() => result.current.mutate('hello'))
+    act(() => result.current.mutate({ channelId: CHANNEL, body: 'hello', attachments: [] }))
 
     await vi.waitFor(() =>
       expect(result.current.error?.message).toBe('Not connected. Try again in a moment.'),

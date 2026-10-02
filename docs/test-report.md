@@ -1,17 +1,17 @@
 # Test report
 
-Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `c2ca4e3e59bb-dirty`.
+Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `bc3b5cfd3610-dirty`.
 
 ## Layers
 
 | Layer | Result | Passed | Failed | Skipped | Revision |
 |---|---|--:|--:|--:|---|
-| Lint | ✅ passed | | | | `c2ca4e3e59bb-dirty` |
-| Unit | ✅ passed | 701 | 0 | 0 | `c2ca4e3e59bb-dirty` |
-| Integration | ✅ passed | 420 | 0 | 0 | `c2ca4e3e59bb-dirty` |
-| End-to-end | ✅ passed | 21 | 0 | 0 | ⚠️ `950e66a2d292-dirty` |
+| Lint | ✅ passed | | | | ⚠️ `950e66a2d292-dirty` |
+| Unit | ✅ passed | 858 | 0 | 0 | `bc3b5cfd3610-dirty` |
+| Integration | ✅ passed | 482 | 0 | 0 | `bc3b5cfd3610-dirty` |
+| End-to-end | ✅ passed | 23 | 0 | 0 | `bc3b5cfd3610-dirty` |
 
-> ⚠️ End-to-end was recorded at another revision.
+> ⚠️ Lint was recorded at another revision.
 
 ## Failures
 
@@ -29,6 +29,14 @@ None.
 | Ada creates a public channel and lands in it | ✅ passed |
 | A new public channel appears for another member | ✅ passed |
 | Ada creates a private channel and only she can see it | ✅ passed |
+
+### File attachments
+
+1 of 1 passed.
+
+| Scenario | Result |
+|---|---|
+| Grace sees the image and the PDF Ada sends | ✅ passed |
 
 ### Messages
 
@@ -78,6 +86,14 @@ None.
 | Ada's delete propagates to Grace live | ✅ passed |
 | The stream recovers after the connection drops | ✅ passed |
 
+### Search
+
+1 of 1 passed.
+
+| Scenario | Result |
+|---|---|
+| Ada finds a message and opens it in its channel | ✅ passed |
+
 ### Sessions
 
 3 of 3 passed.
@@ -100,14 +116,14 @@ None.
 
 | Service | Unit | Integration |
 |---|---|---|
-| asset | ✅ 2 passed | — |
+| asset | ✅ 39 passed | ✅ 34 passed |
 | auth | ✅ 59 passed | ✅ 123 passed |
 | canvas | ✅ 2 passed | — |
-| messaging | ✅ 102 passed | ✅ 250 passed |
-| shared | ✅ 87 passed | ✅ 26 passed |
-| testkit | ✅ 59 passed | ✅ 4 passed |
+| messaging | ✅ 126 passed | ✅ 276 passed |
+| shared | ✅ 94 passed | ✅ 26 passed |
+| testkit | ✅ 60 passed | ✅ 6 passed |
 | worker | ✅ 19 passed | ✅ 17 passed |
-| frontend | ✅ 371 passed | — |
+| frontend | ✅ 459 passed | — |
 
 ## Coverage
 
@@ -115,11 +131,11 @@ Unit tests only.
 
 | Package | Lines | Branches |
 |---|---|---|
-| asset | `█████████░` 96% | — |
+| asset | `██████░░░░` 66% | `█████░░░░░` 54% |
 | auth | `██████░░░░` 61% | `█░░░░░░░░░` 18% |
 | canvas | `█████████░` 96% | — |
 | contracts | `██████████` 100% | — |
-| messaging | `█████░░░░░` 55% | `██░░░░░░░░` 23% |
-| shared | `████████░░` 89% | `███████░░░` 74% |
+| messaging | `█████░░░░░` 56% | `███░░░░░░░` 30% |
+| shared | `█████████░` 90% | `███████░░░` 75% |
 | worker | `██████░░░░` 65% | `███░░░░░░░` 30% |
-| frontend | `█████████░` 95% | `████████░░` 86% |
+| frontend | `█████████░` 95% | `████████░░` 87% |

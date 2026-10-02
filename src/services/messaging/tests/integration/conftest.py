@@ -36,6 +36,9 @@ from testkit.tokens import ISSUER, USER_AUDIENCE, Tokens
 #: and `channel_members` both reference `channels`. `CASCADE` would reach them
 #: anyway; being explicit is what stops the next person wondering whether the
 #: order matters.
+#: `message_attachments` is not listed: it references `messages`, and `truncate`
+#: runs `CASCADE`, so emptying `messages` empties it. Listing it would make every
+#: test in this directory error until the table exists, not only the new ones.
 TABLES = ("message_reactions", "messages", "channel_reads", "channel_members", "channels")
 
 
@@ -65,6 +68,12 @@ def build_settings(postgres_dsn: str, redis: RedisServer, **overrides: Any) -> S
         "auth_issuer": ISSUER,
         "auth_audience": USER_AUDIENCE,
         "auth_jwks_url": "https://auth.test/.well-known/jwks.json",
+        # Unreachable unless a test points the app at `asset_stub`. Settings take
+        # extra keys silently until the real ones exist, so every test that sends
+        # no attachment builds the app as before.
+        "asset_internal_url": "http://asset.invalid",
+        "service_token_url": "http://auth.invalid/token",
+        "messaging_service_client_secret": "test-secret",
     }
     values.update(overrides)
     return Settings(**values)
@@ -121,6 +130,175 @@ async def realtime_url(app_settings: Settings, tokens: Tokens, engine) -> AsyncI
     """
     async with serve(build_asgi_app(app_settings, key_source=tokens.key_source())) as url:
         yield url
+
+
+@pytest.fixture
+def realtime_url_for(
+    postgres_dsn: str, redis_server: RedisServer, tokens: Tokens, engine
+) -> Callable[..., AbstractAsyncContextManager[str]]:
+    """`client_for`'s shape for the socket: a served app with settings changed.
+
+    `realtime_url` builds from `app_settings` and cannot be pointed at a stub
+    Asset; the attachment tests need the socket and REST both to meet it.
+    """
+
+    @asynccontextmanager
+    async def build(**overrides: Any) -> AsyncIterator[str]:
+        settings = build_settings(postgres_dsn, redis_server, **overrides)
+        async with serve(build_asgi_app(settings, key_source=tokens.key_source())) as url:
+            yield url
+
+    return build
+
+
+class AssetStub:
+    """Asset's internal API as Messaging meets it, with the calls it received.
+
+    Built from `contracts.assets` — the same models the real service answers
+    with — so a drifted field name fails here and in Asset's own integration
+    tests alike. `ready()` registers an asset the stub will claim; `refuse`
+    scripts a refusal for one; `down` makes both routes answer 503.
+    """
+
+    def __init__(self) -> None:
+        self.url = ""
+        self.token_calls = 0
+        self.claims: list[dict[str, Any]] = []
+        self.downloads: list[dict[str, Any]] = []
+        self.down = False
+        self.metadata: dict[str, dict[str, Any]] = {}
+        self.refusals: dict[str, str] = {}
+        #: asset id -> the message that claimed it, as the real service records it
+        self.claimed_by: dict[str, str] = {}
+
+    def refused(self, ids: list[str], message_id: str) -> dict[str, list[str]]:
+        """The 409's `errors`: scripted refusals, unknown ids, and ids on another message."""
+        errors: dict[str, list[str]] = {}
+        for asset_id in ids:
+            if asset_id in self.refusals:
+                errors[asset_id] = [self.refusals[asset_id]]
+            elif asset_id not in self.metadata:
+                errors[asset_id] = ["not-found"]
+            elif self.claimed_by.get(asset_id, message_id) != message_id:
+                errors[asset_id] = ["already-attached"]
+        return errors
+
+    @property
+    def token_url(self) -> str:
+        return f"{self.url}/token"
+
+    def ready(
+        self, file_name: str = "diagram.png", content_type: str = "image/png", size: int = 1234
+    ) -> str:
+        """Register an asset this stub will claim; returns its id."""
+        import uuid
+
+        asset_id = str(uuid.uuid4())
+        self.metadata[asset_id] = {
+            "assetId": asset_id,
+            "fileName": file_name,
+            "contentType": content_type,
+            "sizeBytes": size,
+        }
+        return asset_id
+
+
+def _asset_stub_app(stub: AssetStub):
+    from datetime import UTC, datetime, timedelta
+
+    from starlette.applications import Starlette
+    from starlette.requests import Request
+    from starlette.responses import JSONResponse
+    from starlette.routing import Route
+
+    from contracts.assets import (
+        AttachmentMeta,
+        ClaimRequest,
+        ClaimResponse,
+        DownloadUrlRequest,
+        DownloadUrlResponse,
+    )
+
+    def problem(status: int, **extra: Any) -> JSONResponse:
+        return JSONResponse(
+            {"title": "stub", "status": status, **extra},
+            status_code=status,
+            media_type="application/problem+json",
+        )
+
+    async def token(request: Request) -> JSONResponse:
+        stub.token_calls += 1
+        return JSONResponse(
+            {
+                "accessToken": f"stub-token-{stub.token_calls}",
+                "tokenType": "Bearer",
+                "expiresIn": 900,
+            }
+        )
+
+    async def claim(request: Request) -> JSONResponse:
+        body = ClaimRequest.model_validate(await request.json())
+        stub.claims.append(
+            {
+                "workspaceId": str(body.workspace_id),
+                "userId": str(body.user_id),
+                "messageId": str(body.message_id),
+                "assetIds": [str(i) for i in body.asset_ids],
+                "authorization": request.headers.get("authorization"),
+            }
+        )
+        if stub.down:
+            return problem(503)
+        ids = [str(i) for i in body.asset_ids]
+        errors = stub.refused(ids, str(body.message_id))
+        if errors:
+            return problem(409, type="https://collabhub.dev/problems/conflict", errors=errors)
+        for asset_id in ids:
+            stub.claimed_by[asset_id] = str(body.message_id)
+        items = [AttachmentMeta.model_validate(stub.metadata[i]) for i in ids]
+        return JSONResponse(ClaimResponse(items=items).model_dump(by_alias=True, mode="json"))
+
+    async def download(request: Request) -> JSONResponse:
+        asset_id = request.path_params["asset_id"]
+        body = DownloadUrlRequest.model_validate(await request.json())
+        stub.downloads.append(
+            {
+                "assetId": asset_id,
+                "workspaceId": str(body.workspace_id),
+                "messageId": str(body.message_id),
+            }
+        )
+        if stub.down:
+            return problem(503)
+        if stub.claimed_by.get(asset_id) != str(body.message_id):
+            return problem(404)
+        answer = DownloadUrlResponse(
+            url=f"http://garage.test/{asset_id}?sig=stub",
+            expires_at=datetime.now(UTC) + timedelta(minutes=15),
+        )
+        return JSONResponse(answer.model_dump(by_alias=True, mode="json"))
+
+    return Starlette(
+        routes=[
+            Route("/token", token, methods=["POST"]),
+            Route("/api/v1/internal/assets/claim", claim, methods=["POST"]),
+            Route("/api/v1/internal/assets/{asset_id}/download-url", download, methods=["POST"]),
+        ]
+    )
+
+
+@pytest.fixture
+async def asset_stub() -> AsyncIterator[AssetStub]:
+    """A served stub of Asset's internal API and Auth's token endpoint.
+
+    `contracts.assets` is imported **inside** `_asset_stub_app`, so at red only
+    the tests that ask for this fixture error, with `No module named
+    'contracts.assets'`; the ones that need no stub run and show their own red.
+    """
+    stub = AssetStub()
+    async with serve(_asset_stub_app(stub)) as url:
+        stub.url = url
+        yield stub
 
 
 @pytest.fixture

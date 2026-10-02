@@ -155,6 +155,23 @@ def grace_sees(grace: ChatPage, body: str) -> None:
     assert grace.has_message(body), grace.message_bodies()
 
 
+@then(parsers.parse('Grace sees "{body}" in the channel without reloading'))
+def grace_sees_live(grace: ChatPage, body: str) -> None:
+    """Grace's page never navigates, so only an inbound event can have put it there."""
+    grace.wait_for_message(body)
+
+
+@then(parsers.parse('"{body}" appears in Ada\'s channel exactly once'))
+def appears_once_for_ada(ada: ChatPage, body: str) -> None:
+    """The sender receives her own broadcast, and must not render it twice.
+
+    There is no `sid` to skip it by — the write went over REST, which is not a
+    socket — so the cache helper has to be idempotent on the message id. A blind
+    append passes every other scenario that sends and fails this one.
+    """
+    assert ada.appears_once(body), ada.count_of(body)
+
+
 @then(parsers.parse('Ada does not see "{body}" in the channel'))
 def ada_does_not_see(ada: ChatPage, body: str) -> None:
     assert ada.is_absent(body), ada.message_bodies()

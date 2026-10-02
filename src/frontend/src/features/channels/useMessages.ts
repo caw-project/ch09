@@ -29,7 +29,7 @@ import {
   type QueryClient,
 } from '@tanstack/react-query'
 
-import { problemFromBody } from '../../lib/api/client'
+import { problemFromBody, ProblemError } from '../../lib/api/client'
 import {
   addReaction,
   deleteMessage,
@@ -41,6 +41,8 @@ import {
   type Reaction,
 } from '../../lib/api/messaging'
 import type { Socket } from '../../lib/realtime/socket'
+import { useAttachmentStore, type Chip } from '../../stores/attachments'
+import { useChatStore } from '../../stores/chat'
 import { inAllowlistOrder } from './reactions'
 
 /**
@@ -238,6 +240,7 @@ export function optimistic(
   authorId: string,
   body: string,
   threadRootId: string | null = null,
+  chips: Chip[] = [],
 ): Message {
   return {
     id: `${PENDING_PREFIX}${crypto.randomUUID()}`,
@@ -245,7 +248,20 @@ export function optimistic(
     authorId,
     threadRootId,
     body,
-    attachments: [],
+    // The chips' metadata, so the row shows its files at once. No URL is fetched
+    // for a `temp:` row; `AttachmentList` waits for the confirmed id.
+    attachments: chips.flatMap((chip) =>
+      chip.assetId === null
+        ? []
+        : [
+            {
+              assetId: chip.assetId,
+              fileName: chip.fileName,
+              contentType: chip.contentType,
+              sizeBytes: chip.sizeBytes,
+            },
+          ],
+    ),
     // Nothing the server has not seen can have been reacted to or replied to.
     reactions: [],
     createdAt: new Date().toISOString(),
@@ -266,7 +282,12 @@ export function optimistic(
  */
 export function emitSend(
   socket: Socket | null,
-  payload: { channelId: string; body: string; threadRootId?: string },
+  payload: {
+    channelId: string
+    body: string
+    threadRootId?: string
+    attachmentIds?: string[]
+  },
 ): Promise<Message> {
   return new Promise((resolve, reject) => {
     if (!socket) {
@@ -277,7 +298,7 @@ export function emitSend(
       .timeout(SEND_TIMEOUT_MS)
       .emit('send_message', payload, (transportError: unknown, ack?: Ack) => {
         if (transportError || !ack) {
-          reject(new Error('The server did not confirm that message. Nothing was sent.'))
+          reject(new Error('The server did not confirm that message — it may still arrive.'))
         } else if (ack.ok) {
           resolve(ack.data as Message)
         } else {
@@ -301,36 +322,93 @@ export function emitSend(
  * not fail — it buffers, and the callback never fires — so without the timeout
  * the bubble would sit there greyed forever with no error and no way out.
  *
- * **A timed-out send is never retried.** It rolls back, puts the text back in
- * the composer's draft, and says why. `send_message` carries no idempotency key,
- * so an automatic retry is how one message becomes two. There is no offline
- * queue in this scope for the same reason: it would need ordering, durable
- * storage and dedupe against a write that cannot be deduped.
+ * **A timed-out send is never retried.** It rolls back, puts the text and the
+ * chips back in the composer, and says why. `send_message` carries no
+ * idempotency key, so an automatic retry is how one message becomes two — and
+ * with attachments, a send the server did save cannot be sent again at all: its
+ * assets are claimed, so the retry is refused. That is why the wording says the
+ * message "may still arrive". There is no offline queue in this scope for the
+ * same reason: it would need ordering, durable storage and dedupe against a
+ * write that cannot be deduped.
+ *
+ * **Everything keys on `variables.channelId`, never on the hook's `channelId`
+ * argument.** A pending mutation takes the observer's new options when the
+ * component re-renders (TanStack's `mutationObserver.setOptions`), so a closure
+ * over the channel the hook was rendered for would clean up the wrong cache once
+ * the user has moved to another channel mid-send. The same reason the restore is
+ * in the hook-level `onError`: TanStack keeps one `mutate`-level callback — the
+ * latest call's — and runs it only for the current mutation, so a per-call
+ * `onError` misses an earlier send when a later one is in flight.
+ *
+ * The argument stays for the callers that pass it; nothing reads it.
  */
 export function useSendMessage(
   socket: Socket | null,
   workspaceId: string | null,
-  channelId: string,
+  _channelId: string,
   userId: string,
 ) {
   const queryClient = useQueryClient()
-  const key = messageKeys.list(workspaceId, channelId)
+  const keyFor = (channelId: string) => messageKeys.list(workspaceId, channelId)
 
-  return useMutation<Message, Error, string, { pendingId: string; body: string }>({
-    mutationFn: (body) => emitSend(socket, { channelId, body }),
-    onMutate: (body) => {
-      const pending = optimistic(channelId, userId, body)
-      upsertMessage(queryClient, key, pending)
-      return { pendingId: pending.id, body }
+  return useMutation<Message, Error, SendVariables, { pendingId: string }>({
+    // `attachmentIds` only when there are some, so a plain send is exactly the
+    // payload it always was.
+    mutationFn: ({ channelId, body, attachments }) =>
+      emitSend(
+        socket,
+        attachments.length > 0
+          ? {
+              channelId,
+              body,
+              attachmentIds: attachments.flatMap((chip) => (chip.assetId ? [chip.assetId] : [])),
+            }
+          : { channelId, body },
+      ),
+    onMutate: ({ channelId, body, attachments }) => {
+      // The next send for a channel clears that channel's error — and no other's.
+      useChatStore.getState().setSendError(channelId, null)
+      const pending = optimistic(channelId, userId, body, null, attachments)
+      upsertMessage(queryClient, keyFor(channelId), pending)
+      return { pendingId: pending.id }
     },
-    onSuccess: (message, _body, context) => {
-      if (context) removeMessage(queryClient, key, context.pendingId)
-      upsertMessage(queryClient, key, message)
+    onSuccess: (message, { channelId }, context) => {
+      if (context) removeMessage(queryClient, keyFor(channelId), context.pendingId)
+      upsertMessage(queryClient, keyFor(channelId), message)
     },
-    onError: (_error, _body, context) => {
-      if (context) removeMessage(queryClient, key, context.pendingId)
+    onError: (error, { channelId, body, attachments }, context) => {
+      if (context) removeMessage(queryClient, keyFor(channelId), context.pendingId)
+      restoreRefusedSend(channelId, body, attachments)
+      useChatStore.getState().setSendError(channelId, describeSendError(error))
     },
   })
+}
+
+/** What one send is made of: the text, and the chips that were ready when it left. */
+export interface SendVariables {
+  channelId: string
+  body: string
+  attachments: Chip[]
+}
+
+/**
+ * Put a refused send back where it was written, losing nothing (decision 33).
+ *
+ * The text goes in front of whatever was typed since — joined by one line break,
+ * or alone if the draft is empty — and the chips go in front of the ones
+ * attached since, even past ten: the composer then refuses to send until some are
+ * removed, which is better than dropping a file the person chose.
+ */
+function restoreRefusedSend(channelId: string, body: string, attachments: Chip[]): void {
+  const chat = useChatStore.getState()
+  const current = chat.drafts[channelId] ?? ''
+  if (body !== '') chat.setDraft(channelId, current === '' ? body : `${body}\n${current}`)
+  if (attachments.length > 0) useAttachmentStore.getState().restore(channelId, attachments)
+}
+
+/** The field message for a body problem, else the problem's own words. */
+function describeSendError(error: Error): string {
+  return error instanceof ProblemError ? (error.fieldError('body') ?? error.message) : error.message
 }
 
 /**

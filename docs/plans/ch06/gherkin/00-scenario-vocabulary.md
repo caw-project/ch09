@@ -673,3 +673,16 @@ Then Grace is looking at the "launch-plans" channel
 `When Grace opens the "{name}" channel` the file already had. **`Then Grace is looking at the
 "{name}" channel` is new** — the Grace half of `test_channel_steps.py:101`, and the only step phrase
 this review round added.
+
+## 33. 🟢 File attachments — four phrases, one journey (issue 4)
+
+`attachments.feature` has a single scenario: the upload, storage's CORS, the claim, the broadcast and
+a download of the same bytes need a real browser. Everything else (limits, claim rules, paste,
+freshness, restore) is proven lower down. Reused verbatim: `Ada is signed in`, `Ada has created a
+public channel named`, `Grace is looking at the "{name}" channel`, `Ada sends`, `Grace sees "{body}"
+in the channel without reloading` and `"{body}" appears in Ada's channel exactly once`. New:
+
+- `When Ada attaches "{first}" and "{second}"`
+- `Then Grace sees "{name}" shown inline with "{body}"`
+- `Then Grace sees "{name}" as a download with "{body}"`
+- `Then the "{name}" Grace downloads is the file Ada attached`

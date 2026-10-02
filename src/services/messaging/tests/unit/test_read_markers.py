@@ -228,6 +228,7 @@ async def test_a_malformed_mark_read_acks_a_400_rather_than_hanging(app):
         sessions=app.state.sessions,
         security=app.state.security,
         jobs=app.state.jobs,
+        assets=app.state.assets,
     )
     sio = socketio.AsyncServer(async_mode="asgi")
     register_write_handlers(sio, context)

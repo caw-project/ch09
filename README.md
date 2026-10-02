@@ -168,7 +168,7 @@ The Gherkin suite in `tests/bdd/` drives a real browser through the whole stack.
 so it runs against a throwaway stack, never the one you demo on.
 
 `docker-compose.test.yml` is an override that gives that stack its own Compose
-project name — and with it its own volumes — and moves the five ports anyone
+project name — and with it its own volumes — and moves the seven ports anyone
 reaches from the host. **It runs alongside your development stack**, so you can
 leave that up and keep working.
 
@@ -201,13 +201,16 @@ docker compose -f docker-compose.yml -f docker-compose.test.yml down
 | Messaging | 8002 | **8012** |
 | Dex | 5556 | **5566** |
 | Postgres | 5432 | **5442** |
+| Asset | 8004 | **8014** |
+| Garage (S3) | 3900 | **3910** |
 
-Nothing else is published on the test stack — Canvas, Asset, Worker,
-Elasticsearch, Garage and the OTel collector still run, they are just reached
-over the Compose network by name. Both stacks running means two of everything,
-Elasticsearch included. The test stack runs Elasticsearch and the Worker anyway,
-because the search journey needs both: the Worker indexes a posted message and
-Messaging searches the index.
+Nothing else is published on the test stack — Canvas, Worker,
+Elasticsearch and the OTel collector still run, they are just reached
+over the Compose network by name. Asset and Garage are published because the
+browser calls them directly (the upload handshake and the presigned PUT/GET).
+Both stacks running means two of everything, Elasticsearch included. The test
+stack runs Elasticsearch and the Worker anyway, because the search journey needs
+both: the Worker indexes a posted message and Messaging searches the index.
 
 `--wait` only means something for containers with a healthcheck, which is why the
 frontend has one: it probes `/`, the same path the Helm chart's probes use.
@@ -217,8 +220,8 @@ truncates over 5442, so run against a machine with just the development stack up
 it fails to connect rather than deleting your channels — it cannot tell the two
 apart by looking, because they are the same images.
 
-`down` without `-v` keeps both projects' volumes, so the test database is reused
-between runs. To start it genuinely empty, add `-v`.
+`down` without `-v` keeps the development stack's volumes. The test stack's are
+dropped by the script itself before each run.
 
 The suite runs against the test stack's frontend container, **not** `npm run
 dev` — in dev, React's StrictMode fires the session restore twice, which spends
@@ -239,23 +242,25 @@ uv run python -m messaging.openapi > src/frontend/openapi/messaging.json
 cd src/frontend && npm run generate:api
 ```
 
-### Object storage needs one manual step
+### Object storage sets itself up
 
-Garage will not serve S3 traffic until a cluster layout is assigned, which is a one-off on
-a fresh volume:
+Garage will not serve S3 traffic until a cluster layout is assigned, and has no bucket, key or
+CORS rules. `docker compose up` runs a one-shot `garage-bootstrap` service that does all of it
+(layout, the `collabhub-assets` bucket, the app's key, and CORS for `GARAGE_CORS_ORIGINS`) and
+exits; `asset` waits for it. It is the same script the test stack, k3d and the integration tests
+run, and it is safe to run again.
 
-```bash
-docker compose exec garage /garage status                     # note the node ID
-docker compose exec garage /garage layout assign -z dc1 -c 1G <node-id>
-docker compose exec garage /garage layout apply --version 1
-docker compose exec garage /garage bucket create collabhub-assets
-docker compose exec garage /garage key create collabhub-local
-docker compose exec garage /garage bucket allow --read --write collabhub-assets --key collabhub-local
-```
+**If your `.env` predates attachments, update it.** Garage only imports keys in its own format
+(`GK` and 24 hex characters, then 64 hex), so the old `collabhub-local` key cannot be used:
+take the new `OBJECT_STORE_*` values, `OBJECT_STORE_PUBLIC_ENDPOINT`, `GARAGE_ADMIN_TOKEN`,
+`GARAGE_CORS_ORIGINS`, `MESSAGING_SERVICE_CLIENT_*` and `AUTH_SERVICE_CLIENTS` from
+`.env.example` (or `cp .env.example .env`). `ASSET_INTERNAL_URL` is now Asset's origin, with no
+`/api/v1/internal` path. A Garage volume made with the old key keeps it: `docker compose down
+-v` starts it fresh.
 
-Put the key ID and secret it prints into `OBJECT_STORE_ACCESS_KEY` / `_SECRET_KEY` in `.env`.
-Nothing reads them yet — the Asset service has no object-storage code. The k3d deployment
-below does all of this for you.
+The k3d deployment below does the same for you, and routes Garage's S3 API on `s3.<host>` so
+the browser can PUT to a presigned URL. On the **lab**, `scripts/deploy.sh infra` now also needs
+`--set-string messagingClientSecret=...`.
 
 ### Deploying to Kubernetes
 

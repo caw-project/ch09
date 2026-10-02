@@ -203,6 +203,56 @@ async def test_the_reaction_key_is_message_user_and_emoji(engine):
     assert rows[0][0] == "PRIMARY KEY (message_id, user_id, emoji)"
 
 
+async def test_message_attachments_key_and_uniqueness(engine):
+    """Decisions 5 and 8: keyed by message and position, one message per asset, no FK to Asset.
+
+    The unique `asset_id` is the second guard behind the claim, and a duplicate
+    id in one send. The only foreign key is to `messages`: an asset is Asset's
+    row (Conventions §2).
+    """
+    columns = await _rows(
+        engine,
+        "SELECT column_name FROM information_schema.columns"
+        " WHERE table_name = 'message_attachments'",
+    )
+    keys = await _rows(
+        engine,
+        """
+        SELECT contype::text, pg_get_constraintdef(oid)
+        FROM pg_constraint
+        WHERE conrelid::regclass::text = 'message_attachments'
+        """,
+    )
+    # Postgres quotes `position` (a keyword) when it prints a definition.
+    definitions = {(kind, definition.replace('"', "")) for kind, definition in keys}
+    foreign = " ".join(d for kind, d in keys if kind == "f")
+
+    assert {c[0] for c in columns} == {
+        "message_id",
+        "position",
+        "asset_id",
+        "file_name",
+        "content_type",
+        "size_bytes",
+    }
+    assert ("p", "PRIMARY KEY (message_id, position)") in definitions
+    assert ("u", "UNIQUE (asset_id)") in definitions
+    assert "REFERENCES messages(id)" in foreign
+    assert "asset_id" not in foreign
+
+
+async def test_messages_has_no_attachments_column(engine):
+    """Decided 5: the never-used `uuid[]` is dropped in the same migration."""
+    rows = await _rows(
+        engine,
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'messages'",
+    )
+    names = {r[0] for r in rows}
+
+    assert "body" in names
+    assert "attachments" not in names
+
+
 async def test_a_reaction_has_no_soft_delete_and_no_version(engine):
     """Removing a reaction is a real delete, and the key is the concurrency control."""
     rows = await _rows(

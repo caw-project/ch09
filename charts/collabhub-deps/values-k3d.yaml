@@ -30,3 +30,4 @@ dex:
   passwordHash: "$2b$10$AjNda/ZYuDZgz2nQA9lAPOb3Y.uGW4xYCWXG8wTfnyb9KjviceU/S"
 
 workerClientSecret: worker-local-secret
+messagingClientSecret: messaging-local-secret

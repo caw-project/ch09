@@ -54,9 +54,9 @@ def graces_network_returns(grace: ChatPage) -> None:
 # --- then -----------------------------------------------------------------
 
 
-@then(parsers.parse('Grace sees "{body}" in the channel without reloading'))
-def grace_sees_live(grace: ChatPage, body: str) -> None:
-    grace.wait_for_message(body)
+# `Grace sees "…" in the channel without reloading` and `"…" appears in Ada's
+# channel exactly once` live in `steps/conftest.py`: attachments.feature uses
+# both, and a step is not reachable from a sibling module.
 
 
 @then("Grace sees a deleted message in the channel without reloading")
@@ -72,17 +72,6 @@ def grace_sees_edited_marker(grace: ChatPage, body: str) -> None:
 @then(parsers.parse('Grace does not see "{body}" in the channel'))
 def grace_does_not_see(grace: ChatPage, body: str) -> None:
     assert grace.is_absent(body), grace.message_bodies()
-
-
-@then(parsers.parse('"{body}" appears in Ada\'s channel exactly once'))
-def appears_once_for_ada(ada: ChatPage, body: str) -> None:
-    """The sender receives her own broadcast, and must not render it twice.
-
-    There is no `sid` to skip it by — the write went over REST, which is not a
-    socket — so the cache helper has to be idempotent on the message id. A blind
-    append passes every other scenario in this file and fails this one.
-    """
-    assert ada.appears_once(body), ada.count_of(body)
 
 
 @then("Grace's connection is lost")
