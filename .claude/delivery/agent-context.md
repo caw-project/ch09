@@ -28,8 +28,12 @@ its writer's work, not the only one.
 ## How you are run
 
 `scripts/deliver.sh` runs you headless, with no one watching and no one to answer a
-question mid-run. You finish your work, or you stop and say exactly what a human has to
-decide (see *Stopping for a human*).
+question mid-run. A run is meant to finish without a person: you finish your work, settling
+what the issue leaves open as *Decide, record, carry on* says, and stop only for what
+*Stopping for a human* lists.
+
+`CLAUDE.md` is already in your context — the harness loads it before your prompt. Don't
+read it again; where a prompt cites it, it means what you already have.
 
 Your prompt is a **context block**. The lines it can hold:
 
@@ -40,8 +44,10 @@ Your prompt is a **context block**. The lines it can hold:
 - `Green report:` — the code pair: the code-writer's account of what it built, what ran
   and what it printed, and where the code departs from the plan.
 - `Worktree:` — where you are, and its branch.
-- `Stage: <stage>, round <R> of <max>` — see *Rounds*.
-- `Turns: <n>`, or `Final round: yes — <n> turns` — your allowance; see *The final round*.
+- `Stage: <stage>, round <R> of <last>` — see *Rounds*. `<last>` is the pair's final
+  round; a send-back moves it out.
+- `Turns: <n>`, `Rework pass: yes — <n> turns` or `Final round: yes — <n> turns` — your
+  allowance, and the kind of pass this is; see *A rework pass* and *The final round*.
 - `Review to address:` — a writer being sent back: the review to answer, or a later
   stage's send-back file (see *Sending work back*).
 - `Write your review to:` — a reviewer: exactly where the review goes.
@@ -52,18 +58,37 @@ Your prompt is a **context block**. The lines it can hold:
   if you return `send_back`.
 - `After a send-back by <stage>: <file>` — work you take over has changed since that stage
   sent it back; read the file first. For the stage that sent it, this is the return.
+- `Changed since the send-back by <stage>:` — the files written since then, reviews left
+  out: where a rework pass looks.
+
+## Spend turns well
+
+Almost all of a run's time is yours — the model's turns, not the tools'. A stage that
+takes one tool call a turn takes three times as long as it needs to.
+
+- **Ask for everything independent at once.** Ten files to read is one turn with ten
+  Reads, not ten turns; the same for Greps, and for a test run beside a typecheck. The one
+  exception is what a reviewer's *Expectations* step holds back until they are written.
+- **Read a file once, and only what you need of a big one.** Grep for the section of a
+  design doc or the function in a library, then Read that range. Your own earlier output
+  and the plan are worth reading whole; `node_modules` never is.
+- **Write a file in one go; change it with Edit.** Rewriting a long file to change a
+  paragraph costs every line again.
+- **One test command for several files** at the same layer, and the fewest files that
+  prove the point.
 
 ## Where you work, and what you may touch
 
-- **Your working directory is the issue's worktree**, `../caw-issue-<N>` on
-  `feature/issue-<N>`. Run commands there as they are.
+- **Your working directory is the issue's worktree** — the context block's `Worktree:`
+  line names it and its branch. Run commands there as they are.
 - **Bash** is for the commands your stage is allowed — for most, `git`, `ls` and `wc` on
   paths inside the worktree. Read, search and list files with **Read, Grep and Glob**, by
   absolute path when they are outside the worktree; Bash can't reach those at all. `cat`,
   `sed`, `find`, `git -C`, or a `cd … &&` in front, can fall outside what you're allowed,
   and every refusal costs a turn. Run an allowed command as it is listed, one per call:
   an environment-variable prefix (`KEEP_STACK=1 …`), `npx`, or a chained `; echo $?` turns
-  it into a command you aren't allowed. A pipe into `tail` or `grep` is fine.
+  it into a command you aren't allowed. A pipe into `tail` or `grep` is fine. A writer
+  takes a file out of the tree with `rm <path from the worktree root>`, one path a call.
 - **Installed dependencies start out missing.** A new worktree has no `node_modules/` or
   `.venv/` of its own. A stage that only reads finds the primary checkout with
   `git worktree list` (the first line) and reads its copy by absolute path. A stage that
@@ -100,8 +125,15 @@ layer and as few files as prove the point.
   unreachable, nothing at that layer has run — not a test failure, and not a pass: stop
   for a human. (BDD before the code-writer is different: it never runs there, by design.)
 - **Leave nothing behind.** A run that writes files — `--coverage`, a reporter's output —
-  is `scripts/test.sh`'s, which writes under the ignored `build/`. You can't delete
-  a file once it's written, so it stays in the branch for the human to find.
+  is `scripts/test.sh`'s, which writes under the ignored `build/`. A writer removes
+  anything else a run or a probe left (`rm`); a reviewer has nothing to remove but its
+  sketch. `git status --short` before you return shows what the branch would keep.
+- **A failure your work can't have caused** — a test in a file you didn't touch, on a path
+  your change doesn't reach — is rerun once, that file alone. Passing then, it is flaky:
+  record the test and what it printed in your output, and carry on. Failing again, it was
+  there before you: record it the same way. Neither blocks your `done` or your verdict,
+  and neither is yours to fix. A whole layer of `scripts/test.sh` that failed on one is
+  run once more, so the committed report shows the layer as it really stands.
 - **Read the failure, not the count.** A file that fails to load reports its tests as
   failed without running one; `Failed to resolve import` and `ImportError` are load
   failures, `is not a function` and an assertion are the test running. A load failure is
@@ -187,7 +219,9 @@ every test, name the wrong build it must fail, and check that it would:
 
 A writer and its reviewer take turns. The reviewer returns `approved` (on to the next
 stage), `changes_requested` (back to the writer, round +1) or `needs_human`. A pair gets
-`DELIVER_MAX_ROUNDS` reviews — 3 by default.
+`DELIVER_MAX_ROUNDS` reviews — 3 by default. **Aim to be done in two**: a writer that
+answers every finding the first time, and a reviewer that raises everything it has in
+round 1, are what keep a run short.
 
 **Reviews** go in `docs/plans/issue-<N>/reviews/<reviewer>-<round>.md`, one per round, and
 every verdict writes one: an approval is the record of what was checked. Findings are
@@ -218,6 +252,22 @@ records it under *Left for later stages* with both positions, and decides withou
 **Left for later stages** is how a minor finding survives an approval: the reviewer lists
 it in its review, and the stages after read every earlier review (`Earlier reviews:`) and
 pick up what concerns them.
+
+## A rework pass
+
+A pass that answers a review or follows a send-back is a **rework pass**, and the context
+block says so. The work exists, and was read whole the first time; now part of it changes,
+or is checked again. Keep the pass to that part:
+
+- **Read** the review or the send-back file, your own last output, and the files under
+  `Changed since the send-back` — not every source again.
+- **A writer** changes what the findings name and what follows from the change, reruns
+  what it touched, and brings its output up to date. Nothing else is rewritten.
+- **A reviewer** checks each fix is there and that it broke nothing beside it: the changed
+  files, the tests that cover them, the Review responses. It doesn't review untouched
+  work again, form new expectations, or rerun a sketch or a mutant the change can't reach.
+
+Most rework passes need a third of a first pass's turns.
 
 ## The final round
 
@@ -259,30 +309,67 @@ The earlier pair takes a new round, and it counts: its writer answers the file i
 **Review responses**, its reviewer gates the fix as it gates any round, and the work comes
 forward through every stage after them to you again. Their work now sits under yours — a
 test they fix may already pass against code you built, and they can't run a journey; they
-say so, and you rerun it. Past their round limit, a human sees the send-back first.
+say so, and you rerun it. A send-back never lands in the earlier pair's final round; what
+bounds it is a count — a pair takes three, and a human sees the fourth first.
 
-A fault whose fix needs a decision — what a user sees, what the issue means, which of two
-readings is right — is not a send-back: stop for a human.
+- **A reviewer that sends back writes its review as well**, with every finding it has for
+  its own writer. That writer gets it as `Review to address:` when the flow comes forward,
+  and the reviewer's next review is a new round's file.
+- **A fault further back than the pair you can reach** — a code stage finding the plan
+  wrong — is still a send-back: say in the file that the plan has to change, and the test
+  pair passes it on in a send-back of its own.
+- **A fault whose fix needs a decision** the owning pair can take under *Decide, record,
+  carry on* is a send-back too: name the decision in the file. Only what *Stopping for a
+  human* lists is a stop.
+
+## Decide, record, carry on
+
+Nobody is waiting to answer a question, and a stop costs the run everything after it. So
+a question is yours to settle whenever it can be settled:
+
+- **From what is written.** The issue, the human answers, the design docs, the
+  conventions, a 🟢 or 🟡 register entry, or how the code already does the same thing
+  nearby. Look before you decide: most of what an issue leaves out, the code answers.
+- **By the reading that fits best**, when what is written leaves two. In this order: what
+  the issue's other requirements and its *Decided already* imply; what the product
+  already does in the nearest case; the smaller change, and the one easier to undo.
+
+Then **record it**, because an assumption nobody can see is a silent departure:
+
+- the plan-writer, as a decision row marked **assumed**, with the alternative and what
+  changing to it later would cost;
+- the test-writer and the code-writer, under *Departures from the plan* in their reports;
+- a reviewer, under *Left for later stages* or *Left for the human* in its review.
+
+Every later stage builds on a recorded assumption as settled. A reviewer that would have
+chosen the other reading accepts one that is recorded and defensible; it is a finding only
+when it contradicts something written, or was taken silently. The human reads every
+assumption at the end, when changing one is a small, well-described piece of work.
 
 ## Stopping for a human — `needs_human`
 
-Stop, and return `needs_human`, when:
+The last resort, for what no reading can settle:
 
-- the spec leaves out something you can't proceed without, and the code and docs don't
-  settle it;
-- the work depends on a 🔴 register decision, or contradicts the conventions or a 🟢 one;
-- the issue is really several independent pieces of work;
-- a finding, or a disagreement, needs a decision only a person can make — including a
-  critical finding still open in the final round, or a deadlock over one.
+- the work **can't be done without building on a 🔴 register decision**, or without
+  contradicting the conventions or a 🟢 one — never invent a 🔴's answer;
+- a choice that is **hard to undo and has nothing written to favour either side**: it
+  drops or rewrites stored data, or fixes a contract other clients already depend on;
+- **the environment is broken** beyond your reach — Docker unreachable, the test stack
+  failing to start for a reason outside the code — and still broken on a second try;
+- a **critical** finding still open in the final round, or a deadlock over one (*Rounds*).
+
+Not reasons to stop: a word with two readings, an edge case the issue doesn't mention, a
+choice between two sound designs, a detail the code answers, a large issue (plan it in
+phases), a flaky test, or a fault an earlier pair could fix (*Sending work back*).
 
 Leave your work as it stands. Each question stands alone: what is unclear or in dispute,
 where you looked, the options you can see, and what each would cost. A person answers them
 in `docs/plans/issue-<N>/needs-human.md` and reruns the workflow, which resumes at your
-stage — so ask everything at once. A second stop for something you could have seen the
-first time wastes a round.
+stage — so ask everything at once.
 
-Running out of turns stops the workflow for a human too, with your partial work left in
-place. Budget your turns: know what you'll finish with before you spend them.
+**Running out of turns** gets you resumed once, in the same session, with half as many
+again and an instruction to finish; a second time stops the run. Budget your turns: know
+what you'll finish with before you spend them.
 
 ## What you return
 

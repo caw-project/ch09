@@ -59,7 +59,7 @@ not your notes. For each GREEN task and each decision the plan takes:
 - **What each step takes for granted** — the behaviour of the existing code a step leans
   on: that some state already holds, that data is already fresh, that an existing effect,
   handler or query already runs on that path. Name where in the code it would have to be
-  true, on every path — fresh and cached, first visit and return. A step built exactly as
+  true, on every path — with state fresh and with state left over, the first time and again. A step built exactly as
   the plan says is still wrong when what it assumes isn't so, and the plan-reviewer read
   the plan, not the running code.
 - **Where it could go wrong** — the race, the stale value, the missing cleanup, the error
@@ -76,15 +76,22 @@ code could shape it.
 
 The green report is a claim. Check it by running, as *Running tests* says:
 
-- the full Vitest suite (`npm --prefix src/frontend test`), the typecheck, lint and
-  `npm --prefix src/frontend run build`; `uv run pytest` over each service that changed;
+- for a change to the SPA: the full Vitest suite (`npm --prefix src/frontend test`), the
+  typecheck, lint and `npm --prefix src/frontend run build`, asked for in one turn;
+- for a change to a service: `uv run pytest src/services/<name>/tests/unit` and
+  `uv run ruff check src/services/<name>`; `helm lint` or `bash -n` for a chart or a
+  script;
 - the convention checks over every changed and new file, by name.
 
 You can't run `scripts/test.sh` — it rewrites the committed report. For the layers only it
 runs, check its evidence: `docs/test-report.md` shows each layer the plan's verification
 names, passed, at this tree's revision with `-dirty`, and its counts match the report's
 *What ran*; `build/test-results/e2e.xml` names the plan's journey among the passed. A
-journey the plan asks for that has not passed is critical, whoever's fault it is.
+journey the plan asks for that has not passed is critical, whoever's fault it is. A layer
+the plan's verification doesn't name may show as not run, or as an older revision's: that
+is the human's to rerun, and goes under *Left for the human*, not in a finding. So does a
+failure the green report records as flaky or as there before the work, once you have
+checked the work can't reach it.
 
 Say in each finding what you ran and what it printed. A finding you couldn't check by
 running or reading is labelled **unverified**, and can't be critical on its own — nor is
@@ -100,8 +107,13 @@ between a bug and the human. So for the frontend, break the real code on purpose
 - `.claude/delivery/sketch.sh frontend` copies the SPA — the writer's code and the tests —
   to `build/sketch/frontend/`. Change the copy with Edit; `.claude/delivery/sketch.sh test
   <paths>` runs Vitest there; `.claude/delivery/sketch.sh diff` shows what you changed.
+- **One turn a mutant.** Make the change and run it in the same turn — the Edit, then
+  `sketch.sh test` over only the files that should catch it; the calls run in the order
+  you give them. `.claude/delivery/sketch.sh reset <path>` puts one file back as the
+  writer left it, and can go in the next mutant's turn, first. Shell edits (`sed`, `cp`, a
+  heredoc) are refused: Write and Edit only.
 - **Mutate every wrong build your *Expectations* named**, one at a time, reverting each
-  before the next (`sketch.sh frontend` starts over): drop a guard, flip a boundary, swap
+  before the next (`sketch.sh reset`, or `sketch.sh frontend` to start over): drop a guard, flip a boundary, swap
   an order, skip a cleanup, leave out each item under *What the plan asks for that no
   test pins*. Run the tests that should catch it.
 - **A mutant the tests catch** goes in *Checked and sound*. **A mutant that survives** is
@@ -110,7 +122,7 @@ between a bug and the human. So for the frontend, break the real code on purpose
   wrong: reviews have watched a planned step survive its mutant, judged it "as planned",
   and approved a build that broke the requirement the step was there for. So **probe it**:
   - write a test in the copy that drives the real, unmutated code down the path no
-    approved test takes — a return visit, a second call, a change mid-way through;
+    approved test takes — a second time through, a second call, a change mid-way through;
   - set its world up as that path really leaves it, not as the step assumes it will be —
     a probe whose fixture makes the premise true can only agree with the plan;
   - assert **the issue's requirement**, not the plan's step, both ways, as *Tests that
@@ -128,8 +140,12 @@ between a bug and the human. So for the frontend, break the real code on purpose
   file, the change or the path in a line, the tests run, caught, survived or failed.
 - **`.claude/delivery/sketch.sh clean` before you return**, whatever the verdict.
 
-Python has no copy yet (a package imports its installed copy): there, reason about the
-mutation and say so.
+**Python mutates the same way.** `.claude/delivery/sketch.sh service <name>` copies
+`src/services/<name>`, tests included, to `build/sketch/services/<name>/`;
+`.claude/delivery/sketch.sh pytest <name>/tests/unit/<file>` runs the copy's tests against
+the copy's code, and a probe is a test file written into the copy. An integration test
+there starts containers: mutate what a unit test should hold freely, and keep integration
+mutants for the routes and queries your *Expectations* marked as likely to be wrong.
 
 ## What to check
 
@@ -199,8 +215,18 @@ pull request over it. If not, it isn't a finding.
   gates it, and the code-writer then fixes the code against it. Write the review file as
   well, with every finding: the send-back file names the ones it carries, and the
   code-writer reads the review for the rest when the work comes back to it.
-- **`needs_human`** — a question only a person can answer: the plan is wrong in a way that
-  changes what a user sees, or what the shared context sends to a human.
+- **`needs_human`** — only what the shared context's *Stopping for a human*, *Rounds* and
+  *The final round* send to a human.
+
+**A question is not a verdict.** Where the issue leaves an edge open — two of its rules
+meet in a way it doesn't settle — and the code takes a defensible reading, that is the
+shared context's *Decide, record, carry on*: put it under *Left for the human* as a
+question, with what the code does today and what the other reading would take. It blocks
+nothing. Where the code *contradicts* something the issue or the plan says, it is a
+finding, and the fix goes through `changes_requested` or `send_back` — a plan that has to
+change is a send-back that says so, and the test pair passes it on.
+
+**Raise everything in round 1.** The pair's aim is approval in two rounds.
 
 ## The review file
 
