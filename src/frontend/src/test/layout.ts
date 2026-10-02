@@ -8,7 +8,7 @@
  * leaves no chance to stub the new node before its first measurement.
  */
 
-import { onTestFinished } from 'vitest'
+import { onTestFinished, vi, type Mock } from 'vitest'
 
 export type Layout = Record<'clientHeight' | 'scrollHeight' | 'scrollTop', number> & {
   /** `scrollTop` ignores writes — the list's own scroll-to-newest can't move it. */
@@ -34,6 +34,23 @@ export function giveLayout(
       if (!frozen) top = value
     },
   })
+}
+
+/**
+ * jsdom has no `Element.scrollIntoView`, so code that calls it throws. This
+ * defines it on `HTMLElement.prototype` as a spy — `spy.mock.contexts` says
+ * which element it was called on — and removes it when the test ends.
+ */
+export function stubScrollIntoView(): Mock {
+  const spy = vi.fn()
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+    configurable: true,
+    value: spy,
+  })
+  onTestFinished(() => {
+    Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
+  })
+  return spy
 }
 
 /**

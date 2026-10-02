@@ -48,6 +48,8 @@ interface Props {
   onDelete: () => void
   /** Add or take back one reaction — the row does not know which, the cache does. */
   onToggleReaction: (emoji: string) => void
+  /** The target of a jump from search, for the two seconds it is highlighted. */
+  highlighted?: boolean
 }
 
 function timeOfDay(iso: string): string {
@@ -64,6 +66,7 @@ export function MessageItem({
   onEdit,
   onDelete,
   onToggleReaction,
+  highlighted = false,
 }: Props) {
   const [editing, setEditing] = useState(false)
 
@@ -91,7 +94,9 @@ export function MessageItem({
       data-testid="message-item"
       data-message-id={message.id}
       data-pending={pending ? 'true' : 'false'}
-      className={`group flex flex-col gap-0.5 px-6 py-2 ${pending ? 'opacity-50' : ''}`}
+      data-highlighted={highlighted ? 'true' : undefined}
+      // The transition is always on, so dropping the highlight class is the fade.
+      className={`group flex flex-col gap-0.5 px-6 py-2 transition-colors duration-700 ${pending ? 'opacity-50' : ''} ${highlighted ? 'bg-accent/15' : ''}`}
     >
       <div className="flex items-baseline gap-2">
         <span data-testid="message-author" className="text-sm font-medium text-ink">

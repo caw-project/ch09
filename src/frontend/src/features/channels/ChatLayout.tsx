@@ -18,6 +18,7 @@ import type { Session } from '../../lib/auth/session'
 import { SocketProvider } from '../../lib/realtime/SocketProvider'
 import { useChannelSocket } from '../../lib/realtime/useChannelSocket'
 import { useChatStore } from '../../stores/chat'
+import { SearchBox } from '../search/SearchBox'
 import { ChannelList } from './ChannelList'
 import { CreateChannelDialog } from './CreateChannelDialog'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
@@ -52,6 +53,7 @@ export function ChatLayout({ current, children }: Props) {
     <SocketProvider socket={socket}>
       <div className="grid h-full grid-cols-[16rem_1fr]">
         <aside className="flex flex-col border-r border-border bg-surface-sunken">
+          <SearchBox workspaceId={current.activeWorkspaceId} />
           <WorkspaceSwitcher current={current} />
 
           <nav className="flex-1 overflow-y-auto">

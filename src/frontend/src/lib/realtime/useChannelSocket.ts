@@ -27,7 +27,10 @@
  * point. The order matters: the server enters the room only once it has checked
  * the channel is visible, so a refetch sent alongside the join can finish first
  * and a message sent in between reaches neither. Refetching on the ack leaves
- * no gap, and the same ack is what `joinedChannelId` reports.
+ * no gap, and the same ack is what `joinedChannelId` reports. The refetch never
+ * cancels an older-page fetch in flight — `refetchHistory` waits for it and then
+ * refetches — or a reader paging back, or a jump to a search result, would lose
+ * the page it was waiting for.
  *
  * **An event for a channel with no cached history is dropped.**
  * `setQueryData` on an empty key stores whatever the updater returns, so a
@@ -58,6 +61,7 @@ import { channelKeys } from '../../features/channels/useChannels'
 import {
   applyReaction,
   messageKeys,
+  refetchHistory,
   upsertMessage,
   type ReactionEvent,
 } from '../../features/channels/useMessages'
@@ -131,7 +135,7 @@ export function useChannelSocket(
         if (activeChannel.current === current) setJoinedChannel(current)
         // Whatever was said while this client was away went to a room it was
         // not in. Re-joining does not replay it; refetching does.
-        void queryClient.invalidateQueries({ queryKey: messageKeys.list(workspaceId, current) })
+        refetchHistory(queryClient, messageKeys.list(workspaceId, current))
       })
     }
 
@@ -199,7 +203,7 @@ export function useChannelSocket(
         if (activeChannel.current === channelId) setJoinedChannel(channelId)
         // The history loaded as the channel opened, while this join was in
         // flight — a message sent in that window is in neither.
-        void queryClient.invalidateQueries({ queryKey: messageKeys.list(workspaceId, channelId) })
+        refetchHistory(queryClient, messageKeys.list(workspaceId, channelId))
       })
     }
     return () => {
