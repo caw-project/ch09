@@ -12,6 +12,8 @@ import { useParams } from 'react-router-dom'
 import { useEffect } from 'react'
 
 import { getChannel } from '../../lib/api/messaging'
+import { ThreadPanel } from '../threads/ThreadPanel'
+import { useThreadParam } from '../threads/useThreadParam'
 import { ChannelHeader } from './ChannelHeader'
 import { MemberPanel } from './MemberPanel'
 import { MessageComposer } from './MessageComposer'
@@ -35,6 +37,9 @@ export function ChannelView({ accessToken, workspaceId, userId }: Props) {
   }, [channelId, setActiveChannel])
 
   const queryClient = useQueryClient()
+  // Which thread is open lives in the URL. Switching channel drops it, since
+  // the new channel's address carries no `?thread=`.
+  const { threadId, openThread, closeThread } = useThreadParam()
 
   // Opening a channel refetches the list: the sidebar's counts are the
   // server's, and the user has just changed what they are looking at.
@@ -91,6 +96,7 @@ export function ChannelView({ accessToken, workspaceId, userId }: Props) {
             myRole={channel.myRole ?? null}
             lastReadId={channel.lastReadId ?? null}
             channelFetching={isFetching}
+            onOpenThread={openThread}
           />
           {/* Enabled for any channel this view can render: visibility is the
               write test as well as the read one, so someone who can see a
@@ -104,7 +110,23 @@ export function ChannelView({ accessToken, workspaceId, userId }: Props) {
           />
         </div>
 
-        <MemberPanel accessToken={accessToken} workspaceId={workspaceId} channel={channel} />
+        {/* A thread takes the members' place: one right-hand column, so the
+            channel list never loses width to a third pane. Keyed by the root so
+            each thread is a fresh mount with its own scroll position. */}
+        {threadId ? (
+          <ThreadPanel
+            key={threadId}
+            accessToken={accessToken}
+            workspaceId={workspaceId}
+            channelId={channel.id}
+            rootId={threadId}
+            userId={userId}
+            myRole={channel.myRole ?? null}
+            onClose={closeThread}
+          />
+        ) : (
+          <MemberPanel accessToken={accessToken} workspaceId={workspaceId} channel={channel} />
+        )}
       </div>
     </section>
   )

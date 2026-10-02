@@ -346,6 +346,59 @@ class ChatPage:
     def _chip(self, text: str, emoji: str) -> Locator:
         return self._item_for(text).locator(f"[data-testid='reaction-chip'][data-emoji='{emoji}']")
 
+    # --- threads ----------------------------------------------------------
+
+    def reply_in_thread(self, body: str, reply: str) -> None:
+        """Open the thread on a channel message, reply, and wait for the server's copy.
+
+        The confirmed row *inside the panel*: the optimistic reply is on screen
+        the moment the button is clicked, so waiting on the text alone passes
+        before anything has left the browser. `data-pending='false'` is the ack
+        or the echo replacing the `temp:` row.
+
+        Hovering first because the action lives behind `group-hover`.
+        """
+        item = self._channel_item_for(body)
+        item.hover()
+        item.get_by_test_id("thread-open").click()
+        self.page.get_by_test_id("thread-composer-input").fill(reply)
+        self.page.get_by_test_id("thread-composer-send").click()
+        panel = self.page.get_by_test_id("thread-panel")
+        confirmed = panel.locator("[data-testid='message-item'][data-pending='false']").filter(
+            has_text=reply
+        )
+        expect(confirmed.first).to_be_visible()
+
+    def has_reply_count(self, body: str, count: int) -> bool:
+        """Whether a channel message shows `count` replies, waiting for it to get there.
+
+        Read from `data-reply-count` on the summary inside the channel's own
+        list: the open panel's root carries the same text, and has no summary.
+        """
+        self._settle_messages()
+        summary = self._channel_item_for(body).get_by_test_id("thread-summary")
+        return _holds(lambda: expect(summary).to_have_attribute("data-reply-count", str(count)))
+
+    def open_thread(self, body: str) -> None:
+        """Open a thread from the root's reply summary, as someone who didn't write it would."""
+        self._channel_item_for(body).get_by_test_id("thread-summary").click()
+        expect(self.page.get_by_test_id("thread-panel")).to_be_visible()
+
+    def thread_has_message(self, text: str) -> bool:
+        """Whether the open panel shows a message — fetched from the server on open."""
+        panel = self.page.get_by_test_id("thread-panel")
+        message = panel.get_by_test_id("message-body").filter(has_text=text)
+        return _holds(lambda: expect(message.first).to_be_visible())
+
+    def _channel_item_for(self, text: str) -> Locator:
+        """A message in the channel's list, never the panel's copy of the root."""
+        return (
+            self.page.get_by_test_id("message-list")
+            .get_by_test_id("message-item")
+            .filter(has_text=text)
+            .first
+        )
+
     # --- live delivery ----------------------------------------------------
 
     def wait_for_message(self, text: str, timeout: int = 10_000) -> None:

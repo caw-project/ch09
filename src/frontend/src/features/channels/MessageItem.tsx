@@ -30,6 +30,7 @@
 import { useState } from 'react'
 
 import type { Message } from '../../lib/api/messaging'
+import { ThreadSummary } from '../threads/ThreadSummary'
 import { MessageEditor } from './MessageEditor'
 import { ReactionBar } from './ReactionBar'
 import { ReactionPicker } from './ReactionPicker'
@@ -48,6 +49,12 @@ interface Props {
   onDelete: () => void
   /** Add or take back one reaction — the row does not know which, the cache does. */
   onToggleReaction: (emoji: string) => void
+  /**
+   * Open this message's thread. Optional because only the channel's list offers
+   * it: the thread panel's own rows are the thread, so they pass nothing and show
+   * neither the action nor the summary.
+   */
+  onOpenThread?: () => void
   /** The target of a jump from search, for the two seconds it is highlighted. */
   highlighted?: boolean
 }
@@ -66,6 +73,7 @@ export function MessageItem({
   onEdit,
   onDelete,
   onToggleReaction,
+  onOpenThread,
   highlighted = false,
 }: Props) {
   const [editing, setEditing] = useState(false)
@@ -81,6 +89,10 @@ export function MessageItem({
   // Anyone who can see the message may react to it — reacting is talking, not
   // moderating. A tombstone takes none, and the server clears the ones it had.
   const canReact = !deleted && !pending
+  // Threads are single-level: only a confirmed, live, top-level message takes a
+  // reply. The *summary* below is not held to this — a deleted root keeps its
+  // thread (R10), and the summary is the only way back into it.
+  const canReply = onOpenThread !== undefined && !deleted && !pending && message.threadRootId === null
 
   function save(body: string) {
     // The version the cache holds; the server refuses with a 409 if the row has
@@ -118,6 +130,16 @@ export function MessageItem({
 
         <span className="ml-auto flex gap-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
           {canReact && <ReactionPicker onPick={onToggleReaction} />}
+          {canReply && (
+            <button
+              type="button"
+              data-testid="thread-open"
+              onClick={onOpenThread}
+              className="text-xs text-ink-muted underline"
+            >
+              Reply in thread
+            </button>
+          )}
           {canEdit && (
             <button
               type="button"
@@ -160,6 +182,14 @@ export function MessageItem({
       )}
 
       {!deleted && <ReactionBar reactions={message.reactions} onToggle={onToggleReaction} />}
+
+      {onOpenThread && (
+        <ThreadSummary
+          replyCount={message.replyCount}
+          lastReplyAt={message.lastReplyAt}
+          onOpen={onOpenThread}
+        />
+      )}
     </article>
   )
 }

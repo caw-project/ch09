@@ -158,6 +158,46 @@ async def test_a_message_deleted_after_it_was_indexed_is_not_returned(client, ad
     assert await found(client, ada, "password") == []
 
 
+# --- threads ---------------------------------------------------------------------
+
+
+async def reply(client, headers, channel_id, root_id, body):
+    response = await client.post(
+        f"/api/v1/channels/{channel_id}/messages",
+        json={"body": body, "threadRootId": root_id},
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+async def test_a_reply_is_not_a_result_but_its_root_is(client, ada, tokens, index):
+    """R12: the index still holds the reply; hydration drops it. Roots still match."""
+    channel = await make_channel(client, ada)
+    root = await send(client, ada, channel["id"], "who handles the zebrafish deploy")
+    answer = await reply(
+        client, ada, channel["id"], root["id"], "narwhal owns the zebrafish deploy"
+    )
+    await index.index(root, workspace_id=tokens.WORKSPACE)
+    await index.index(answer, workspace_id=tokens.WORKSPACE)
+
+    assert await found(client, ada, "narwhal") == []
+    assert await found(client, ada, "who handles") == ["who handles the zebrafish deploy"]
+
+
+async def test_a_search_result_carries_its_summary(client, ada, tokens, index):
+    """Decision 27: a zero summary on a result would overwrite "2 replies" in the SPA."""
+    channel = await make_channel(client, ada)
+    root = await send(client, ada, channel["id"], "pelican rota for the week")
+    await reply(client, ada, channel["id"], root["id"], "one")
+    await reply(client, ada, channel["id"], root["id"], "two")
+    await index.index(root, workspace_id=tokens.WORKSPACE)
+
+    [item] = (await search(client, ada, "pelican")).json()["items"]
+
+    assert item["replyCount"] == 2
+
+
 # --- failures and limits --------------------------------------------------------
 
 

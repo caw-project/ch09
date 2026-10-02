@@ -25,6 +25,11 @@ interface ChatState {
   activeChannelId: string | null
   /** Per-channel composer text, so switching channels does not lose it. */
   drafts: Record<string, string>
+  /**
+   * Per-thread composer text, keyed by the root's id and apart from `drafts`, so
+   * a half-typed reply can never be the channel's draft (R14) by construction.
+   */
+  threadDrafts: Record<string, string>
   connectionStatus: ConnectionStatus
   /**
    * The channel whose room the server has put this connection in — set when it
@@ -44,6 +49,8 @@ interface ChatState {
   setReadingChannel: (channelId: string | null) => void
   setDraft: (channelId: string, text: string) => void
   clearDraft: (channelId: string) => void
+  setThreadDraft: (rootId: string, text: string) => void
+  clearThreadDraft: (rootId: string) => void
   setConnectionStatus: (status: ConnectionStatus) => void
   setJoinedChannel: (channelId: string | null) => void
 }
@@ -51,6 +58,7 @@ interface ChatState {
 export const useChatStore = create<ChatState>((set) => ({
   activeChannelId: null,
   drafts: {},
+  threadDrafts: {},
   connectionStatus: 'disconnected',
   joinedChannelId: null,
   readingChannelId: null,
@@ -64,5 +72,12 @@ export const useChatStore = create<ChatState>((set) => ({
     set((state) => {
       const { [channelId]: _removed, ...rest } = state.drafts
       return { drafts: rest }
+    }),
+  setThreadDraft: (rootId, text) =>
+    set((state) => ({ threadDrafts: { ...state.threadDrafts, [rootId]: text } })),
+  clearThreadDraft: (rootId) =>
+    set((state) => {
+      const { [rootId]: _removed, ...rest } = state.threadDrafts
+      return { threadDrafts: rest }
     }),
 }))

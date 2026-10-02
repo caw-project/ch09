@@ -48,9 +48,9 @@ from typing import Any
 import socketio
 from pydantic import Field, ValidationError
 
-from messaging import channels, indexing, messages, reactions, read_state, realtime
+from messaging import channels, indexing, messages, reactions, read_state, realtime, threads
 from messaging.realtime import NAMESPACE, RealtimeContext, _acked, _ok
-from messaging.routers.messages import _as_message
+from messaging.routers.messages import _as_message, publish_reply_summary, summary_of
 from messaging.schemas import MAX_BODY_FIELD_LENGTH, CamelRequest
 from shared import ProblemException, TokenState, UserPrincipal
 
@@ -58,16 +58,14 @@ _log = logging.getLogger("collabhub.messaging.realtime_writes")
 
 
 class SendMessagePayload(CamelRequest):
-    """`send_message`: `{channelId, body}` and nothing else (spec §3.2).
+    """`send_message`: `{channelId, body, threadRootId?}` (spec §3.2).
 
-    The spec once listed `threadRootId` and `attachmentIds` as optional. Both are
-    out of scope — threading has a column and no API, and attachments are always
-    empty because the Asset service is a skeleton — and declaring a field the
-    handler ignores is a claim the service does not honour. They return with the
-    features that need them.
-
-    Not declaring them is not the same as refusing them: nothing here forbids
-    extra keys, so a client that sends either field gets no error, just no effect.
+    `threadRootId` makes the message a reply, normalised under its root exactly
+    as the REST route does. The spec's `attachmentIds` stays out of scope —
+    attachments are always empty because the Asset service is a skeleton, and
+    declaring a field the handler ignores is a claim the service does not
+    honour. Nothing here forbids extra keys, so a client that sends it gets no
+    error, just no effect.
 
     Validated here rather than in `schemas.py`: these are not REST bodies, they
     never appear in the OpenAPI document, and they belong beside the handlers
@@ -76,6 +74,7 @@ class SendMessagePayload(CamelRequest):
 
     channel_id: uuid.UUID
     body: str = Field(max_length=MAX_BODY_FIELD_LENGTH)
+    thread_root_id: uuid.UUID | None = None
 
 
 class EditMessagePayload(CamelRequest):
@@ -181,6 +180,15 @@ def register_write_handlers(  # noqa: C901 — a registry of handlers; mccabe co
         async with context.sessions() as session:
             await authorized_channel(session, principal, event.channel_id)
 
+            root_id: uuid.UUID | None = None
+            if event.thread_root_id is not None:
+                try:
+                    root_id = await threads.resolve_root(
+                        session, channel_id=event.channel_id, candidate_id=event.thread_root_id
+                    )
+                except threads.NoSuchThreadError as exc:
+                    raise ProblemException.not_found("No such thread.") from exc
+
             try:
                 created = await messages.create(
                     session,
@@ -188,6 +196,7 @@ def register_write_handlers(  # noqa: C901 — a registry of handlers; mccabe co
                     author_id=principal.user_id,
                     body=event.body,
                     max_chars=context.settings.messaging_max_body_chars,
+                    thread_root_id=root_id,
                 )
             except messages.BodyRequiredError as exc:
                 raise _body_problem("A message cannot be empty.") from exc
@@ -201,9 +210,12 @@ def register_write_handlers(  # noqa: C901 — a registry of handlers; mccabe co
             response = _as_message(created, reactions=[])
             await session.commit()
 
-        # Commit, then publish. A broadcast for a row whose transaction failed
-        # is a message that exists only in other people's windows.
-        await realtime.publish_message_received(sio, response)
+            # Commit, then publish. A broadcast for a row whose transaction failed
+            # is a message that exists only in other people's windows.
+            await realtime.publish_message_received(sio, response)
+            if root_id is not None:
+                # Read after the commit, in this session's next transaction.
+                await publish_reply_summary(session, sio, root_id, event.channel_id)
         await indexing.enqueue_upsert(context.jobs, response, workspace_id=principal.workspace_id)
         return _ok(response.model_dump(mode="json", by_alias=True))
 
@@ -250,7 +262,9 @@ def register_write_handlers(  # noqa: C901 — a registry of handlers; mccabe co
                     session, message_ids=[edited.id], user_id=principal.user_id
                 )
             ).get(edited.id, [])
-            response = _as_message(edited, reactions=summaries)
+            response = _as_message(
+                edited, reactions=summaries, thread=await summary_of(session, edited)
+            )
             await session.commit()
 
         await realtime.publish_message_edited(sio, response)
@@ -284,10 +298,17 @@ def register_write_handlers(  # noqa: C901 — a registry of handlers; mccabe co
                 # The REST delete clears them too: one rule, both transports.
                 await reactions.clear_for_message(session, message_id=event.message_id)
 
-            response = _as_message(result.message, reactions=[])
+            response = _as_message(
+                result.message, reactions=[], thread=await summary_of(session, result.message)
+            )
             await session.commit()
 
-        await realtime.publish_message_deleted(sio, response)
+            await realtime.publish_message_deleted(sio, response)
+            if result.deleted_now and result.message.thread_root_id is not None:
+                # A deleted reply lowers its root's count, read after the commit.
+                await publish_reply_summary(
+                    session, sio, result.message.thread_root_id, result.message.channel_id
+                )
         # A repeat delete changed nothing, so it has nothing to index.
         if result.deleted_now:
             await indexing.enqueue_delete(

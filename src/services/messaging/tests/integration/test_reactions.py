@@ -305,7 +305,33 @@ async def test_a_reaction_reaches_a_joined_client(realtime_url, tokens):
         "count": 1,
         "userId": str(tokens.ADA),
         "reacted": True,
+        "threadRootId": None,
     }
+
+    await grace.disconnect()
+
+
+async def test_a_reaction_on_a_reply_carries_its_thread_root(realtime_url, tokens):
+    """Decision 10: the client routes the event by it. Top-level stays `null` in the test above."""
+    async with httpx.AsyncClient(base_url=realtime_url, headers=tokens.header()) as ada_http:
+        channel = await make_channel(ada_http, {}, "general")
+        root = await send(ada_http, {}, channel["id"], "who is on call")
+        posted = await ada_http.post(
+            f"/api/v1/channels/{channel['id']}/messages",
+            json={"body": "I am", "threadRootId": root["id"]},
+        )
+        assert posted.status_code == 201, posted.text
+        answer = posted.json()
+
+        grace = await connected(realtime_url, tokens.mint(user_id=tokens.GRACE))
+        assert (await grace.call("join_channel", channel["id"], timeout=WAIT))["ok"]
+
+        await react(ada_http, {}, answer["id"], "tada")
+        event_name, payload = await grace.receive(timeout=WAIT)
+
+    assert event_name == "reaction_changed"
+    assert payload["messageId"] == answer["id"]
+    assert payload["threadRootId"] == root["id"]
 
     await grace.disconnect()
 

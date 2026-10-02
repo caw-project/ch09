@@ -6,7 +6,7 @@
  * Ids are fresh per call so two factory values never collide by accident.
  */
 
-import type { Channel, Message, MessagePage } from '../lib/api/messaging'
+import type { Channel, Message, MessagePage, ThreadPage } from '../lib/api/messaging'
 import type { WorkspaceMember } from '../lib/auth/api'
 import type { Session } from '../lib/auth/session'
 
@@ -60,6 +60,8 @@ export function aMessage(overrides: Partial<Message> = {}): Message {
     editedAt: null,
     deletedAt: null,
     version: 0,
+    replyCount: 0,
+    lastReplyAt: null,
     ...overrides,
   }
 }
@@ -67,6 +69,18 @@ export function aMessage(overrides: Partial<Message> = {}): Message {
 /** One page of history, newest first — the wire order. */
 export function aMessagePage(items: Message[], nextCursor: string | null = null): MessagePage {
   return { items, nextCursor }
+}
+
+/**
+ * One page of a thread, as `GET /messages/{id}/thread` serves it: the root on
+ * every page, then replies newest first.
+ */
+export function aThreadPage(
+  root: Message,
+  items: Message[],
+  nextCursor: string | null = null,
+): ThreadPage {
+  return { root, items, nextCursor }
 }
 
 export function aWorkspaceMember(

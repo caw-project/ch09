@@ -146,23 +146,49 @@ export function upsertMessage(
 ): void {
   queryClient.setQueryData<InfiniteMessages>(key, (cached) => {
     if (!cached) return cached
+    // A reply is not history (R3): it lives in its thread's own cache, and
+    // whichever path writes it — the socket, the panel's edit, a reaction
+    // response — cannot leak it into the channel's list from here.
+    if (message.threadRootId !== null) return cached
 
     const existing = cached.pages.some((page) => page.items.some((m) => m.id === message.id))
-    if (existing) {
-      return {
-        ...cached,
-        pages: cached.pages.map((page) => ({
-          ...page,
-          items: page.items.map((m) => (m.id === message.id ? message : m)),
-        })),
-      }
-    }
+    if (existing) return replaced(cached, message)
 
     const [newest, ...rest] = cached.pages
     return {
       ...cached,
       pages: [{ ...newest, items: [message, ...newest.items] }, ...rest],
     }
+  })
+}
+
+function replaced(cached: InfiniteMessages, message: Message): InfiniteMessages {
+  return {
+    ...cached,
+    pages: cached.pages.map((page) => ({
+      ...page,
+      items: page.items.map((m) => (m.id === message.id ? message : m)),
+    })),
+  }
+}
+
+/**
+ * Replace a message where it already sits, and add nothing.
+ *
+ * `upsertMessage`'s replace branch alone. History takes a *new* row only from
+ * `message_received` and its own sends: an edit, a delete, a reply count or the
+ * thread panel's result for a root nobody loaded into history (an old root, one
+ * opened from the URL) would otherwise be inserted as the newest message.
+ */
+export function replaceMessage(
+  queryClient: QueryClient,
+  key: readonly unknown[],
+  message: Message,
+): void {
+  queryClient.setQueryData<InfiniteMessages>(key, (cached) => {
+    if (!cached) return cached
+    if (!cached.pages.some((page) => page.items.some((m) => m.id === message.id))) return cached
+    return replaced(cached, message)
   })
 }
 
@@ -207,21 +233,58 @@ export function isPending(message: Message): boolean {
  * in-flight sends keyed by temp id is a second copy of the message list wearing
  * a hat, and the store holds no server-shaped data.
  */
-function optimistic(channelId: string, authorId: string, body: string): Message {
+export function optimistic(
+  channelId: string,
+  authorId: string,
+  body: string,
+  threadRootId: string | null = null,
+): Message {
   return {
     id: `${PENDING_PREFIX}${crypto.randomUUID()}`,
     channelId,
     authorId,
-    threadRootId: null,
+    threadRootId,
     body,
     attachments: [],
-    // Nothing the server has not seen can have been reacted to.
+    // Nothing the server has not seen can have been reacted to or replied to.
     reactions: [],
     createdAt: new Date().toISOString(),
     editedAt: null,
     deletedAt: null,
     version: 0,
+    replyCount: 0,
+    lastReplyAt: null,
   }
+}
+
+/**
+ * `send_message` over the socket, resolved with the confirmed message.
+ *
+ * Shared by the channel's send and the thread's, so the two cannot disagree on
+ * what a lost ack or a refusal looks like: `emit` with no connection buffers and
+ * never calls back, so the timeout is what turns that into an error.
+ */
+export function emitSend(
+  socket: Socket | null,
+  payload: { channelId: string; body: string; threadRootId?: string },
+): Promise<Message> {
+  return new Promise((resolve, reject) => {
+    if (!socket) {
+      reject(new Error('Not connected. Try again in a moment.'))
+      return
+    }
+    socket
+      .timeout(SEND_TIMEOUT_MS)
+      .emit('send_message', payload, (transportError: unknown, ack?: Ack) => {
+        if (transportError || !ack) {
+          reject(new Error('The server did not confirm that message. Nothing was sent.'))
+        } else if (ack.ok) {
+          resolve(ack.data as Message)
+        } else {
+          reject(problemFromBody(ack.problem?.status ?? 500, ack.problem))
+        }
+      })
+  })
 }
 
 /**
@@ -254,24 +317,7 @@ export function useSendMessage(
   const key = messageKeys.list(workspaceId, channelId)
 
   return useMutation<Message, Error, string, { pendingId: string; body: string }>({
-    mutationFn: (body) =>
-      new Promise((resolve, reject) => {
-        if (!socket) {
-          reject(new Error('Not connected. Try again in a moment.'))
-          return
-        }
-        socket
-          .timeout(SEND_TIMEOUT_MS)
-          .emit('send_message', { channelId, body }, (transportError: unknown, ack?: Ack) => {
-            if (transportError || !ack) {
-              reject(new Error('The server did not confirm that message. Nothing was sent.'))
-            } else if (ack.ok) {
-              resolve(ack.data as Message)
-            } else {
-              reject(problemFromBody(ack.problem?.status ?? 500, ack.problem))
-            }
-          })
-      }),
+    mutationFn: (body) => emitSend(socket, { channelId, body }),
     onMutate: (body) => {
       const pending = optimistic(channelId, userId, body)
       upsertMessage(queryClient, key, pending)
@@ -337,6 +383,12 @@ export interface ReactionEvent {
   userId: string
   /** Whether **that** person now reacts with this emoji. */
   reacted: boolean
+  /**
+   * The root of the thread the message is a reply in; `null` on a top-level
+   * message. The server always sends it — optional here only because an event
+   * built without it is, by the same reading, a top-level message's.
+   */
+  threadRootId?: string | null
 }
 
 /**
@@ -390,14 +442,21 @@ export function applyReaction(
       pages: cached.pages.map((page) => ({
         ...page,
         items: page.items.map((m) =>
-          m.id === event.messageId ? { ...m, reactions: merged(m.reactions, event, myUserId) } : m,
+          m.id === event.messageId
+            ? { ...m, reactions: mergeReaction(m.reactions, event, myUserId) }
+            : m,
         ),
       })),
     }
   })
 }
 
-function merged(current: Reaction[], event: ReactionEvent, myUserId: string): Reaction[] {
+/** One message's reactions after an event — shared with the thread cache's writer. */
+export function mergeReaction(
+  current: Reaction[],
+  event: ReactionEvent,
+  myUserId: string,
+): Reaction[] {
   const others = current.filter((r) => r.emoji !== event.emoji)
   // Zero is how a chip disappears, rather than rendering a nought.
   if (event.count === 0) return inAllowlistOrder(others)
@@ -408,7 +467,7 @@ function merged(current: Reaction[], event: ReactionEvent, myUserId: string): Re
 }
 
 /** What the cache should show the instant a chip is clicked, before the server answers. */
-function predict(
+export function predictReaction(
   message: Message,
   emoji: string,
   channelId: string,
@@ -423,6 +482,7 @@ function predict(
     count: (existing?.count ?? 0) + (reacted ? 1 : -1),
     userId: myUserId,
     reacted,
+    threadRootId: message.threadRootId,
   }
 }
 
@@ -459,7 +519,7 @@ export function useToggleReaction(
         ? removeReaction(accessToken, message.id, emoji)
         : addReaction(accessToken, message.id, emoji),
     onMutate: ({ message, emoji }) => {
-      applyReaction(queryClient, key, predict(message, emoji, channelId, userId), userId)
+      applyReaction(queryClient, key, predictReaction(message, emoji, channelId, userId), userId)
       return { messageId: message.id, previous: message.reactions }
     },
     onSuccess: (message) => upsertMessage(queryClient, key, message),

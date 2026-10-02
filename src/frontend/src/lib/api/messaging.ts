@@ -27,6 +27,7 @@ export type ChannelMemberRole = components['schemas']['AddChannelMemberRequest']
 export type Message = components['schemas']['MessageResponse']
 export type MessagePage = components['schemas']['MessageListResponse']
 export type Reaction = components['schemas']['ReactionSummary']
+export type ThreadPage = components['schemas']['ThreadResponse']
 
 const client = createClient<paths>({ baseUrl: MESSAGING_URL })
 
@@ -206,6 +207,27 @@ export async function getMessage(accessToken: string, messageId: string): Promis
   const { data, error, response } = await client.GET('/api/v1/messages/{message_id}', {
     headers: { Authorization: `Bearer ${accessToken}` },
     params: { path: { message_id: messageId } },
+  })
+  if (error !== undefined) throw problem(response.status, error)
+  return data
+}
+
+/**
+ * A thread: its root, and a page of its replies, newest first.
+ *
+ * The root rides on every page — the panel needs it even when it is not in the
+ * channel's loaded history — so a thread is one request and one loading state.
+ * A reply's id is a 404 here ("No such thread."), and so is an id the caller
+ * cannot see ("No such channel.").
+ */
+export async function getThread(
+  accessToken: string,
+  messageId: string,
+  cursor?: string,
+): Promise<ThreadPage> {
+  const { data, error, response } = await client.GET('/api/v1/messages/{message_id}/thread', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    params: { path: { message_id: messageId }, query: cursor ? { cursor } : {} },
   })
   if (error !== undefined) throw problem(response.status, error)
   return data

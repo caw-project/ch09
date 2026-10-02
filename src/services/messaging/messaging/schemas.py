@@ -191,6 +191,12 @@ class MessageResponse(CamelModel):
 
     One absence and two presences are all deliberate.
 
+    `replyCount` and `lastReplyAt` summarise a root's live (not deleted) replies
+    and are `0` and `null` on everything else — a reply, a message nobody
+    answered, a freshly sent one. Both are required with no default, for the
+    reason `ChannelResponse` gives: a default drops them from OpenAPI `required`.
+    A deleted root keeps its summary (R10).
+
     `reactions` is a summary — one entry per emoji anyone used, with the count
     and whether the caller is one of them — and it is `[]` rather than absent
     when nobody has reacted. `attachments` is a real column read off a real row
@@ -223,6 +229,8 @@ class MessageResponse(CamelModel):
     edited_at: datetime | None
     deleted_at: datetime | None
     version: int
+    reply_count: int
+    last_reply_at: datetime | None
 
 
 class MessageListResponse(CamelModel):
@@ -232,19 +240,49 @@ class MessageListResponse(CamelModel):
     next_cursor: str | None = None
 
 
-class SendMessageRequest(CamelRequest):
-    """Say something in a channel.
+class ThreadResponse(CamelModel):
+    """A thread: its root, and a cursor page of its replies, newest first.
 
-    Carries the body and nothing else. No `channelId` — it is in the path; no
-    `authorId` — it is the token's `sub`; no `threadRootId` and no
-    `attachmentIds`, because accepting a field the service ignores is a claim it
-    does not honour. Both arrive with the features that need them.
+    The root travels with every page because the panel needs it even when it is
+    not in loaded history (an old root, or one opened from the URL), and one
+    request is one loading state. Replies include tombstones (R5).
+    """
+
+    root: MessageResponse
+    items: list[MessageResponse]
+    next_cursor: str | None = None
+
+
+class ThreadSummaryChanged(CamelModel):
+    """`thread_summary_changed`: a root's authoritative reply count and last reply time.
+
+    An idempotent set rather than a delta, for the reason `reaction_changed`
+    carries a count: it is applied from an ack, an echo and a refetch, in any
+    order. Dumped with `mode="json", by_alias=True` so `lastReplyAt` is formatted
+    exactly as on the DTO.
+    """
+
+    channel_id: uuid.UUID
+    root_id: uuid.UUID
+    reply_count: int
+    last_reply_at: datetime | None
+
+
+class SendMessageRequest(CamelRequest):
+    """Say something in a channel, or reply to a message in it.
+
+    No `channelId` — it is in the path; no `authorId` — it is the token's `sub`;
+    no `attachmentIds`, because accepting a field the service ignores is a claim
+    it does not honour. `threadRootId` names the message being replied to: a
+    reply to a reply is filed under the root, and a root that is unknown or in
+    another channel is a 404.
 
     `max_length` here is a static outer bound and **not** the rule — see
     `MAX_BODY_FIELD_LENGTH`.
     """
 
     body: str = Field(max_length=MAX_BODY_FIELD_LENGTH)
+    thread_root_id: uuid.UUID | None = None
 
 
 class EditMessageRequest(CamelRequest):

@@ -1,15 +1,17 @@
 # Test report
 
-Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `950e66a2d292-dirty`.
+Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `c2ca4e3e59bb-dirty`.
 
 ## Layers
 
 | Layer | Result | Passed | Failed | Skipped | Revision |
 |---|---|--:|--:|--:|---|
-| Lint | ✅ passed | | | | `950e66a2d292-dirty` |
-| Unit | ✅ passed | 618 | 0 | 0 | `950e66a2d292-dirty` |
-| Integration | ⚪ not run | | | | |
-| End-to-end | ✅ passed | 21 | 0 | 0 | `950e66a2d292-dirty` |
+| Lint | ✅ passed | | | | `c2ca4e3e59bb-dirty` |
+| Unit | ✅ passed | 701 | 0 | 0 | `c2ca4e3e59bb-dirty` |
+| Integration | ✅ passed | 420 | 0 | 0 | `c2ca4e3e59bb-dirty` |
+| End-to-end | ✅ passed | 21 | 0 | 0 | ⚠️ `950e66a2d292-dirty` |
+
+> ⚠️ End-to-end was recorded at another revision.
 
 ## Failures
 
@@ -76,14 +78,6 @@ None.
 | Ada's delete propagates to Grace live | ✅ passed |
 | The stream recovers after the connection drops | ✅ passed |
 
-### Search
-
-1 of 1 passed.
-
-| Scenario | Result |
-|---|---|
-| Ada finds a message and opens it in its channel | ✅ passed |
-
 ### Sessions
 
 3 of 3 passed.
@@ -94,18 +88,26 @@ None.
 | Following a channel link without signing in asks for sign-in | ✅ passed |
 | Ada switches workspace and leaves the demo channels behind | ✅ passed |
 
+### Threads
+
+1 of 1 passed.
+
+| Scenario | Result |
+|---|---|
+| Grace sees Ada's reply in a thread without reloading | ✅ passed |
+
 ## By service
 
 | Service | Unit | Integration |
 |---|---|---|
 | asset | ✅ 2 passed | — |
-| auth | ✅ 59 passed | — |
+| auth | ✅ 59 passed | ✅ 123 passed |
 | canvas | ✅ 2 passed | — |
-| messaging | ✅ 94 passed | — |
-| shared | ✅ 87 passed | — |
-| testkit | ✅ 59 passed | — |
-| worker | ✅ 19 passed | — |
-| frontend | ✅ 296 passed | — |
+| messaging | ✅ 102 passed | ✅ 250 passed |
+| shared | ✅ 87 passed | ✅ 26 passed |
+| testkit | ✅ 59 passed | ✅ 4 passed |
+| worker | ✅ 19 passed | ✅ 17 passed |
+| frontend | ✅ 371 passed | — |
 
 ## Coverage
 
@@ -117,7 +119,7 @@ Unit tests only.
 | auth | `██████░░░░` 61% | `█░░░░░░░░░` 18% |
 | canvas | `█████████░` 96% | — |
 | contracts | `██████████` 100% | — |
-| messaging | `█████░░░░░` 56% | `██░░░░░░░░` 26% |
+| messaging | `█████░░░░░` 55% | `██░░░░░░░░` 23% |
 | shared | `████████░░` 89% | `███████░░░` 74% |
 | worker | `██████░░░░` 65% | `███░░░░░░░` 30% |
-| frontend | `█████████░` 94% | `████████░░` 86% |
+| frontend | `█████████░` 95% | `████████░░` 86% |

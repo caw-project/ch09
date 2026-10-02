@@ -50,7 +50,9 @@ async def mark_read(
         return None
 
     message = await messages.get(session, message_id=message_id)
-    if message is None or message.channel_id != channel_id:
+    # A reply is not in the channel's history, so it answers as a message from
+    # another channel does (R11).
+    if message is None or message.channel_id != channel_id or message.thread_root_id is not None:
         return None
 
     proposed = insert(ChannelRead).values(

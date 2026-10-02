@@ -59,12 +59,14 @@ interface Props {
   lastReadId: string | null
   /** The detail query's `isFetching`: the capture waits for it to settle. */
   channelFetching: boolean
+  /** Open a message's thread; absent and the rows offer no thread action. */
+  onOpenThread?: (rootId: string) => void
 }
 
 /** Within this many pixels of the bottom counts as "watching the live end". */
-const STICK_THRESHOLD = 80
+export const STICK_THRESHOLD = 80
 /** Within this many pixels of the top starts fetching the next page back. */
-const LOAD_THRESHOLD = 120
+export const LOAD_THRESHOLD = 120
 
 /** Nothing loaded yet — one array, so an effect that depends on it is not re-run each render. */
 const NO_MESSAGES: Message[] = []
@@ -86,6 +88,7 @@ export function MessageList({
   myRole,
   lastReadId,
   channelFetching,
+  onOpenThread,
 }: Props) {
   const scroller = useRef<HTMLDivElement>(null)
   const heightBeforePrepend = useRef<number | null>(null)
@@ -330,6 +333,7 @@ export function MessageList({
               onEdit={(body, version) => edit.mutate({ messageId: message.id, body, version })}
               onDelete={() => remove.mutate(message.id)}
               onToggleReaction={(emoji) => toggleReaction.mutate({ message, emoji })}
+              onOpenThread={onOpenThread && (() => onOpenThread(message.id))}
               highlighted={message.id === jump.highlightedId}
             />
           </Fragment>

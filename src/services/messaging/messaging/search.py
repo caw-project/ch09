@@ -165,6 +165,8 @@ async def _hydrate(
         Message.id.in_(ids),
         Message.channel_id.in_(channel_ids),
         Message.deleted_at.is_(None),
+        # Replies stay in the index but are not results (R12); their root is.
+        Message.thread_root_id.is_(None),
     )
     rows = {m.id: m for m in (await session.execute(query)).scalars()}
     return [rows[i] for i in ids if i in rows]
