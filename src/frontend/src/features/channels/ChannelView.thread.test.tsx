@@ -214,19 +214,21 @@ describe('ChannelView — the thread panel', () => {
     expect(searchOf(view).has('thread')).toBe(false)
   })
 
-  it('closing keeps other params (?message=) and Back does not reopen it', async () => {
-    const view = renderShell(`/c/${GENERAL}?message=m-1`)
+  it('closing keeps other params and Back does not reopen it', async () => {
+    // A param nothing acts on: `?message=` would start a search jump, which
+    // removes it by itself.
+    const view = renderShell(`/c/${GENERAL}?ref=x`)
     await screen.findByText('root B')
     openSummary(/^1 reply/)
     const panel = await findThreadPanel()
     expect(searchOf(view).get('thread')).toBe(rootA.id)
-    expect(searchOf(view).get('message')).toBe('m-1')
+    expect(searchOf(view).get('ref')).toBe('x')
 
     fireEvent.click(within(panel).getByRole('button', { name: 'Close thread' }))
 
     await vi.waitFor(() => expect(threadPanel()).not.toBeInTheDocument())
     expect(searchOf(view).has('thread')).toBe(false)
-    expect(searchOf(view).get('message')).toBe('m-1')
+    expect(searchOf(view).get('ref')).toBe('x')
 
     // `replace`, so the entry with the thread in it is gone: Back leaves it closed.
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))

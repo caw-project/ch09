@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useNavigate, useSearchParams } from 'react-rou
 
 import { ChannelView } from './features/channels/ChannelView'
 import { ChatLayout } from './features/channels/ChatLayout'
+import { SearchPage } from './features/search/SearchPage'
 import * as session from './lib/auth/session'
 import { useSession } from './lib/auth/useSession'
 
@@ -114,6 +115,17 @@ function ChannelRoute() {
   )
 }
 
+function SearchRoute() {
+  const state = useSession()
+  if (state.status !== 'signedIn') return null
+  return (
+    <SearchPage
+      accessToken={state.session.accessToken}
+      workspaceId={state.session.activeWorkspaceId}
+    />
+  )
+}
+
 export function App() {
   useEffect(() => {
     void session.restore()
@@ -134,6 +146,14 @@ export function App() {
         element={
           <Protected>
             <ChannelRoute />
+          </Protected>
+        }
+      />
+      <Route
+        path="/search"
+        element={
+          <Protected>
+            <SearchRoute />
           </Protected>
         }
       />

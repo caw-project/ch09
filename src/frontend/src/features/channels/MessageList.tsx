@@ -14,9 +14,19 @@
  * scroll into view for someone watching the live end of a conversation, and
  * must not yank someone who has scrolled up to read something. So the decision
  * is made *before* the render that adds the message, not after.
+ *
+ * **Who may cancel whom.** History has three fetchers: the mount and join-ack
+ * refetches, and `loadOlder` (a scroll to the top, or a jump paging back). A page
+ * fetch never cancels a refetch — it passes `cancelRefetch: false` and fetches
+ * only when nothing is running — and a refetch never cancels a page fetch
+ * (`refetchHistory` waits for it). A scroll to the top that finds a refetch
+ * running fetches nothing and sets no anchor; the older page is fetched when the
+ * refetch lands, if the reader is still near the top, because no further scroll
+ * event can fire for someone already at `scrollTop` 0.
  */
 
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { ProblemBanner } from '../../components/ProblemBanner'
 import type { Message } from '../../lib/api/messaging'
@@ -26,7 +36,15 @@ import { MessageItem } from './MessageItem'
 import { captureFor, findDivider, readTarget, type DividerCapture } from './readState'
 import { useMarkRead } from './useMarkRead'
 import { usePageAttention } from './usePageAttention'
-import { useDeleteMessage, useEditMessage, useMessages, useToggleReaction } from './useMessages'
+import { useMessageJump } from './useMessageJump'
+import {
+  loadedPageCount,
+  messageKeys,
+  useDeleteMessage,
+  useEditMessage,
+  useMessages,
+  useToggleReaction,
+} from './useMessages'
 import { useWorkspaceMembers } from './useWorkspaceMembers'
 
 interface Props {
@@ -84,8 +102,17 @@ export function MessageList({
 
   const socket = useSocket()
   const attending = usePageAttention()
-  const { request, connected } = useMarkRead(socket, workspaceId, channelId)
+  const { request, connected, flush } = useMarkRead(socket, workspaceId, channelId)
   const setReadingChannel = useChatStore((state) => state.setReadingChannel)
+  const queryClient = useQueryClient()
+  // Memoised: the key is a dependency of `loadOlder`, which the jump's effect
+  // depends on in turn.
+  const historyKey = useMemo(
+    () => messageKeys.list(workspaceId, channelId),
+    [workspaceId, channelId],
+  )
+  // Asked in the scroll handler and the effects, so read from the cache then.
+  const olderWanted = useRef(false)
 
   const directory = useWorkspaceMembers(accessToken, workspaceId)
   const {
@@ -93,6 +120,7 @@ export function MessageList({
     isPending,
     isFetching,
     isSuccess,
+    isError,
     error,
     hasNextPage,
     isFetchingNextPage,
@@ -106,6 +134,57 @@ export function MessageList({
   const toggleReaction = useToggleReaction(accessToken, workspaceId, channelId, userId)
 
   const messages: Message[] = data ?? NO_MESSAGES
+
+  /**
+   * Fetch the next older page, anchored so the prepend keeps the view where it
+   * was — for a scroll to the top and for a jump paging back alike. Only when
+   * there is an older page and nothing is fetching *now* (the cache, not this
+   * render's `isFetching`), so there is one fetch at a time whoever asks.
+   */
+  const loadOlder = useCallback(() => {
+    if (!hasNextPage || queryClient.isFetching({ queryKey: historyKey, exact: true }) > 0) return
+    const element = scroller.current
+    // Remember where the content started so the prepend can be undone.
+    if (element) heightBeforePrepend.current = element.scrollHeight
+    void fetchNextPage({ cancelRefetch: false })
+  }, [hasNextPage, queryClient, historyKey, fetchNextPage])
+
+  const onScrolled = useCallback(() => {
+    const element = scroller.current
+    if (!element) return
+    const bottom = measure(element)
+    wasAtBottom.current = bottom
+    setAtBottom(bottom)
+  }, [])
+
+  const jump = useMessageJump(
+    {
+      messages,
+      loadedPages: loadedPageCount(queryClient, historyKey),
+      hasNextPage: Boolean(hasNextPage),
+      isFetching,
+      isError,
+      isSuccess,
+      loadOlder,
+    },
+    scroller,
+    onScrolled,
+  )
+
+  // A read held by the throttle when a jump starts was earned before it; send it
+  // now rather than at the end of its window, which would be a read mid-jump.
+  useEffect(() => {
+    if (jump.jumping) flush()
+  }, [jump.jumping, flush])
+
+  // A refetch that was running when the reader reached the top: fetch the older
+  // page now it has landed, if they are still near the top.
+  useEffect(() => {
+    if (isFetching || !olderWanted.current) return
+    olderWanted.current = false
+    const element = scroller.current
+    if (element && element.scrollTop < LOAD_THRESHOLD) loadOlder()
+  }, [isFetching, loadOlder])
 
   // The divider's anchor is taken once per visit (the list is remounted per
   // channel), at the first render where both the detail and the history have
@@ -124,7 +203,9 @@ export function MessageList({
   }, [pinnedDivider, found])
   const dividerId = pinnedDivider ?? found
 
-  const beingRead = attending && atBottom
+  // Not during a jump: a fresh list is "at the bottom" for a moment, and the
+  // open channel usually is, but the reader is about to be moved away from it.
+  const beingRead = attending && atBottom && !jump.jumping
   useEffect(() => {
     setReadingChannel(beingRead ? channelId : null)
     return () => setReadingChannel(null)
@@ -148,9 +229,13 @@ export function MessageList({
     setAtBottom(bottom)
 
     if (element.scrollTop < LOAD_THRESHOLD && hasNextPage && !isFetchingNextPage) {
-      // Remember where the content started so the prepend can be undone.
-      heightBeforePrepend.current = element.scrollHeight
-      void fetchNextPage()
+      // A refetch is running: it must not be cancelled, and an anchor set now
+      // would be stale when it lands. Remember the wish instead.
+      if (queryClient.isFetching({ queryKey: historyKey, exact: true }) > 0) {
+        olderWanted.current = true
+        return
+      }
+      loadOlder()
     }
   }
 
@@ -164,9 +249,12 @@ export function MessageList({
       heightBeforePrepend.current = null
       previousCount.current = messages.length
     } else {
-      const grew = messages.length > previousCount.current
+      const previous = previousCount.current
+      const grew = messages.length > previous
       previousCount.current = messages.length
-      if (grew && wasAtBottom.current) {
+      // A fresh list still makes its first scroll to the newest message; after
+      // that, growth does not pull the reader away from a message being sought.
+      if (grew && wasAtBottom.current && (!jump.jumping || previous === 0)) {
         element.scrollTop = element.scrollHeight
       }
     }
@@ -175,7 +263,7 @@ export function MessageList({
     // reader is, now, at the live end. `isPending` is a dependency because the
     // scroller does not exist until the history arrives, even when it is empty.
     setAtBottom(measure(element))
-  }, [messages.length, isPending])
+  }, [messages.length, isPending, jump.jumping])
 
   if (isPending) {
     return (
@@ -194,6 +282,16 @@ export function MessageList({
   }
 
   return (
+    <>
+      {jump.tooFarBack && (
+        <p
+          role="status"
+          data-testid="jump-notice"
+          className="border-b border-line bg-surface px-4 py-2 text-sm text-ink-muted"
+        >
+          That message is too far back to show.
+        </p>
+      )}
     <div
       ref={scroller}
       onScroll={onScroll}
@@ -236,6 +334,7 @@ export function MessageList({
               onDelete={() => remove.mutate(message.id)}
               onToggleReaction={(emoji) => toggleReaction.mutate({ message, emoji })}
               onOpenThread={onOpenThread && (() => onOpenThread(message.id))}
+              highlighted={message.id === jump.highlightedId}
             />
           </Fragment>
         ))
@@ -245,5 +344,6 @@ export function MessageList({
           show it in, so it belongs here rather than on the row. */}
       <ProblemBanner error={remove.error} />
     </div>
+    </>
   )
 }

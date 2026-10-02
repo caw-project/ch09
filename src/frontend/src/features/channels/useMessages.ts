@@ -88,6 +88,41 @@ export function useMessages(
   })
 }
 
+/** How many pages of history are cached under `key` — 0 when there is no entry. */
+export function loadedPageCount(queryClient: QueryClient, key: readonly unknown[]): number {
+  return queryClient.getQueryData<InfiniteMessages>(key)?.pages.length ?? 0
+}
+
+/**
+ * Refetch everything loaded for a channel — without cancelling a page fetch.
+ *
+ * `invalidateQueries` refetches with `cancelRefetch: true`, so a refetch that
+ * lands on an older-page fetch in flight cancels it and loses the page; and a
+ * page fetch that succeeds clears `isInvalidated`, so a refetch cancelled that
+ * way would never run again. So when a page fetch is in flight this waits for it
+ * to settle and then refetches, with the page kept. A refetch landing on another
+ * *refetch* still cancels it, as today: nothing is lost by that.
+ */
+export function refetchHistory(queryClient: QueryClient, key: readonly unknown[]): void {
+  const query = queryClient.getQueryCache().find({ queryKey: key, exact: true })
+  const pageInFlight =
+    query?.state.fetchStatus === 'fetching' &&
+    query.state.fetchMeta?.fetchMore?.direction === 'forward'
+
+  if (!query || !pageInFlight) {
+    void queryClient.invalidateQueries({ queryKey: key, exact: true })
+    return
+  }
+
+  const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+    if (event.type !== 'updated' || event.query.queryHash !== query.queryHash) return
+    if (event.query.state.fetchStatus !== 'idle') return
+
+    unsubscribe()
+    refetchHistory(queryClient, key)
+  })
+}
+
 /**
  * Insert a message, or replace it where it already sits.
  *

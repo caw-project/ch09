@@ -138,8 +138,10 @@ transition, not a UI filter. The SPA must:
    here and is worth an explicit test.
 4. Reset Yjs documents and awareness state for any open canvas.
 
-Cross-workspace views (unified search, an all-workspaces unread badge) cannot be served by a
-single token and are out of scope until a dedicated aggregate endpoint exists.
+Cross-workspace views (an all-workspaces unread badge) cannot be served by a single token
+and are out of scope until a dedicated aggregate endpoint exists. **Search is one
+workspace — the token's — as of 2026-10-02** (§5.4); a *unified* search across workspaces
+still needs an aggregate endpoint.
 
 ---
 
@@ -206,6 +208,8 @@ leave implicit, each of which is a bug that only shows up in a running app:
   — the server has no connection-state recovery — so everything broadcast while
   the client was away is gone. Invalidating that channel's message query is the
   recovery; the re-join only resumes the live stream from that point.
+  **Since 2026-10-02 the refetch waits for an older-page fetch in flight** (`refetchHistory`),
+  then refetches everything loaded: a refetch that cancelled the page fetch lost the page.
   **Corrected 2026-09-15: the refetch waits for the join's acknowledgement**, on a
   reconnect and on entering a channel alike. The server enters the room only after
   authorizing the join, so a refetch sent alongside it could finish first, and a
@@ -282,8 +286,9 @@ is in `/features/threads`.
   not reopen it. Switching channel drops it; a channel that 404s renders no panel.
 - **The cache**: one infinite query per root at
   `['messages', ws, channelId, 'thread', rootId]`, nested under the channel's
-  history key so the join-ack prefix invalidation refetches an open thread. Each
-  page carries the root and its slice of replies.
+  history key. The join ack refetches history by its exact key (§5.4) and then
+  invalidates `['messages', ws, channelId, 'thread']`, which refetches an open
+  thread. Each page carries the root and its slice of replies.
 - **Event routing** by `threadRootId`: a reply goes to its thread's cache and
   never into history; a top-level event goes to history and replaces the root in
   its own thread entry. History takes a **new** row only from `message_received`
@@ -300,6 +305,35 @@ is in `/features/threads`.
 - **A thread that is not there** (no data and an error, or a root from another
   channel) shows "This thread isn't available."; a failed refetch over loaded data
   keeps showing the thread.
+
+### 5.4 Search — added 2026-10-02
+
+Over `GET /api/v1/search/messages` (doc 02, D8c), unchanged.
+
+- **The box** is the first thing in the sidebar (`role="search"`). Enter submits the trimmed
+  text (at most 200 characters) to `/search?q=…` from any route; blank submits nothing. It
+  shows the query on `/search` and is empty elsewhere. Submitting the query already on screen
+  refetches it and adds no history entry.
+- **The results route** `/search` is protected and inside the shell. The cache key is
+  `['search', workspaceId, q]`, so a workspace switch reads a different entry. Results are
+  newest first as served, plain text, no match highlighting; "Load more" follows `nextCursor`
+  (a short page with a cursor still has a next page). The list is a snapshot: focus and
+  reconnect refetches are off, and a return to the page shows the cached list then refetches
+  it. A failed first fetch shows the problem with Retry; a failed later page keeps the list.
+  A blank `q` fetches nothing. Channel names come from the channel list, and from the channel
+  detail (once per channel) for channels outside it, `#…` while unknown.
+- **A result is a link** to `/c/<channelId>?message=<id>`. **The jump** lives in
+  `MessageList` (`useMessageJump`): it decides only while history is idle, pages back with
+  `fetchNextPage({ cancelRefetch: false })` up to **10 loaded pages in total**, centres the
+  target and highlights it for 2 s (`data-highlighted="true"` on the `message-item`), then
+  removes the parameter with `replace`. At the cap, or when history runs out, it shows the
+  newest messages with "That message is too far back to show." A failed fetch ends it with
+  the list's own error. Leaving the channel or navigating the parameter away abandons it; a
+  different target restarts it (latest wins).
+- **Exception to the read rule:** while a jump runs nothing is marked read and a new message
+  does not pull the list to the bottom; a read held by the throttle when the jump starts is
+  sent at once, and reading resumes when the highlight ends.
+- **Page fetches never cancel a refetch, and a refetch never cancels a page fetch** (§5.2).
 
 ### 5.3 Canvas (Yjs over Socket.IO)
 - One `Y.Doc` per open document. A **custom Socket.IO provider** bridges Yjs ↔ the `/canvas`

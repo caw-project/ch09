@@ -13,8 +13,10 @@
 # silently deletes hand-made data, which is exactly what happened once.
 #
 # Isolation is the project name: Compose prefixes volumes, containers and
-# networks with it, so this stack owns `collabhub-test_postgres-data` and never
-# opens the development stack's `collabhub_postgres-data`.
+# networks with it, so this stack never opens the development stack's
+# `collabhub_postgres-data`. `name:` is the default for running Compose by hand;
+# `scripts/test.sh e2e` overrides it with `-p collabhub-test-<worktree directory>`
+# so worktrees on different branches do not share a database either.
 name: collabhub-test
 
 services:
@@ -84,8 +86,9 @@ services:
 
   # --- ports nothing reaches from the host --------------------------------
   #
-  # These services still run; they are simply not published. The suite touches
-  # none of them, and the development stack already holds their usual ports.
+  # These services still run; they are simply not published. The suite reaches
+  # the Worker and Elasticsearch (the search journey) over the Compose network
+  # only, and the development stack already holds their usual ports.
 
   canvas:
     ports: !override []

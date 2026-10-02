@@ -1,10 +1,11 @@
 import type { InfiniteData } from '@tanstack/react-query'
 import { act } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { channelKeys } from '../../features/channels/useChannels'
-import { messageKeys } from '../../features/channels/useMessages'
+import { messageKeys, useMessages } from '../../features/channels/useMessages'
 import { useChatStore } from '../../stores/chat'
+import { messaging, requests } from '../../test/api'
 import { aChannel, aMessage, aMessagePage, messageIdAt } from '../../test/factories'
 import { createTestQueryClient, renderHookWithProviders } from '../../test/render'
 import { latestSocket, type FakeSocket } from '../../test/socket'
@@ -189,6 +190,68 @@ describe('useChannelSocket', () => {
 
       expect(isInvalidated(queryClient, OTHER)).toBe(true)
     })
+
+    /**
+     * A page fetch is in flight when the join ack lands. `opened` is how the
+     * channel comes to be joined: on connect (the reconnect path) or opened on a
+     * connection that is already live (the common one).
+     */
+    async function keepsPageAcrossAck(opened: 'on connect' | 'on a live socket') {
+      let release!: () => void
+      const held = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      messaging.get('/api/v1/channels/{channel_id}/messages', async ({ request }) => {
+        if (new URL(request.url).searchParams.get('cursor') === 'p2') {
+          await held
+          return aMessagePage([aMessage({ channelId: CHANNEL, body: 'older' })])
+        }
+        return aMessagePage([aMessage({ channelId: CHANNEL, body: 'newer' })], 'p2')
+      })
+      const cursors = () =>
+        requests()
+          .filter((r) => r.url.pathname.endsWith('/messages'))
+          .map((r) => r.url.searchParams.get('cursor'))
+      const queryClient = createTestQueryClient()
+      let channel: string | null = opened === 'on connect' ? CHANNEL : null
+      const { result, rerender } = renderHookWithProviders(
+        () => {
+          useChannelSocket('token', WORKSPACE, channel, ADA)
+          return useMessages('token', WORKSPACE, channel ?? undefined)
+        },
+        { queryClient },
+      )
+      const socket = latestSocket()
+      const joins = holdJoins(socket)
+      act(() => socket.serverConnect())
+      if (opened === 'on a live socket') {
+        channel = CHANNEL
+        rerender()
+      }
+      // Either way the join has been emitted and is waiting for its ack.
+      expect(socket.emitted).toContainEqual({ event: 'join_channel', args: [CHANNEL] })
+      await vi.waitFor(() => expect(result.current.isSuccess).toBe(true))
+      // A page fetch (a scroll to the top, or a jump) is in flight when the ack lands.
+      act(() => void result.current.fetchNextPage({ cancelRefetch: false }))
+      await vi.waitFor(() => expect(cursors()).toEqual([null, 'p2']))
+
+      await joins.reply({ ok: true })
+      release()
+
+      // The page fetch survives the ack, and the refetch the ack asked for follows it.
+      await vi.waitFor(() => expect(cursors()).toEqual([null, 'p2', null, 'p2']))
+      await vi.waitFor(() => expect(result.current.isFetching).toBe(false))
+      expect(
+        queryClient.getQueryData<InfiniteData<MessagePage>>(messageKeys.list(WORKSPACE, CHANNEL))
+          ?.pages,
+      ).toHaveLength(2)
+    }
+
+    it('keeps a page fetched while the join is acknowledged on connect', () =>
+      keepsPageAcrossAck('on connect'))
+
+    it('keeps a page fetched while the join of a channel opened on a live socket is acknowledged', () =>
+      keepsPageAcrossAck('on a live socket'))
 
     it('does not count a refused join as joined', async () => {
       renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL, ADA))

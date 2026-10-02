@@ -3,10 +3,10 @@
  *
  * **One infinite query per root**, nested under the channel's history key
  * (`['messages', ws, channelId, 'thread', rootId]`, plan decision 15). Nesting is
- * deliberate: the join-ack invalidations use the prefix
- * `['messages', ws, channelId]`, which matches this key too, and refetches it
- * only while a panel is observing it — so a reconnect recovers an open thread
- * with no code of its own, and a closed one is left to refetch on reopen.
+ * deliberate: the join ack refetches history by its exact key (so it never
+ * cancels an older page in flight) and then invalidates `threadKeys.all`, the
+ * channel's threads, which refetches only one a panel is observing — so a
+ * reconnect recovers an open thread, and a closed one is left to refetch on reopen.
  *
  * The cache is the raw `InfiniteData<ThreadPage>`. Each page carries the root and
  * its own slice of replies, newest first; the order is reversed once, in
@@ -31,6 +31,8 @@ import {
 import type { Reaction } from '../../lib/api/messaging'
 
 export const threadKeys = {
+  all: (workspaceId: string | null, channelId: string | undefined) =>
+    ['messages', workspaceId, channelId, 'thread'] as const,
   detail: (workspaceId: string | null, channelId: string | undefined, rootId: string) =>
     ['messages', workspaceId, channelId, 'thread', rootId] as const,
 }

@@ -188,8 +188,7 @@ suite with `uv run pytest tests/bdd -m bdd`, which skips the build. What the scr
 does, by hand:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.test.yml up -d --build --wait \
-    --scale elasticsearch=0 --scale worker=0
+docker compose -f docker-compose.yml -f docker-compose.test.yml up -d --build --wait
 uv run playwright install chromium
 uv run pytest tests/bdd -m bdd
 docker compose -f docker-compose.yml -f docker-compose.test.yml down
@@ -205,10 +204,10 @@ docker compose -f docker-compose.yml -f docker-compose.test.yml down
 
 Nothing else is published on the test stack — Canvas, Asset, Worker,
 Elasticsearch, Garage and the OTel collector still run, they are just reached
-over the Compose network by name. Both stacks running would mean two of
-everything, Elasticsearch included, so the script runs the test stack with
-`--scale elasticsearch=0 --scale worker=0` — no scenario touches either yet. The
-first search journey removes that.
+over the Compose network by name. Both stacks running means two of everything,
+Elasticsearch included. The test stack runs Elasticsearch and the Worker anyway,
+because the search journey needs both: the Worker indexes a posted message and
+Messaging searches the index.
 
 `--wait` only means something for containers with a healthcheck, which is why the
 frontend has one: it probes `/`, the same path the Helm chart's probes use.

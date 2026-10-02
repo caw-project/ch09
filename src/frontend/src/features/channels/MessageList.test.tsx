@@ -1,6 +1,6 @@
 import { act, fireEvent, screen } from '@testing-library/react'
 import type { QueryClient } from '@tanstack/react-query'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { auth, messaging, requests } from '../../test/api'
 import { aMessage, aMessagePage, aWorkspaceMember, WORKSPACE_ID } from '../../test/factories'
@@ -44,6 +44,8 @@ const shownBodies = () =>
   screen.getAllByRole('article').map((article) => article.querySelector('p')?.textContent)
 
 const historyRequests = () => requests().filter((r) => r.url.pathname.endsWith('/messages'))
+
+const cursorsAsked = () => historyRequests().map((r) => r.url.searchParams.get('cursor'))
 
 const scrollerElement = () => screen.getAllByRole('article')[0].parentElement as HTMLElement
 
@@ -139,5 +141,45 @@ describe('MessageList', () => {
     renderList()
 
     expect(await screen.findByText('Nothing here yet. Say something.')).toBeInTheDocument()
+  })
+
+  it('lets a refetch finish when the top is reached during it, then loads the older page', async () => {
+    const arrived = aMessage({ channelId: CHANNEL, authorId: ADA, body: 'arrived during the refetch' })
+    let release!: () => void
+    const refetchHeld = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let refetching = false
+    messaging.get('/api/v1/channels/{channel_id}/messages', async ({ request }) => {
+      if (new URL(request.url).searchParams.get('cursor') === 'older') {
+        // The older page is held for good, so nothing prepends in this test.
+        await new Promise(() => undefined)
+        return aMessagePage([oldest])
+      }
+      if (!refetching) return aMessagePage([newest, middle], 'older')
+      await refetchHeld
+      return aMessagePage([arrived, newest, middle], 'older')
+    })
+    const { queryClient } = renderList()
+    await screen.findByText('the latest message')
+    const scroller = scrollerElement()
+    giveLayout(scroller, { clientHeight: 500, scrollHeight: 1000, scrollTop: 0 })
+    refetching = true
+    act(() => void queryClient.invalidateQueries({ queryKey: messageKeys.list(WORKSPACE_ID, CHANNEL) }))
+    await vi.waitFor(() => expect(cursorsAsked()).toEqual([null, null]))
+
+    fireEvent.scroll(scroller)
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)))
+    // The refetch is running; a page fetch must not cancel it.
+    expect(cursorsAsked()).toEqual([null, null])
+
+    // The refetch's new message makes the list taller. Had the scroll left a
+    // stale prepend anchor behind, the layout effect would add the 100px to scrollTop.
+    giveLayout(scroller, { clientHeight: 500, scrollHeight: 1100, scrollTop: 0 })
+    release()
+
+    expect(await screen.findByText('arrived during the refetch')).toBeInTheDocument()
+    expect(scroller.scrollTop).toBe(0)
+    await vi.waitFor(() => expect(cursorsAsked()).toEqual([null, null, 'older']))
   })
 })

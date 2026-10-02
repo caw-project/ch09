@@ -11,10 +11,13 @@ import { asSocket, FakeSocket } from '../../test/socket'
 import {
   applyReaction,
   isPending,
+  loadedPageCount,
   messageKeys,
+  refetchHistory,
   removeMessage,
   replaceMessage,
   upsertMessage,
+  useMessages,
   useSendMessage,
   useToggleReaction,
   type ReactionEvent,
@@ -139,6 +142,88 @@ describe('removeMessage', () => {
     removeMessage(queryClient, key, 'anything')
 
     expect(queryClient.getQueryData(key)).toBeUndefined()
+  })
+})
+
+describe('loadedPageCount', () => {
+  it('counts loaded pages, and none for an uncached key', () => {
+    const queryClient = seeded(
+      aMessagePage([aMessage()], 'p2'),
+      aMessagePage([aMessage()], 'p3'),
+      aMessagePage([aMessage()]),
+    )
+
+    expect(loadedPageCount(queryClient, key)).toBe(3)
+    expect(loadedPageCount(queryClient, messageKeys.list(WORKSPACE, 'another-channel'))).toBe(0)
+  })
+})
+
+describe('refetchHistory', () => {
+  const historyCursors = () =>
+    requests()
+      .filter((r) => r.url.pathname.endsWith('/messages'))
+      .map((r) => r.url.searchParams.get('cursor'))
+
+  /** Page 1 → `p2`; page 2 is held until `release()`, and ends the history. */
+  function stubHeldPageTwo() {
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    messaging.get('/api/v1/channels/{channel_id}/messages', async ({ request }) => {
+      if (new URL(request.url).searchParams.get('cursor') === 'p2') {
+        await held
+        return aMessagePage([aMessage({ body: 'older' })])
+      }
+      return aMessagePage([aMessage({ body: 'newer' })], 'p2')
+    })
+    return release
+  }
+
+  it('waits for a page fetch, keeps its page, then refetches', async () => {
+    const release = stubHeldPageTwo()
+    const queryClient = createTestQueryClient()
+    const { result } = renderHookWithProviders(() => useMessages('token', WORKSPACE, CHANNEL), {
+      queryClient,
+    })
+    await vi.waitFor(() => expect(result.current.isSuccess).toBe(true))
+    act(() => void result.current.fetchNextPage({ cancelRefetch: false }))
+    await vi.waitFor(() => expect(historyCursors()).toEqual([null, 'p2']))
+
+    refetchHistory(queryClient, key)
+    // Anchored: the page fetch is in flight, so this is a refetch that has had
+    // its chance to start and did not.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)))
+    expect(historyCursors()).toEqual([null, 'p2'])
+
+    release()
+
+    await vi.waitFor(() => expect(historyCursors()).toEqual([null, 'p2', null, 'p2']))
+    await vi.waitFor(() => expect(result.current.isFetching).toBe(false))
+    expect(pagesIn(queryClient)).toHaveLength(2)
+    expect(itemsIn(queryClient).map((m) => m.body)).toEqual(['newer', 'older'])
+  })
+
+  it('invalidates at once when no page fetch is in flight', async () => {
+    // No observer: the entry is only marked, and nothing is requested.
+    const unobserved = seeded(aMessagePage([aMessage()], 'p2'), aMessagePage([aMessage()]))
+    refetchHistory(unobserved, key)
+    expect(unobserved.getQueryState(key)?.isInvalidated).toBe(true)
+    expect(historyCursors()).toEqual([])
+
+    // With one: exactly one more refetch of what is loaded, now.
+    stubHeldPageTwo()()
+    const queryClient = createTestQueryClient()
+    const { result } = renderHookWithProviders(() => useMessages('token', WORKSPACE, CHANNEL), {
+      queryClient,
+    })
+    await vi.waitFor(() => expect(result.current.isSuccess).toBe(true))
+    await vi.waitFor(() => expect(result.current.isFetching).toBe(false))
+    const before = historyCursors().length
+
+    refetchHistory(queryClient, key)
+
+    await vi.waitFor(() => expect(historyCursors().length).toBe(before + 1))
   })
 })
 
