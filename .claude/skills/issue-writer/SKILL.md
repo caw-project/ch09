@@ -11,6 +11,11 @@ every stage reading it the same way. Past issues were clear rule by rule and sti
 where the rules **meet**, on **paths** nobody walked, on **assumptions** stated as facts, and on
 timing described in words instead of a **timeline**. Those four are this skill's leading words.
 
+The interview itself is **grilling**, as written: this skill doesn't restate its method. What it
+adds is aimed at the one reader the issue has — agents that can't ask a follow-up: the facts
+gathered first, four branches every requirement must visit, an end you can check, the issue's
+shape, and a read-back as the plan-writer.
+
 ## 1. Read the exemplar
 
 Read `docs/issues/exemplar-issue.md` in full. Its sections are the issue's shape, and its
@@ -31,49 +36,39 @@ sub-agents for what the issue will need, and carry on with step 3 while they run
 
 Done when every fact the issue will state has a source you can cite.
 
-## 3. Grill in rounds
+## 3. Grill
 
-Interview the user until the issue's design tree is fully visited. Every decision branches into
-the decisions that hang off it; the **frontier** is every decision whose prerequisites are
-settled. Ask the whole frontier in one round, each question numbered with your recommended
-answer, then wait:
+Invoke `mattpocock-skills:grilling` with the Skill tool if it is listed; if not, read
+`grilling.md` beside this file — the same skill, vendored — and follow it. Everything it says
+holds here, its rule above all that the decisions are the user's: put each to them and wait.
+This step adds to its design tree, and to when it is done.
 
-```
-❓ **Q1** - **<title>**: <the question, with the options you see>
-
-➡️ <your recommended answer>
-
----
-
-❓ **Q2** - …
-```
-
-Each answer moves the frontier; recompute it for the next round. A question that depends on one
-still open this round waits for a later round. A question a sub-agent can answer isn't asked.
-
-Four branches hang off **every** requirement, however settled it looks — past issues were
-clearest exactly where they went wrong:
+**Four branches hang off every requirement**, however settled it looks — past issues were
+clearest exactly where they went wrong. They are questions to put, never answers to supply:
+each one asked, with your recommendation, and answered by the user.
 
 - **Meet** — each other rule that touches the same state. When both fire at once, or one
   lands while the other is in flight, what does the user see?
 - **Paths** — the rule on each path through the app: first load, a return to something
   cached, a switch while a request is in flight, a reconnect, a second tab or device, lost
   access, an unmount. What must be true on each?
-- **Assumptions** — the behaviour of the existing code or a library the rule leans on. Check
-  it yourself by sub-agent against the installed source where you can; where you can't, it
-  goes into the issue labelled as an assumption for the plan to check.
+- **Assumptions** — the behaviour of the existing code or a library the rule leans on. These
+  are facts, so they are yours: check each by sub-agent against the code and the installed
+  source. What you can't confirm goes into the issue labelled as an assumption for the plan
+  to check.
 - **Timeline** — anything with time or order in it (a throttle, a window, a retry, a
   response racing a broadcast) gets a worked sequence: `t=0 … t=500 … t=1000`, what is
   sent and what is seen.
 
-And for the issue as a whole: what is decided already, what is left to the plan on purpose,
-what is not in this issue, and the first real run's checks. A 🔴 register entry the work
-depends on can't be built on: put it to the user as a decision to make first, or cut it from
-scope.
+**And for the issue as a whole:** what is decided already, what is left to the plan on
+purpose, what is not in this issue, and the first real run's checks. A 🔴 register entry the
+work depends on can't be built on: put it to the user as a decision to make first, or cut it
+from scope.
 
-**Done** when the frontier is empty and a coverage table — every requirement against Meet,
-Paths, Assumptions and Timeline — has each cell answered, or "n/a" with the reason. Show the
-table to the user, and write nothing until they confirm it.
+**Done** when grilling is — the frontier empty, and the user confirming you share an
+understanding — and a coverage table, every requirement against Meet, Paths, Assumptions and
+Timeline, has each cell answered or marked "n/a" with the reason. Show the table with that
+confirmation, and write nothing until the user gives it.
 
 ## 4. Write the issue
 
