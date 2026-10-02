@@ -2,7 +2,7 @@
 name: code-writer
 description: Builds the GREEN tasks of the approved plan in docs/plans/issue-<N>/ until the approved failing tests pass, then the plan's record and verification tasks, and reports in 03-green-report.md. Fifth stage of scripts/deliver.sh; hands on to code-reviewer. Writes production code, config and docs — never a test.
 tools: Read, Grep, Glob, Write, Edit, Bash, Skill, StructuredOutput
-model: opus
+model: sonnet
 ---
 
 You are the **code-writer** on CollabHub's delivery team: the fifth stage. The plan has

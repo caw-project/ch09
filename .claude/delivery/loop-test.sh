@@ -29,12 +29,14 @@ printf 'Issue: 999\n\n# Issue 999 — the loop test\n' >"$WORK/issue.md"
 # was given, and writes the file the workflow expects that verdict to leave.
 cat >"$WORK/bin/claude" <<'FAKE'
 #!/usr/bin/env bash
-prompt="" agent="" resumed=""
+prompt="" agent="" resumed="" model="" effort=""
 while [ $# -gt 0 ]; do
     case "$1" in
         -p) prompt="$2"; shift ;;
         --agent) agent="$2"; shift ;;
         --resume) resumed=" resumed"; shift ;;
+        --model) model="$2"; shift ;;
+        --effort) effort="$2"; shift ;;
     esac
     shift
 done
@@ -43,6 +45,7 @@ sed -i '' 1d "$FAKE_SCRIPT"
 n=$(($(ls "$FAKE_LOG" | wc -l) + 1))
 printf '%s\n' "$prompt" >"$FAKE_LOG/$(printf '%02d' "$n")-$agent-$verdict${resumed:+-resumed}.txt"
 printf '%s%s %s\n' "$agent" "$resumed" "$verdict" >>"$FAKE_LOG.calls"
+printf 'model=%s effort=%s\n' "$model" "$effort" >>"$FAKE_LOG.flags"
 
 # A resumed session still has its context block: the one its first run was given.
 [ -z "$resumed" ] || prompt="$(cat "$(ls "$FAKE_LOG"/*-"$agent"-*.txt | grep -v -- '-resumed.txt$' | tail -n 1)")"
@@ -93,7 +96,7 @@ scenario() {
     RAN=true
     cleanup
     export FAKE_SCRIPT="$WORK/$NAME.script" FAKE_LOG="$WORK/$NAME.log"
-    rm -rf "$FAKE_LOG" "$FAKE_LOG.calls" && mkdir -p "$FAKE_LOG"
+    rm -rf "$FAKE_LOG" "$FAKE_LOG.calls" "$FAKE_LOG.flags" && mkdir -p "$FAKE_LOG"
     printf '%s\n' "$@" >"$FAKE_SCRIPT"
     printf '%s\n' "$NAME"
     PATH="$WORK/bin:$PATH" DELIVER_RUN=loop DELIVER_BASE=HEAD DELIVER_RETRY_WAIT=0 \
@@ -110,6 +113,9 @@ told() { ! $RAN || block "$1" | grep -qF -- "$2" || fail "call $1 was not told '
 not_told() { ! $RAN || ! block "$1" | grep -qF -- "$2" || fail "call $1 was told '$2'"; }
 # ran <stages…> — the stages that ran, in order.
 ran() { ! $RAN || [ "$(cut -d' ' -f1 "$FAKE_LOG.calls" | tr '\n' ' ')" = "$* " ] || fail "ran: $(cut -d' ' -f1 "$FAKE_LOG.calls" | tr '\n' ' ')"; }
+# flags <call> <model> <effort> — the --model and --effort the nth call was run with;
+# '' for one it was run without, which leaves the agent's own.
+flags() { ! $RAN || [ "$(sed -n "$1p" "$FAKE_LOG.flags")" = "model=$2 effort=$3" ] || fail "call $1 ran with '$(sed -n "$1p" "$FAKE_LOG.flags")', expected 'model=$2 effort=$3'"; }
 exists() { ! $RAN || [ -s "$WORKTREE/docs/plans/issue-999/$1" ] || fail "no $1"; }
 history_has() { ! $RAN || grep -qE -- "$1" "$WORKTREE/build/delivery/history.log" || fail "history.log has no '$1'"; }
 
@@ -123,7 +129,17 @@ told 1 'Turns: 150'
 told 3 'Turns: 200'
 told 5 'Turns: 250'
 not_told 5 'Rework pass'
-history_has '^01 plan-writer done \[1m 3 turns \$0.5\]: fake'
+# The models a run uses when nothing is set: Sonnet for the test pair and the
+# code-writer, the agent's own (Opus) for the plan pair and the code-reviewer.
+flags 1 '' ''
+flags 2 '' ''
+flags 3 sonnet ''
+flags 4 sonnet ''
+flags 5 sonnet ''
+flags 6 '' ''
+history_has '^01 plan-writer done \[1m 3 turns \$0.5 · opus · default\]: fake'
+history_has '^04 test-reviewer approved \[1m 3 turns \$0.5 · sonnet · default\]'
+history_has '^06 code-reviewer approved \[1m 3 turns \$0.5 · opus · default\]'
 
 scenario three-rounds-then-a-human 2 done changes_requested done changes_requested done changes_requested
 told 3 "Review to address: $REVIEWS/plan-reviewer-1.md"
@@ -209,7 +225,7 @@ scenario out-of-turns-resumed 0 max_turns done approved done approved done appro
 ran plan-writer plan-writer plan-reviewer test-writer test-reviewer code-writer code-reviewer
 told 2 'You ran out of turns'
 told 2 '75 more turns'
-history_has '^01 plan-writer done \[2m 6 turns \$1\]'
+history_has '^01 plan-writer done \[2m 6 turns \$1 · opus · default\]'
 
 scenario out-of-turns-twice 2 max_turns max_turns
 exists needs-human.md
@@ -222,6 +238,59 @@ scenario crash-twice 1 crash crash
 
 scenario asks-a-human 2 done needs_human
 exists needs-human.md
+
+# A stage's model and effort come from its own setting; a rework pass takes the
+# rework effort whatever the stage's own, and history.log says what each ran with.
+export DELIVER_MODEL_TEST_WRITER=opus DELIVER_EFFORT_TEST_WRITER=medium DELIVER_REWORK_EFFORT=high
+scenario model-and-effort-by-stage 0 done approved done changes_requested done approved done approved
+flags 1 '' ''
+flags 3 opus medium
+flags 4 sonnet ''
+flags 5 opus high
+flags 6 sonnet high
+flags 7 sonnet ''
+flags 8 '' ''
+history_has '^01 plan-writer done \[1m 3 turns \$0.5 · opus · default\]'
+history_has '^03 test-writer done \[1m 3 turns \$0.5 · opus · medium\]'
+history_has '^05 test-writer done \[1m 3 turns \$0.5 · opus · high\]'
+history_has '^06 test-reviewer approved \[1m 3 turns \$0.5 · sonnet · high\]'
+unset DELIVER_MODEL_TEST_WRITER DELIVER_EFFORT_TEST_WRITER DELIVER_REWORK_EFFORT
+
+# The final round is cut down to bound a disagreement, so its effort wins over
+# the rework effort.
+export DELIVER_REWORK_EFFORT=high
+scenario final-round-effort-over-rework 2 done changes_requested done changes_requested done changes_requested
+flags 3 '' high
+flags 4 '' high
+flags 5 '' medium
+flags 6 '' medium
+
+# DELIVER_MODEL still overrides every stage, the defaults included.
+export DELIVER_MODEL=haiku
+scenario one-model-for-every-stage 0 done approved done approved done approved
+flags 1 haiku ''
+flags 3 haiku ''
+flags 6 haiku ''
+unset DELIVER_MODEL
+unset DELIVER_REWORK_EFFORT
+
+# A stage's own model wins over DELIVER_MODEL, and the rework model over both.
+export DELIVER_MODEL=haiku DELIVER_MODEL_CODE_WRITER=sonnet DELIVER_REWORK_MODEL=opus DELIVER_EFFORT=low
+scenario rework-model 0 done approved done approved done changes_requested done approved
+flags 1 haiku low
+flags 5 sonnet low
+flags 6 haiku low
+flags 7 opus low
+flags 8 opus low
+history_has '^07 code-writer done \[1m 3 turns \$0.5 · opus · low\]'
+unset DELIVER_MODEL DELIVER_MODEL_CODE_WRITER DELIVER_REWORK_MODEL DELIVER_EFFORT
+
+# A resume is the same pass: same model, same effort.
+export DELIVER_MODEL_PLAN_WRITER=sonnet DELIVER_EFFORT_PLAN_WRITER=high
+scenario out-of-turns-keeps-its-flags 0 max_turns done approved done approved done approved
+flags 1 sonnet high
+flags 2 sonnet high
+unset DELIVER_MODEL_PLAN_WRITER DELIVER_EFFORT_PLAN_WRITER
 
 echo
 if [ "$failures" -gt 0 ]; then
