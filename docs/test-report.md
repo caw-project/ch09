@@ -1,15 +1,15 @@
 # Test report
 
-Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `d4be439c4307`.
+Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `950e66a2d292-dirty`.
 
 ## Layers
 
 | Layer | Result | Passed | Failed | Skipped | Revision |
 |---|---|--:|--:|--:|---|
-| Lint | ✅ passed | | | | `d4be439c4307` |
-| Unit | ✅ passed | 565 | 0 | 0 | `d4be439c4307` |
-| Integration | ✅ passed | 381 | 0 | 0 | `d4be439c4307` |
-| End-to-end | ✅ passed | 20 | 0 | 0 | `d4be439c4307` |
+| Lint | ✅ passed | | | | `950e66a2d292-dirty` |
+| Unit | ✅ passed | 618 | 0 | 0 | `950e66a2d292-dirty` |
+| Integration | ⚪ not run | | | | |
+| End-to-end | ✅ passed | 21 | 0 | 0 | `950e66a2d292-dirty` |
 
 ## Failures
 
@@ -76,6 +76,14 @@ None.
 | Ada's delete propagates to Grace live | ✅ passed |
 | The stream recovers after the connection drops | ✅ passed |
 
+### Search
+
+1 of 1 passed.
+
+| Scenario | Result |
+|---|---|
+| Ada finds a message and opens it in its channel | ✅ passed |
+
 ### Sessions
 
 3 of 3 passed.
@@ -91,13 +99,13 @@ None.
 | Service | Unit | Integration |
 |---|---|---|
 | asset | ✅ 2 passed | — |
-| auth | ✅ 59 passed | ✅ 123 passed |
+| auth | ✅ 59 passed | — |
 | canvas | ✅ 2 passed | — |
-| messaging | ✅ 94 passed | ✅ 211 passed |
-| shared | ✅ 87 passed | ✅ 26 passed |
-| testkit | ✅ 59 passed | ✅ 4 passed |
-| worker | ✅ 19 passed | ✅ 17 passed |
-| frontend | ✅ 243 passed | — |
+| messaging | ✅ 94 passed | — |
+| shared | ✅ 87 passed | — |
+| testkit | ✅ 59 passed | — |
+| worker | ✅ 19 passed | — |
+| frontend | ✅ 296 passed | — |
 
 ## Coverage
 
@@ -112,4 +120,4 @@ Unit tests only.
 | messaging | `█████░░░░░` 56% | `██░░░░░░░░` 26% |
 | shared | `████████░░` 89% | `███████░░░` 74% |
 | worker | `██████░░░░` 65% | `███░░░░░░░` 30% |
-| frontend | `█████████░` 93% | `████████░░` 83% |
+| frontend | `█████████░` 94% | `████████░░` 86% |

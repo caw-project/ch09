@@ -29,7 +29,7 @@ export function useMarkRead(
   socket: Socket | null,
   workspaceId: string | null,
   channelId: string,
-): { request: (messageId: string) => void; connected: boolean } {
+): { request: (messageId: string) => void; connected: boolean; flush: () => void } {
   const queryClient = useQueryClient()
   const throttle = useRef<ReadThrottle | null>(null)
   const [connected, setConnected] = useState(socket?.connected ?? false)
@@ -97,5 +97,10 @@ export function useMarkRead(
     [channelId],
   )
 
-  return { request, connected }
+  // Sends this channel's held read now. A jump starting on the open channel calls
+  // it: that read was earned before the jump, and waiting out its window would
+  // send it during the jump.
+  const flush = useCallback(() => throttle.current?.flush(channelId), [channelId])
+
+  return { request, connected, flush }
 }

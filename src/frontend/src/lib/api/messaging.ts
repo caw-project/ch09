@@ -170,6 +170,24 @@ export async function listMessages(
   return data
 }
 
+/**
+ * Messages matching every word of `q`, newest first, in the channels the token's
+ * workspace lets the caller see. A short page is not the last page — only a null
+ * `nextCursor` is — because hydration can drop a hit whose row has gone.
+ */
+export async function searchMessages(
+  accessToken: string,
+  q: string,
+  cursor?: string,
+): Promise<MessagePage> {
+  const { data, error, response } = await client.GET('/api/v1/search/messages', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    params: { query: cursor ? { q, cursor } : { q } },
+  })
+  if (error !== undefined) throw problem(response.status, error)
+  return data
+}
+
 export async function sendMessage(
   accessToken: string,
   channelId: string,

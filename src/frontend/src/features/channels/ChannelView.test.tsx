@@ -12,6 +12,7 @@
  */
 
 import { act, fireEvent, screen } from '@testing-library/react'
+import { useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Channel, Message } from '../../lib/api/messaging'
@@ -26,7 +27,7 @@ import {
   messageIdAt,
   WORKSPACE_ID,
 } from '../../test/factories'
-import { giveLayout, layoutEveryElement } from '../../test/layout'
+import { giveLayout, layoutEveryElement, stubScrollIntoView } from '../../test/layout'
 import { setPageAttention } from '../../test/page'
 import { renderWithProviders } from '../../test/render'
 import { FakeSocket } from '../../test/socket'
@@ -330,6 +331,53 @@ describe('ChannelView — switching channels', () => {
     act(() => setPageAttention({ visible: false, focused: true }))
 
     expect(await screen.findByLabelText('3 unread messages')).toBeInTheDocument()
+  })
+})
+
+describe('ChannelView — jumping to a message', () => {
+  function JumpShell({ to }: { to: string }) {
+    const navigate = useNavigate()
+    return (
+      <>
+        <button onClick={() => navigate(to)}>jump</button>
+        <Shell />
+      </>
+    )
+  }
+
+  it('starts a jump into another channel once its history arrives', async () => {
+    const spy = stubScrollIntoView()
+    const socket = connectedSocket()
+    const server = startServer(socket)
+    const target = idIn(RANDOM, 2)
+    renderWithProviders(<JumpShell to={`/c/${RANDOM}?message=${target}`} />, {
+      route: `/c/${GENERAL}`,
+      path: '/c/:channelId',
+      socket,
+    })
+    await screen.findByText(bodyIn(GENERAL, 2))
+    const held = deferred()
+    server.gate.detail = held.promise
+
+    fireEvent.click(screen.getByRole('button', { name: 'jump' }))
+
+    // #random's detail is uncached, so the view waits behind "Loading…" and the
+    // list — and the jump with it — does not exist yet.
+    await screen.findByText('Loading…')
+    await sleep(50)
+    expect(spy).not.toHaveBeenCalled()
+
+    held.release()
+
+    await screen.findByText(bodyIn(RANDOM, 2))
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
+    expect(spy.mock.contexts[0]).toBe(
+      document.querySelector(`article[data-message-id="${target}"]`),
+    )
+    expect(document.querySelector(`article[data-message-id="${target}"]`)).toHaveAttribute(
+      'data-highlighted',
+      'true',
+    )
   })
 })
 

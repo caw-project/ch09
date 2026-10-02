@@ -22,6 +22,7 @@ steps still read `assert ada.has_tombstone()`. The plain readers
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 
 from playwright.sync_api import Locator, Page, expect
@@ -448,6 +449,47 @@ class ChatPage:
 
     def go_online(self) -> None:
         self.page.context.set_offline(False)
+
+    # --- search -----------------------------------------------------------
+
+    def search(self, query: str) -> None:
+        """Search from the sidebar box, waiting for an answer.
+
+        Indexing is asynchronous and has no stated lag (D29), so the first
+        search can land before the Worker has indexed the message. A resubmit
+        refetches (the box's own rule), so the retry is inside the act — no
+        `Then` performs an action. Gives up after ten seconds, leaving whatever
+        the page shows for the `Then` to fail on.
+        """
+        box = self.page.get_by_test_id("search-box")
+        box.fill(query)
+        box.press("Enter")
+        results = self.page.get_by_test_id("search-result")
+        empty = self.page.get_by_test_id("search-empty")
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            expect(results.or_(empty).first).to_be_visible()
+            if results.count() > 0:
+                return
+            box.press("Enter")
+            self.page.wait_for_timeout(500)
+
+    def has_search_result(self, body: str) -> bool:
+        """Whether a result row shows `body`, waiting for it."""
+        return _holds(lambda: expect(self._result(body)).to_be_visible())
+
+    def open_search_result(self, body: str) -> None:
+        self._result(body).click()
+
+    def has_highlighted(self, body: str) -> bool:
+        """Whether the message is highlighted — it holds for two seconds only."""
+        highlighted = self.page.locator(
+            "[data-testid='message-item'][data-highlighted='true']"
+        ).filter(has_text=body)
+        return _holds(lambda: expect(highlighted).to_be_visible())
+
+    def _result(self, body: str) -> Locator:
+        return self.page.get_by_test_id("search-result").filter(has_text=body).first
 
     # --- membership -------------------------------------------------------
 

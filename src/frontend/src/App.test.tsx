@@ -13,7 +13,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Profile, TokenPair, Workspace } from './lib/auth/api'
 import { auth, AUTH_URL, messaging, server } from './test/api'
-import { WORKSPACE_ID } from './test/factories'
+import { aChannel, aMessage, aWorkspaceMember, WORKSPACE_ID } from './test/factories'
 import { renderWithProviders } from './test/render'
 
 type AppModule = typeof import('./App')
@@ -98,6 +98,22 @@ describe('App routes', () => {
     expect(await screen.findByText('Pick a channel, or create one.')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeInTheDocument()
     expect(location().pathname).toBe('/')
+  })
+
+  it('shows search results on /search for a signed-in user', async () => {
+    aReturningUser()
+    messaging.get('/api/v1/search/messages', {
+      items: [aMessage({ channelId: CHANNEL_ID, authorId: PROFILE.id, body: 'the zeppelin lands' })],
+      nextCursor: null,
+    })
+    messaging.get('/api/v1/channels/{channel_id}', aChannel({ id: CHANNEL_ID, name: 'general' }))
+    auth.members([aWorkspaceMember({ id: PROFILE.id, displayName: 'Ada Lovelace' })])
+
+    renderWithProviders(<App />, { route: '/search?q=zeppelin' })
+
+    expect(await screen.findByText('the zeppelin lands')).toBeInTheDocument()
+    // Inside the shell: the sidebar's search box is on the page beside the results.
+    expect(screen.getByRole('search', { name: 'Search messages' })).toBeInTheDocument()
   })
 
   it('says so for a route that does not exist', async () => {

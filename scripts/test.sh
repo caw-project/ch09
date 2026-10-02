@@ -221,25 +221,26 @@ layer_integration() {
 
 # The *test* stack, never the development one. The suite truncates the messaging
 # tables before every scenario, so docker-compose.test.yml gives this stack its
-# own project name, volumes and host ports, and it runs alongside a development
-# stack without touching it.
-E2E_COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.test.yml)
-# No journey touches search yet, and two of everything is real memory on a
-# laptop. Delete this line when a search journey lands: it needs both.
-E2E_SCALE=(--scale elasticsearch=0 --scale worker=0)
+# own volumes and host ports, and it runs alongside a development stack without
+# touching it. The project name is per worktree (`collabhub-test-` plus the repo
+# root's directory name, `-p` overriding the file's `name:`), so one worktree's
+# database never carries another branch's Alembic revision into this run.
+E2E_PROJECT="collabhub-test-$(basename "$REPO_ROOT" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_\n-' '-')"
+E2E_COMPOSE=(docker compose -p "$E2E_PROJECT" -f docker-compose.yml -f docker-compose.test.yml)
 
 e2e_down() {
     log "e2e: taking the test stack down (KEEP_STACK=1 leaves it up)"
-    # `down`, not `down -v`: the suite truncates per scenario anyway, and keeping
-    # the volume saves re-running every migration on the next run.
+    # `down -v` at the start of a run empties the volumes; here a plain `down`
+    # leaves them, so KEEP_STACK reruns and post-mortems still have the data.
     "${E2E_COMPOSE[@]}" down ||
-        log "e2e: teardown failed — check 'docker compose -p collabhub-test ps'"
+        log "e2e: teardown failed — check 'docker compose -p $E2E_PROJECT ps'"
 }
 
-# One test stack per machine. Its project name and host ports are fixed, so a
-# run from a second worktree — two issues going through scripts/deliver.sh at
-# once — would rebuild the stack under the first and take it down mid-scenario.
-# The second waits instead. A lock whose run has gone is taken over.
+# One test stack per machine. Its host ports are fixed, so a run from a second
+# worktree — two issues going through scripts/deliver.sh at once — would rebuild
+# the stack under the first and take it down mid-scenario, even though the
+# project names differ. The second waits instead. A lock whose run has gone is
+# taken over.
 E2E_LOCK="${TMPDIR:-/tmp}/collabhub-test-stack.lock"
 E2E_LOCK_WAIT_SECONDS="${E2E_LOCK_WAIT_SECONDS:-3600}"
 
@@ -268,6 +269,12 @@ e2e_lock() {
 e2e_on_exit() {
     local status=$?
     trap - EXIT
+    # A failed run's cause is usually in a container's log, which the teardown
+    # is about to delete: print the tail of the ones a journey leans on first.
+    if [ "$status" -ne 0 ]; then
+        log "e2e: failed — the end of the Worker's and Messaging's logs"
+        "${E2E_COMPOSE[@]}" logs --no-color --tail 40 worker messaging 2>&1 || true
+    fi
     [ "${KEEP_STACK:-}" = 1 ] || e2e_down
     rm -rf "$E2E_LOCK"
     exit "$status"
@@ -283,11 +290,16 @@ layer_e2e() {
     trap e2e_on_exit EXIT
     [ "${KEEP_STACK:-}" != 1 ] || log "e2e: KEEP_STACK=1 — the test stack stays up afterwards"
 
+    # Empty volumes every run: a fresh Postgres and a fresh migration, whatever
+    # an earlier run of this worktree left behind.
+    log "e2e: removing any earlier test stack and its volumes ($E2E_PROJECT)"
+    "${E2E_COMPOSE[@]}" down -v --remove-orphans
+
     log "e2e: bringing the test stack up"
     # --wait holds until every container with a healthcheck is healthy, and the
     # frontend has one for exactly this reason. The timeout turns a container that
     # never gets there into a failure rather than a hung run.
-    "${E2E_COMPOSE[@]}" up -d --build --wait --wait-timeout 300 "${E2E_SCALE[@]}"
+    "${E2E_COMPOSE[@]}" up -d --build --wait --wait-timeout 300
 
     log "e2e: installing Chromium for Playwright"
     uv run playwright install chromium
