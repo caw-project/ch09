@@ -93,6 +93,7 @@ class Covered:
 def _parse(path: Path) -> ET.Element:
     # Written moments ago by pytest, Vitest or coverage.py on this machine —
     # never input from anyone else.
+    # nosemgrep: python.lang.security.use-defused-xml-parse.use-defused-xml-parse — our own tools' output, as above
     return ET.parse(path).getroot()  # noqa: S314
 
 
