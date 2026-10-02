@@ -1,15 +1,15 @@
 # Test report
 
-Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `14d0a0486d40-dirty`.
+Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `d4be439c4307`.
 
 ## Layers
 
 | Layer | Result | Passed | Failed | Skipped | Revision |
 |---|---|--:|--:|--:|---|
-| Lint | ✅ passed | | | | `14d0a0486d40-dirty` |
-| Unit | ✅ passed | 565 | 0 | 0 | `14d0a0486d40-dirty` |
-| Integration | ⚪ not run | | | | |
-| End-to-end | ✅ passed | 20 | 0 | 0 | `14d0a0486d40-dirty` |
+| Lint | ✅ passed | | | | `d4be439c4307` |
+| Unit | ✅ passed | 565 | 0 | 0 | `d4be439c4307` |
+| Integration | ✅ passed | 381 | 0 | 0 | `d4be439c4307` |
+| End-to-end | ✅ passed | 20 | 0 | 0 | `d4be439c4307` |
 
 ## Failures
 
@@ -91,12 +91,12 @@ None.
 | Service | Unit | Integration |
 |---|---|---|
 | asset | ✅ 2 passed | — |
-| auth | ✅ 59 passed | — |
+| auth | ✅ 59 passed | ✅ 123 passed |
 | canvas | ✅ 2 passed | — |
-| messaging | ✅ 94 passed | — |
-| shared | ✅ 87 passed | — |
-| testkit | ✅ 59 passed | — |
-| worker | ✅ 19 passed | — |
+| messaging | ✅ 94 passed | ✅ 211 passed |
+| shared | ✅ 87 passed | ✅ 26 passed |
+| testkit | ✅ 59 passed | ✅ 4 passed |
+| worker | ✅ 19 passed | ✅ 17 passed |
 | frontend | ✅ 243 passed | — |
 
 ## Coverage
