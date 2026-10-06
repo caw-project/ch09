@@ -32,7 +32,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from messaging import channels
+from messaging import channels, dms
 from messaging.db import session as db_session
 from messaging.models import ADMIN, CREATABLE_KINDS
 from messaging.schemas import (
@@ -42,6 +42,7 @@ from messaging.schemas import (
     ChannelMemberResponse,
     ChannelResponse,
     CreateChannelRequest,
+    OpenDmRequest,
     UpdateChannelRequest,
 )
 from shared import PageRequest, ProblemException, UserPrincipal, page_request_for, require_user
@@ -91,6 +92,7 @@ def _as_channel(visible: channels.VisibleChannel) -> ChannelResponse:
         last_read_id=visible.last_read_id,
         unread_count=visible.unread_count,
         my_role=visible.my_role,
+        dm_partner_id=visible.dm_partner_id,
     )
 
 
@@ -114,12 +116,30 @@ async def _visible_or_404(
     return found
 
 
+def _manageable_or_403(visible: channels.VisibleChannel) -> None:
+    """A DM is fixed: refused for everyone, whatever their role.
+
+    After the 404 and before `_admin_or_403`. A DM member's role is `member`, so
+    the admin guard would refuse them anyway — with the wrong reason, and a route
+    that later relaxed admin-gating would open DMs. This says why, and holds.
+    """
+    try:
+        dms.check_manageable(visible.channel)
+    except dms.FixedChannelError as exc:
+        raise ProblemException.forbidden(
+            "A direct message can't be renamed, archived or have its members changed."
+        ) from exc
+
+
 def _admin_or_403(visible: channels.VisibleChannel) -> None:
     """Administering a channel needs the admin role in *that channel*.
 
     Never called before `_visible_or_404`, so this can only refuse someone who
     can already see what they are being refused.
     """
+    # Every caller is a management write (rename, archive, member changes), none
+    # of which a DM allows; the DM refusal comes first so it names the real reason.
+    _manageable_or_403(visible)
     if visible.my_role != ADMIN:
         raise ProblemException.forbidden("Only a channel admin can do that.")
 
@@ -178,6 +198,34 @@ async def create_channel(
     response = _as_channel(created)
     await session.commit()
     return response
+
+
+@router.post("/dm", response_model=ChannelResponse)
+async def open_direct_message(
+    body: OpenDmRequest,
+    principal: UserPrincipal = Depends(require_user),
+    session: AsyncSession = Depends(db_session),
+) -> ChannelResponse:
+    """Open the caller's one DM with another person: found, or created.
+
+    **200 either way.** Opening is idempotent and the client never needs to know
+    which happened; a 200/201 split would give two racing callers different codes
+    for the same outcome. Any workspace role may open one. The other id is not
+    checked against Auth (register D44).
+    """
+    try:
+        channel_id = await dms.open_dm(
+            session,
+            workspace_id=principal.workspace_id,
+            user_id=principal.user_id,
+            other_id=body.user_id,
+        )
+    except dms.SelfDmError as exc:
+        message = "You can't start a direct message with yourself."
+        raise ProblemException.validation_error(message, errors={"userId": [message]}) from exc
+
+    await session.commit()
+    return _as_channel(await _visible_or_404(session, principal, channel_id, with_read_state=True))
 
 
 @router.get("/{channel_id}", response_model=ChannelResponse)

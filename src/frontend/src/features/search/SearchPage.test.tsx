@@ -109,6 +109,37 @@ describe('SearchPage', () => {
     expect(row.querySelector('mark')).toBeNull()
   })
 
+  it('names a result in a direct message after the other person, with no #', async () => {
+    const GRACE = 'user-grace'
+    const dm = aChannel({
+      id: 'channel-dm',
+      kind: 'dm',
+      name: `dm:${ADA}:${GRACE}`,
+      dmPartnerId: GRACE,
+    })
+    messaging.get('/api/v1/channels', { items: [GENERAL, dm], nextCursor: null })
+    auth.members([
+      aWorkspaceMember({ id: ADA, displayName: 'Ada Lovelace' }),
+      aWorkspaceMember({ id: GRACE, displayName: 'Grace Hopper' }),
+    ])
+    messaging.get(
+      SEARCH,
+      aMessagePage([
+        hit('the launch date is the 14th', { channelId: dm.id }),
+        hit('launch notes in the open'),
+      ]),
+    )
+    renderPage({ route: '/search?q=launch' })
+
+    const [inDm, inChannel] = await rows()
+
+    expect(await within(inDm).findByText('Grace Hopper')).toBeInTheDocument()
+    expect(within(inDm).queryByText(/#/)).not.toBeInTheDocument()
+    expect(within(inDm).queryByText(/dm:/)).not.toBeInTheDocument()
+    // A channel's result is as it was, so "no #" is the DM rule and not a change to all.
+    expect(within(inChannel).getByText('#general')).toBeInTheDocument()
+  })
+
   it('marks an edited result, and only that one', async () => {
     stubSideLookups()
     messaging.get(

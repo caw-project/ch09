@@ -76,6 +76,10 @@ class ChannelResponse(CamelModel):
     version: int
     last_read_id: uuid.UUID | None
     unread_count: int
+    #: The other person in a direct message, per caller; `null` on any other
+    #: kind. Required with no default, like `lastReadId`. A bare id: the SPA
+    #: resolves the name from Auth's directory.
+    dm_partner_id: uuid.UUID | None
     my_role: str | None = None
 
 
@@ -98,6 +102,15 @@ class CreateChannelRequest(CamelRequest):
     name: str = Field(max_length=200)
     topic: str | None = Field(default=None, max_length=500)
     kind: str = "public"
+
+
+class OpenDmRequest(CamelRequest):
+    """Open — get or create — the caller's direct message with one other person.
+
+    By id, never checked against Auth (register D44), as `AddChannelMemberRequest`.
+    """
+
+    user_id: uuid.UUID
 
 
 class UpdateChannelRequest(CamelRequest):

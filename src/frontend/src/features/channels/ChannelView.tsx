@@ -18,7 +18,9 @@ import { ChannelHeader } from './ChannelHeader'
 import { MemberPanel } from './MemberPanel'
 import { MessageComposer } from './MessageComposer'
 import { MessageList } from './MessageList'
+import { channelLabel, channelTitle, isDm } from './directMessages'
 import { channelKeys } from './useChannels'
+import { useWorkspaceMembers } from './useWorkspaceMembers'
 import { useChatStore } from '../../stores/chat'
 
 interface Props {
@@ -47,6 +49,9 @@ export function ChannelView({ accessToken, workspaceId, userId }: Props) {
     void queryClient.invalidateQueries({ queryKey: channelKeys.list(workspaceId) })
   }, [queryClient, workspaceId, channelId])
 
+  // A DM is named after the other person, which only the directory knows.
+  const directory = useWorkspaceMembers(accessToken, workspaceId)
+
   const {
     data: channel,
     isPending,
@@ -74,13 +79,16 @@ export function ChannelView({ accessToken, workspaceId, userId }: Props) {
     )
   }
 
+  const label = channelLabel(channel, directory.nameFor)
+
   return (
-    <section
-      data-testid="channel-view"
-      data-channel-name={channel.name}
-      className="flex h-full flex-col"
-    >
-      <ChannelHeader accessToken={accessToken} workspaceId={workspaceId} channel={channel} />
+    <section data-testid="channel-view" data-channel-name={label} className="flex h-full flex-col">
+      <ChannelHeader
+        accessToken={accessToken}
+        workspaceId={workspaceId}
+        channel={channel}
+        label={label}
+      />
 
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
@@ -110,7 +118,7 @@ export function ChannelView({ accessToken, workspaceId, userId }: Props) {
             accessToken={accessToken}
             workspaceId={workspaceId}
             channelId={channel.id}
-            channelName={channel.name}
+            channelTitle={channelTitle(channel, directory.nameFor)}
             userId={userId}
           />
         </div>
@@ -130,7 +138,10 @@ export function ChannelView({ accessToken, workspaceId, userId }: Props) {
             onClose={closeThread}
           />
         ) : (
-          <MemberPanel accessToken={accessToken} workspaceId={workspaceId} channel={channel} />
+          // A DM's two members are fixed and are its name; there is nothing to list.
+          !isDm(channel) && (
+            <MemberPanel accessToken={accessToken} workspaceId={workspaceId} channel={channel} />
+          )
         )}
       </div>
     </section>

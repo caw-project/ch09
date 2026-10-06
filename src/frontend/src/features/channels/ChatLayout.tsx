@@ -23,6 +23,7 @@ import { SearchBox } from '../search/SearchBox'
 import { cancelAll } from '../attachments/uploads'
 import { ChannelList } from './ChannelList'
 import { CreateChannelDialog } from './CreateChannelDialog'
+import { DirectMessageList } from './DirectMessageList'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 
 interface Props {
@@ -75,6 +76,11 @@ export function ChatLayout({ current, children }: Props) {
             <ChannelList
               accessToken={current.accessToken}
               workspaceId={current.activeWorkspaceId}
+            />
+            <DirectMessageList
+              accessToken={current.accessToken}
+              workspaceId={current.activeWorkspaceId}
+              userId={current.profile.id}
             />
           </nav>
 

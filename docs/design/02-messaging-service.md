@@ -182,9 +182,28 @@ This is a real narrowing: `#café` is not a valid channel name, and neither is
 any name in a non-Latin script. Worth revisiting before a customer outside
 English-speaking markets.
 
-`kind` accepts `public` and `private` through the API. `dm` exists in the schema
-(register D8b) but is not creatable this way — a DM has no name and no
-creator-as-admin.
+`kind` accepts `public` and `private` on `POST /channels`. A `dm` is opened
+through `POST /channels/dm` instead (**added 2026-10-05**, register D8b): a DM has
+no name to give and no creator-as-admin, and creating one by name would skip the
+pair key.
+
+**Direct messages (added 2026-10-05).** `POST /channels/dm {"userId"}` gets or
+creates the one DM between the caller and `userId` in the caller's workspace, and
+answers **200** either way. A DM's stored `name` is the pair key `dm:{low}:{high}`
+(the two ids sorted), unique per workspace through `ux_channels_dm_pair`, so two
+people opening at once get one channel. Both people are `member`; nobody is
+`admin`. Any workspace role may open one; the id is not checked against Auth
+(register D44). A DM with yourself is `400`, `errors.userId`.
+
+- **Listing.** `GET /channels` returns a DM only once it has a top-level message
+  (a tombstone counts), for both people. An empty DM is still reachable by id.
+- **Refusals.** Rename, topic, archive and both member writes on a DM are `403`
+  "A direct message can't be renamed, archived or have its members changed.",
+  after the 404 and before the admin check. Only the author deletes a message.
+- **Everything else** is a private channel's behaviour. A third person gets `404`
+  on every route and socket event.
+- **`dmPartnerId`** on the Channel DTO is the other person, per caller; `null`
+  on any other kind.
 
 #### 3.1.3 DTOs
 
@@ -198,9 +217,13 @@ creator-as-admin.
   "createdAt": "...", "updatedAt": "...", "archivedAt": "...|null",
   "version": 0,
   "lastReadId": "uuid|null", "unreadCount": 0,
+  "dmPartnerId": "uuid|null",
   "myRole": "admin|member|null"
 }
 ```
+
+`dmPartnerId` — **added 2026-10-05** — is always present: the other person in a
+direct message, computed per caller from the pair key, `null` on any other kind.
 
 `lastReadId` and `unreadCount` — **added 2026-09-15** — are the caller's read
 state (§3.1.7). Both are always present and neither is optional in the OpenAPI
@@ -589,6 +612,7 @@ the chart sets no session affinity. See Conventions §6.
 | `reaction_changed` | `{ messageId, channelId, emoji, count, userId, reacted }` — **corrected 2026-09-16.** The **authoritative count**, not a delta: the person who clicked applies their own change up to three times (optimistically, from the response, from their own echo), so a delta would treble it. `userId` and `reacted` describe that one person; every other client ignores them. Deliberately **not** a `Message` — `reactions[].reacted` is per-caller and a room emit sends one payload to everybody |
 | `read_receipt_updated` | `{ channelId, userId, messageId }` — to room `user:{workspaceId}:{userId}` only, never the channel's |
 | `user_typing` | `{ channelId, userId }` — see §3.2.4 |
+| `channel_added` | `{ channelId }` — **added 2026-10-05.** A direct message has its first top-level message and is about to be listed. To room `user:{workspaceId}:{userId}` of **both** members only (all their tabs), never the channel's room, after `message_received` and after commit. At least once: two simultaneous first sends may both emit. The SPA refetches its channel list |
 
 Rooms and naming follow Conventions §6. Presence (online/away) is published to R2 and
 mirrored to the Canvas service's presence as needed (shared R2).
@@ -794,13 +818,19 @@ CREATE TABLE channels (
 
 -- A partial index, not a table constraint: PostgreSQL has no
 -- `UNIQUE (...) WHERE ...` on a constraint, only on an index. Names are unique
--- among public channels; private channels and DMs may repeat one.
+-- among public channels; private channels may repeat one. A DM's name is its
+-- pair key `dm:{low}:{high}`, unique per workspace (below).
 --
 -- Indexes `lower(name)`, not `name` (corrected 2026-08-15): #General and
 -- #general are the same channel. The stored name keeps the case it was typed
 -- with — only the comparison folds.
 CREATE UNIQUE INDEX ux_channels_public_name
     ON channels (workspace_id, lower(name)) WHERE kind = 'public';
+
+-- Added 2026-10-05. One DM per pair of people: get-or-create's ON CONFLICT
+-- names this index (migration 0007).
+CREATE UNIQUE INDEX ux_channels_dm_pair
+    ON channels (workspace_id, name) WHERE kind = 'dm';
 
 -- Added 2026-08-15. The sidebar reads one workspace's unarchived channels in
 -- name order on every page load, and nothing above covers that.
@@ -1011,7 +1041,8 @@ Auth, errors, pagination, observability, health per Conventions. Metrics:
 
 ## 9. Open Decisions
 - Threading depth: single-level (assumed) vs. nested.
-- DM modelling: as `kind='dm'` channels (assumed) vs. separate table.
+- ~~DM modelling: as `kind='dm'` channels (assumed) vs. separate table.~~ **Settled 2026-10-05**
+  (register D8b): `kind='dm'` channels, one per pair — see §3.1.2.
 - Whether `/search/messages` lives here (thin proxy) or clients query a dedicated search gateway.
 - ~~Edit/delete windows and tombstone retention policy.~~ **Settled 2026-08-16
   (register D8d 🟢)** — no time window, author edits own, author or channel admin

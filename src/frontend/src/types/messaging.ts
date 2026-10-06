@@ -32,6 +32,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/channels/dm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Open Direct Message
+         * @description Open the caller's one DM with another person: found, or created.
+         *
+         *     **200 either way.** Opening is idempotent and the client never needs to know
+         *     which happened; a 200/201 split would give two racing callers different codes
+         *     for the same outcome. Any workspace role may open one. The other id is not
+         *     checked against Auth (register D44).
+         */
+        post: operations["open_direct_message_api_v1_channels_dm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/channels/{channel_id}": {
         parameters: {
             query?: never;
@@ -542,6 +567,8 @@ export interface components {
              * Format: uuid
              */
             createdBy: string;
+            /** Dmpartnerid */
+            dmPartnerId: string | null;
             /**
              * Id
              * Format: uuid
@@ -713,6 +740,19 @@ export interface components {
             version: number;
         };
         /**
+         * OpenDmRequest
+         * @description Open — get or create — the caller's direct message with one other person.
+         *
+         *     By id, never checked against Auth (register D44), as `AddChannelMemberRequest`.
+         */
+        OpenDmRequest: {
+            /**
+             * Userid
+             * Format: uuid
+             */
+            userId: string;
+        };
+        /**
          * ReactionRequest
          * @description React with one emoji.
          *
@@ -882,6 +922,39 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    open_direct_message_api_v1_channels_dm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpenDmRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

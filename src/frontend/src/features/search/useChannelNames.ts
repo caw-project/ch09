@@ -1,5 +1,6 @@
 /**
- * Channel names for search results, which carry only a channel id.
+ * Channel titles for search results, which carry only a channel id: `#general`
+ * for a channel, the other person's name for a direct message (`channelTitle`).
  *
  * Names come from the channel list the sidebar already holds. The list is the
  * first page of the user's channels, so a result can sit in a channel outside it:
@@ -14,17 +15,21 @@
 import { useQueries } from '@tanstack/react-query'
 
 import { getChannel } from '../../lib/api/messaging'
+import { channelTitle } from '../channels/directMessages'
 import { channelKeys, useChannels } from '../channels/useChannels'
 
 export function useChannelNames(
   accessToken: string,
   workspaceId: string | null,
   channelIds: readonly string[],
+  nameFor: (userId: string) => string,
 ): (channelId: string) => string | null {
   const list = useChannels(accessToken, workspaceId)
   const settled = list.isSuccess || list.isError
 
-  const known = new Map((list.data ?? []).map((channel) => [channel.id, channel.name]))
+  const known = new Map(
+    (list.data ?? []).map((channel) => [channel.id, channelTitle(channel, nameFor)]),
+  )
   const missing = settled ? [...new Set(channelIds)].filter((id) => !known.has(id)) : []
 
   const details = useQueries({
@@ -37,8 +42,8 @@ export function useChannelNames(
   })
   const fetched = new Map(
     missing.flatMap((id, index) => {
-      const name = details[index]?.data?.name
-      return name === undefined ? [] : [[id, name] as const]
+      const channel = details[index]?.data
+      return channel === undefined ? [] : [[id, channelTitle(channel, nameFor)] as const]
     }),
   )
 

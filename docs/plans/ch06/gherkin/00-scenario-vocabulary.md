@@ -686,3 +686,17 @@ in the channel without reloading` and `"{body}" appears in Ada's channel exactly
 - `Then Grace sees "{name}" shown inline with "{body}"`
 - `Then Grace sees "{name}" as a download with "{body}"`
 - `Then the "{name}" Grace downloads is the file Ada attached`
+
+## 34. 🟢 Direct messages — five phrases, one journey (issue 5)
+
+`direct_messages.feature` has a single scenario: the + in the sidebar, the DM appearing live in
+the other person's window on its first message, and the reply coming back need two real
+browsers. The rules (pair key, listing, refusals, events) are proven lower down. Reused
+verbatim: `Ada is signed in`, `Ada has created a public channel named`, `Grace is looking at the
+"{name}" channel`, `Ada sends`, `Grace sees "{body}" in the channel`. New:
+
+- `When Ada starts a direct message with Grace`
+- `Then Ada appears in Grace's direct messages with {count} unread message without reloading`
+- `When Grace opens her direct message with Ada`
+- `When Grace sends "{body}"`
+- `Then Ada sees "{body}" in the channel without reloading`

@@ -34,7 +34,7 @@ function renderComposer() {
       accessToken="token"
       workspaceId={WORKSPACE_ID}
       channelId={CHANNEL}
-      channelName="general"
+      channelTitle="#general"
       userId={ADA}
     />,
     { socket },
@@ -253,7 +253,7 @@ describe('MessageComposer — attaching files', () => {
         accessToken={accessToken}
         workspaceId={WORKSPACE_ID}
         channelId={channelId}
-        channelName={channelId}
+        channelTitle={`#${channelId}`}
         userId={ADA}
       />
     )

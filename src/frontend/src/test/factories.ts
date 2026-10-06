@@ -44,6 +44,7 @@ export function aChannel(overrides: Partial<Channel> = {}): Channel {
     myRole: null,
     lastReadId: null,
     unreadCount: 0,
+    dmPartnerId: null,
     ...overrides,
   }
 }

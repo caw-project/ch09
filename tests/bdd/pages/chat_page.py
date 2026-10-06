@@ -628,3 +628,36 @@ class ChatPage:
         expect(
             self.page.locator(f"[data-testid='member-item'][data-member-name='{display_name}']")
         ).to_have_count(0)
+
+    # --- direct messages --------------------------------------------------
+
+    def start_dm(self, name: str) -> None:
+        """Pick someone from the sidebar's **+** and wait until their DM is the open view.
+
+        The view **named** after the person, and then the room join: the DM's first
+        message is what lists it in the other sidebar, and a send before the server
+        has put this connection in the room would race its own arrangement.
+        """
+        self.page.get_by_test_id("dm-new").click()
+        self.page.locator(f"[data-testid='dm-pick'][data-member-name='{name}']").click()
+        expect(self._view_of(name)).to_be_visible()
+        self.wait_for_channel_joined()
+
+    def open_dm(self, name: str) -> None:
+        """Click a person's row under *Direct messages* and wait for their view."""
+        self._settle()
+        self._dm_item(name).click()
+        expect(self._view_of(name)).to_be_visible()
+
+    def has_dm_unread_badge(self, name: str, count: int) -> bool:
+        """Whether a DM's row shows `count` unread, waiting for the row and the badge.
+
+        Settled first, so a list still loading cannot stand in for "no row"; the retrying
+        expectation then covers the row arriving by `channel_added` on a page nobody reloaded.
+        """
+        self._settle()
+        badge = self._dm_item(name).get_by_test_id("channel-unread-badge")
+        return _holds(lambda: expect(badge).to_have_attribute("data-count", str(count)))
+
+    def _dm_item(self, name: str) -> Locator:
+        return self.page.locator(f"[data-testid='dm-list-item'][data-dm-name='{name}']")

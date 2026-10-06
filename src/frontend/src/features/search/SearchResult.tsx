@@ -14,8 +14,8 @@ import type { Message } from '../../lib/api/messaging'
 
 interface Props {
   message: Message
-  /** `null` while the channel's name is unknown — shown as `#…`. */
-  channelName: string | null
+  /** `#general`, or the other person's name for a DM; `null` while unknown — shown as `#…`. */
+  channelTitle: string | null
   authorName: string
 }
 
@@ -23,7 +23,7 @@ function when(iso: string): string {
   return new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
 }
 
-export function SearchResult({ message, channelName, authorName }: Props) {
+export function SearchResult({ message, channelTitle, authorName }: Props) {
   return (
     <Link
       to={`/c/${message.channelId}?message=${message.id}`}
@@ -32,7 +32,7 @@ export function SearchResult({ message, channelName, authorName }: Props) {
       className="flex flex-col gap-0.5 rounded px-3 py-2 hover:bg-surface-sunken"
     >
       <span className="flex items-baseline gap-2 text-xs text-ink-muted">
-        <span className="font-medium text-ink">{channelName === null ? '#…' : `#${channelName}`}</span>
+        <span className="font-medium text-ink">{channelTitle ?? '#…'}</span>
         <span>{authorName}</span>
         <time dateTime={message.createdAt}>{when(message.createdAt)}</time>
         {message.editedAt && <span>(edited)</span>}

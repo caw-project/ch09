@@ -5,12 +5,12 @@
  * themselves are unit-tested in Messaging's `test_channel_rules.py`.
  */
 
-import { screen, within } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { Channel } from '../../lib/api/messaging'
-import { messaging, requests } from '../../test/api'
-import { aChannel, aSession, WORKSPACE_ID } from '../../test/factories'
+import { auth, messaging, requests } from '../../test/api'
+import { aChannel, aSession, aWorkspaceMember, WORKSPACE_ID } from '../../test/factories'
 import { renderWithProviders } from '../../test/render'
 import { ChatLayout } from './ChatLayout'
 import { CreateChannelDialog } from './CreateChannelDialog'
@@ -100,6 +100,8 @@ describe('creating a channel from the chat shell', () => {
     'creates "%s" and lands the user in it',
     async (name) => {
       const channels: Channel[] = []
+      // The shell also loads the directory for its direct-messages section.
+      auth.members([aWorkspaceMember({ displayName: 'Ada Lovelace' })])
       messaging.get('/api/v1/channels', () => ({ items: [...channels], nextCursor: null }))
       messaging.post('/api/v1/channels', ({ body }) => {
         const created = aChannel({ name: body.name, kind: body.kind, myRole: 'admin' })
@@ -119,7 +121,10 @@ describe('creating a channel from the chat shell', () => {
       await vi.waitFor(() => expect(location().pathname).toBe(`/c/${channels[0].id}`))
       expect(link).toHaveAttribute('href', `/c/${channels[0].id}`)
       expect(screen.getByLabelText('New channel')).toHaveValue('')
-      expect(within(screen.getByRole('list')).getAllByRole('link')).toHaveLength(1)
+      // The sidebar also holds the (empty) direct-messages list, so count the conversation links.
+      expect(
+        screen.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('/c/')),
+      ).toHaveLength(1)
     },
   )
 })

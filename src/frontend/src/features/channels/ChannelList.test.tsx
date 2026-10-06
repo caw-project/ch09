@@ -27,6 +27,32 @@ describe('ChannelList', () => {
     expect(links[1]).toHaveAttribute('href', `/c/${random.id}`)
   })
 
+  it('lists the channels of a mixed response and no direct message', async () => {
+    const general = aChannel({ name: 'general' })
+    const dm = aChannel({ kind: 'dm', name: 'dm:aaa:bbb', dmPartnerId: 'user-grace' })
+    const random = aChannel({ name: 'random' })
+    messaging.get('/api/v1/channels', { items: [general, dm, random], nextCursor: null })
+
+    renderWithProviders(<ChannelList accessToken="token" workspaceId={WORKSPACE_ID} />)
+
+    const links = await screen.findAllByRole('link')
+    expect(links.map((link) => link.textContent?.replace('#', '').trim())).toEqual([
+      'general',
+      'random',
+    ])
+    expect(screen.queryByText(/dm:/)).not.toBeInTheDocument()
+  })
+
+  it('invites the first channel when only direct messages come back', async () => {
+    const dm = aChannel({ kind: 'dm', name: 'dm:aaa:bbb', dmPartnerId: 'user-grace' })
+    messaging.get('/api/v1/channels', { items: [dm], nextCursor: null })
+
+    renderWithProviders(<ChannelList accessToken="token" workspaceId={WORKSPACE_ID} />)
+
+    expect(await screen.findByText('No channels yet. Create the first one.')).toBeInTheDocument()
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+  })
+
   it('invites the first channel when there are none', async () => {
     messaging.get('/api/v1/channels', { items: [], nextCursor: null })
 
@@ -47,7 +73,12 @@ describe('ChannelList', () => {
     const { user, location } = renderWithProviders(
       <>
         <ChannelList accessToken="token" workspaceId={WORKSPACE_ID} />
-        <ChannelHeader accessToken="token" workspaceId={WORKSPACE_ID} channel={random} />
+        <ChannelHeader
+          accessToken="token"
+          workspaceId={WORKSPACE_ID}
+          channel={random}
+          label="random"
+        />
       </>,
       { route: `/c/${random.id}` },
     )

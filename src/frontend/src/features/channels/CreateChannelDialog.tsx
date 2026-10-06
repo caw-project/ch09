@@ -53,7 +53,9 @@ export function CreateChannelDialog({ accessToken, workspaceId, onCreated }: Pro
       {/* The API has taken `private` since the channel table existed; until now
           no browser could ask for one, which made every membership rule
           unreachable from the UI. Public and private only — `dm` is a kind the
-          create endpoint refuses (D8b), so offering it would be a dead option. */}
+          create endpoint refuses (D8b) — a DM is opened from the sidebar's
+          Direct messages section, keyed on the pair of people — so offering it
+          here would be a dead option. */}
       <select
         data-testid="create-channel-kind"
         aria-label="Channel visibility"
