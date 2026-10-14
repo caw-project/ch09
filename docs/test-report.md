@@ -1,17 +1,15 @@
 # Test report
 
-Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `bc3b5cfd3610-dirty`.
+Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `b192d9d8eaa9-dirty`.
 
 ## Layers
 
 | Layer | Result | Passed | Failed | Skipped | Revision |
 |---|---|--:|--:|--:|---|
-| Lint | ✅ passed | | | | ⚠️ `950e66a2d292-dirty` |
-| Unit | ✅ passed | 858 | 0 | 0 | `bc3b5cfd3610-dirty` |
-| Integration | ✅ passed | 482 | 0 | 0 | `bc3b5cfd3610-dirty` |
-| End-to-end | ✅ passed | 23 | 0 | 0 | `bc3b5cfd3610-dirty` |
-
-> ⚠️ Lint was recorded at another revision.
+| Lint | ✅ passed | | | | `b192d9d8eaa9-dirty` |
+| Unit | ✅ passed | 894 | 0 | 0 | `b192d9d8eaa9-dirty` |
+| Integration | ✅ passed | 531 | 0 | 0 | `b192d9d8eaa9-dirty` |
+| End-to-end | ✅ passed | 24 | 0 | 0 | `b192d9d8eaa9-dirty` |
 
 ## Failures
 
@@ -29,6 +27,14 @@ None.
 | Ada creates a public channel and lands in it | ✅ passed |
 | A new public channel appears for another member | ✅ passed |
 | Ada creates a private channel and only she can see it | ✅ passed |
+
+### Direct messages
+
+1 of 1 passed.
+
+| Scenario | Result |
+|---|---|
+| Grace sees the direct message Ada starts, and replies | ✅ passed |
 
 ### File attachments
 
@@ -119,11 +125,11 @@ None.
 | asset | ✅ 39 passed | ✅ 34 passed |
 | auth | ✅ 59 passed | ✅ 123 passed |
 | canvas | ✅ 2 passed | — |
-| messaging | ✅ 126 passed | ✅ 276 passed |
+| messaging | ✅ 134 passed | ✅ 325 passed |
 | shared | ✅ 94 passed | ✅ 26 passed |
 | testkit | ✅ 60 passed | ✅ 6 passed |
 | worker | ✅ 19 passed | ✅ 17 passed |
-| frontend | ✅ 459 passed | — |
+| frontend | ✅ 487 passed | — |
 
 ## Coverage
 
@@ -135,7 +141,7 @@ Unit tests only.
 | auth | `██████░░░░` 61% | `█░░░░░░░░░` 18% |
 | canvas | `█████████░` 96% | — |
 | contracts | `██████████` 100% | — |
-| messaging | `█████░░░░░` 56% | `███░░░░░░░` 30% |
+| messaging | `█████░░░░░` 56% | `███░░░░░░░` 31% |
 | shared | `█████████░` 90% | `███████░░░` 75% |
 | worker | `██████░░░░` 65% | `███░░░░░░░` 30% |
 | frontend | `█████████░` 95% | `████████░░` 87% |

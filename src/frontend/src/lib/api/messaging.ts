@@ -63,6 +63,16 @@ export async function createChannel(
   return data
 }
 
+/** Open — get or create — the caller's one direct message with another person. */
+export async function openDirectMessage(accessToken: string, userId: string): Promise<Channel> {
+  const { data, error, response } = await client.POST('/api/v1/channels/dm', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: { userId },
+  })
+  if (error !== undefined) throw problem(response.status, error)
+  return data
+}
+
 export async function getChannel(accessToken: string, channelId: string): Promise<Channel> {
   const { data, error, response } = await client.GET('/api/v1/channels/{channel_id}', {
     headers: { Authorization: `Bearer ${accessToken}` },

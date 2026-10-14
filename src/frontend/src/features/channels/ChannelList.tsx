@@ -14,7 +14,8 @@
 import { NavLink } from 'react-router-dom'
 
 import { useChatStore } from '../../stores/chat'
-import { badgeLabel, badgeText } from './readState'
+import { isDm } from './directMessages'
+import { UnreadBadge } from './UnreadBadge'
 import { useChannelListRefresh, useChannels } from './useChannels'
 
 interface Props {
@@ -23,7 +24,9 @@ interface Props {
 }
 
 export function ChannelList({ accessToken, workspaceId }: Props) {
-  const { data: channels, isPending, error } = useChannels(accessToken, workspaceId)
+  const { data: all, isPending, error } = useChannels(accessToken, workspaceId)
+  // Direct messages have a section of their own (`DirectMessageList`).
+  const channels = all?.filter((channel) => !isDm(channel))
   const readingChannelId = useChatStore((state) => state.readingChannelId)
   useChannelListRefresh(workspaceId)
 
@@ -76,16 +79,7 @@ export function ChannelList({ accessToken, workspaceId }: Props) {
                 </span>{' '}
                 <span className={unread ? 'font-semibold' : undefined}>{channel.name}</span>
               </span>
-              {unread && (
-                <span
-                  data-testid="channel-unread-badge"
-                  data-count={badgeText(channel.unreadCount)}
-                  aria-label={badgeLabel(channel.unreadCount)}
-                  className="rounded-full bg-danger px-1.5 text-xs font-semibold text-white"
-                >
-                  {badgeText(channel.unreadCount)}
-                </span>
-              )}
+              {unread && <UnreadBadge count={channel.unreadCount} />}
             </NavLink>
           </li>
         )

@@ -37,7 +37,7 @@ from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from messaging import attachments as attachments_domain
-from messaging import channels, indexing, messages, realtime, threads
+from messaging import channels, dms, indexing, messages, realtime, threads
 from messaging import reactions as reactions_domain
 from messaging.assets import AssetClient, AssetUnavailableError, AttachmentNotFoundError
 from messaging.db import session as db_session
@@ -289,7 +289,7 @@ async def send_message(
     behind. The body is checked *before* the claim: a bad body must not claim
     assets for a message that will never exist.
     """
-    await _visible_channel(session, principal, channel_id)
+    visible = await _visible_channel(session, principal, channel_id)
     settings = _settings(request)
     max_chars = settings.messaging_max_body_chars
 
@@ -322,6 +322,10 @@ async def send_message(
     except tuple(_BODY_PROBLEMS) as exc:
         raise _body_problem(exc, max_chars=max_chars) from exc
 
+    # Before the insert, in this transaction (plan decision 15): the first
+    # message to commit was checked before any other had.
+    first_in_dm = await dms.opens_dm(session, visible.channel, thread_root_id=root_id)
+
     message_id = uuid7()
     metas = await attachments_domain.claim_for_send(
         assets,
@@ -347,6 +351,11 @@ async def send_message(
     response = _as_message(created, reactions=[], attachments=stored)
     await session.commit()
     await realtime.publish_message_received(sio, response)
+    pair = dms.pair_of(visible.channel) if first_in_dm else None
+    if pair is not None:
+        await realtime.publish_channel_added(
+            sio, workspace_id=principal.workspace_id, channel_id=channel_id, user_ids=pair
+        )
     if root_id is not None:
         await publish_reply_summary(session, sio, root_id, channel_id)
     await indexing.enqueue_upsert(jobs, response, workspace_id=principal.workspace_id)

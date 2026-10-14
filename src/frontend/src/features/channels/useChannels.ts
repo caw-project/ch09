@@ -16,6 +16,7 @@ import {
   archiveChannel,
   createChannel,
   listChannels,
+  openDirectMessage,
   updateChannel,
   type Channel,
   type ChannelKind,
@@ -87,6 +88,29 @@ export function useCreateChannel(accessToken: string, workspaceId: string | null
       // list is ordered by name, and re-sorting it here would be a second
       // implementation of the server's ordering waiting to disagree with it.
       await queryClient.invalidateQueries({ queryKey: channelKeys.list(workspaceId) })
+    },
+  })
+}
+
+/**
+ * Open the caller's direct message with someone: get or create, and the channel
+ * comes back either way.
+ *
+ * The variables carry the workspace the open started in. The call can outlive a
+ * workspace switch, and the list is keyed by workspace, so the invalidation goes
+ * to the list the DM belongs to and no other; the caller compares the same id
+ * with the current workspace before it navigates (decision 19). An empty DM is
+ * not listed yet, so the invalidation changes nothing visible until a message is
+ * sent — it keeps the cache honest for a DM that already had one.
+ */
+export function useOpenDirectMessage(accessToken: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation<Channel, Error, { userId: string; workspaceId: string | null }>({
+    mutationFn: ({ userId }) => openDirectMessage(accessToken, userId),
+    onSuccess: async (channel, variables) => {
+      await queryClient.invalidateQueries({ queryKey: channelKeys.list(variables.workspaceId) })
+      return channel
     },
   })
 }

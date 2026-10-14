@@ -26,12 +26,13 @@ export function SearchPage({ accessToken, workspaceId }: Props) {
 
   const search = useSearch(accessToken, workspaceId, q)
   const results = search.data ?? []
-  const channelName = useChannelNames(
+  const directory = useWorkspaceMembers(accessToken, workspaceId)
+  const channelTitle = useChannelNames(
     accessToken,
     workspaceId,
     results.map((message) => message.channelId),
+    directory.nameFor,
   )
-  const directory = useWorkspaceMembers(accessToken, workspaceId)
 
   if (q === '') {
     return (
@@ -70,7 +71,7 @@ export function SearchPage({ accessToken, workspaceId }: Props) {
             <li key={message.id}>
               <SearchResult
                 message={message}
-                channelName={channelName(message.channelId)}
+                channelTitle={channelTitle(message.channelId)}
                 authorName={directory.nameFor(message.authorId)}
               />
             </li>

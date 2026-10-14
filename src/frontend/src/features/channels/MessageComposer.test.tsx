@@ -37,7 +37,7 @@ function renderComposer({ connected = true } = {}) {
       accessToken="token"
       workspaceId={WORKSPACE_ID}
       channelId={CHANNEL}
-      channelName="general"
+      channelTitle="#general"
       userId={ADA}
     />,
     { socket },

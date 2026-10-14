@@ -57,8 +57,9 @@ PUBLIC = "public"
 PRIVATE = "private"
 DM = "dm"
 
-#: Kinds a client may create. `dm` exists in the schema (register D8b) but is
-#: not creatable through this API — a DM has no name and no creator-as-admin.
+#: Kinds a client may create by name. A `dm` is opened through
+#: `POST /channels/dm` instead (register D8b), which keys it on the pair of
+#: people; there is no creator-as-admin.
 CREATABLE_KINDS = (PUBLIC, PRIVATE)
 
 ADMIN = "admin"
@@ -74,13 +75,23 @@ class Channel(Base):
     __table_args__ = (
         # A partial *index*, not a table constraint: PostgreSQL has no
         # `UNIQUE (...) WHERE ...` on a constraint. Names are unique among
-        # public channels; private channels and DMs may repeat one.
+        # public channels; private channels may repeat one, and a DM's name is
+        # its pair key, made unique by `ux_channels_dm_pair`.
         Index(
             "ux_channels_public_name",
             "workspace_id",
             text("lower(name)"),
             unique=True,
             postgresql_where=text("kind = 'public'"),
+        ),
+        # One DM per pair of people: `name` holds the pair key (`messaging.dms`).
+        # Get-or-create's `ON CONFLICT` names this index.
+        Index(
+            "ux_channels_dm_pair",
+            "workspace_id",
+            "name",
+            unique=True,
+            postgresql_where=text("kind = 'dm'"),
         ),
         # Covers the sidebar query: one workspace, unarchived, name-ordered.
         Index(

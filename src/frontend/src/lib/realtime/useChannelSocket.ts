@@ -240,6 +240,24 @@ export function useChannelSocket(
     // Its own handler, because it carries facts rather than a `Message`: the
     // DTO's `reacted` is computed for one caller and cannot be broadcast.
     live.on('reaction_changed', onReaction)
+    // A direct message has its first message: it is about to be listed. Refetch
+    // rather than write — the list is the server's, ordered and filtered by it.
+    // `invalidateQueries` cancels a fetch in flight when the list has data, so a
+    // poll that started before the commit cannot land without the DM. With no data
+    // yet (the first load) TanStack joins the fetch in flight instead, and that
+    // one may predate the message too — so ask again when it settles.
+    live.on('channel_added', () => {
+      const key = channelKeys.list(workspaceId)
+      void queryClient.invalidateQueries({ queryKey: key })
+      if (
+        queryClient.getQueryData(key) === undefined &&
+        queryClient.isFetching({ queryKey: key, exact: true }) > 0
+      ) {
+        reapplyAfterFetch(queryClient, key, () => {
+          void queryClient.invalidateQueries({ queryKey: key })
+        })
+      }
+    })
     // The user's own marker moved elsewhere (another tab): clear the count here.
     live.on('read_receipt_updated', (event: ReadReceiptEvent) =>
       applyReadReceipt(queryClient, workspaceId, event, userId),

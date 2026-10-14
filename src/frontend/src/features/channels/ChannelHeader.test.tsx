@@ -8,7 +8,7 @@ import { createTestQueryClient, renderWithProviders } from '../../test/render'
 import { ChannelHeader } from './ChannelHeader'
 import { channelKeys } from './useChannels'
 
-function renderHeader(channel: Channel) {
+function renderHeader(channel: Channel, label: string = channel.name) {
   const queryClient = createTestQueryClient()
   queryClient.setQueryData<ChannelPage>(channelKeys.list(WORKSPACE_ID), {
     items: [channel],
@@ -16,7 +16,12 @@ function renderHeader(channel: Channel) {
   })
   queryClient.setQueryData<Channel>(channelKeys.detail(WORKSPACE_ID, channel.id), channel)
   const view = renderWithProviders(
-    <ChannelHeader accessToken="token" workspaceId={WORKSPACE_ID} channel={channel} />,
+    <ChannelHeader
+      accessToken="token"
+      workspaceId={WORKSPACE_ID}
+      channel={channel}
+      label={label}
+    />,
     { queryClient, route: `/c/${channel.id}` },
   )
   return { ...view, queryClient }
@@ -92,5 +97,46 @@ describe('ChannelHeader', () => {
     expect(screen.getByRole('heading', { name: /general/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Rename' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument()
+  })
+
+  describe('for a direct message', () => {
+    const partner = 'Grace Hopper'
+    const dm = (overrides: Partial<Channel> = {}) =>
+      aChannel({ kind: 'dm', name: 'dm:aaa:bbb', dmPartnerId: 'user-grace', ...overrides })
+
+    it('is headed with the other person’s name and no #, never the stored name', () => {
+      renderHeader(dm(), partner)
+
+      // The `#` is aria-hidden, so the accessible name can't tell: read the text itself.
+      expect(screen.getByRole('heading', { level: 2 }).textContent).toBe(partner)
+      expect(screen.queryByText(/dm:/)).not.toBeInTheDocument()
+    })
+
+    it('still puts the # on a channel, so "no #" is not just what every header does', () => {
+      renderHeader(aChannel({ name: 'general' }))
+
+      expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('# general')
+    })
+
+    it('shows no topic', () => {
+      renderHeader(dm({ topic: 'an old topic' }), partner)
+
+      expect(screen.getByRole('heading', { level: 2 }).textContent).toBe(partner)
+      expect(screen.queryByText('an old topic')).not.toBeInTheDocument()
+    })
+
+    it('has no rename or archive even for a role no server would send', () => {
+      // `myRole: 'admin'` flips kind alone: the same role on a public channel shows both.
+      const { unmount } = renderHeader(aChannel({ name: 'general', myRole: 'admin' }))
+      expect(screen.getByRole('button', { name: 'Rename' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Archive' })).toBeInTheDocument()
+      unmount()
+
+      renderHeader(dm({ myRole: 'admin' }), partner)
+
+      expect(screen.getByRole('heading', { level: 2 }).textContent).toBe(partner)
+      expect(screen.queryByRole('button', { name: 'Rename' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument()
+    })
   })
 })

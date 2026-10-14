@@ -181,6 +181,18 @@
             "title": "Createdby",
             "type": "string"
           },
+          "dmPartnerId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dmpartnerid"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -253,7 +265,8 @@
           "archivedAt",
           "version",
           "lastReadId",
-          "unreadCount"
+          "unreadCount",
+          "dmPartnerId"
         ],
         "title": "ChannelResponse",
         "type": "object"
@@ -480,6 +493,21 @@
           "lastReplyAt"
         ],
         "title": "MessageResponse",
+        "type": "object"
+      },
+      "OpenDmRequest": {
+        "description": "Open — get or create — the caller's direct message with one other person.\n\nBy id, never checked against Auth (register D44), as `AddChannelMemberRequest`.",
+        "properties": {
+          "userId": {
+            "format": "uuid",
+            "title": "Userid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "userId"
+        ],
+        "title": "OpenDmRequest",
         "type": "object"
       },
       "ReactionRequest": {
@@ -771,6 +799,48 @@
           }
         },
         "summary": "Create Channel",
+        "tags": [
+          "channels"
+        ]
+      }
+    },
+    "/api/v1/channels/dm": {
+      "post": {
+        "description": "Open the caller's one DM with another person: found, or created.\n\n**200 either way.** Opening is idempotent and the client never needs to know\nwhich happened; a 200/201 split would give two racing callers different codes\nfor the same outcome. Any workspace role may open one. The other id is not\nchecked against Auth (register D44).",
+        "operationId": "open_direct_message_api_v1_channels_dm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenDmRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Open Direct Message",
         "tags": [
           "channels"
         ]

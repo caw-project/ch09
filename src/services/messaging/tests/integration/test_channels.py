@@ -167,7 +167,7 @@ async def test_a_name_is_trimmed_before_it_is_stored(client, ada):
 
 
 async def test_dm_channels_cannot_be_created_through_this_api(client, ada):
-    """`kind='dm'` exists in the schema (D8b) but a DM has no name to give."""
+    """A DM is opened through `POST /channels/dm`, not created by name."""
     response = await create(client, ada, "general", kind="dm")
 
     assert response.status_code == 400

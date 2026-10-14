@@ -21,13 +21,15 @@ import re
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import Row, Select, delete, func, or_, select, tuple_, update
+from sqlalchemy import Row, Select, delete, exists, func, or_, select, tuple_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from messaging import dms
 from messaging.models import (
     ADMIN,
     CREATABLE_KINDS,
+    DM,
     MEMBER,
     PUBLIC,
     Channel,
@@ -113,6 +115,8 @@ class VisibleChannel:
     my_role: str | None
     last_read_id: uuid.UUID | None = None
     unread_count: int = 0
+    #: The other person in a DM, per caller; `None` on any other kind.
+    dm_partner_id: uuid.UUID | None = None
 
 
 def validate_name(raw: str) -> str:
@@ -398,7 +402,7 @@ def _with_read_state(query: Select, user_id: uuid.UUID) -> Select:
     )
 
 
-def _visible_from(row: Row) -> VisibleChannel:
+def _visible_from(row: Row, user_id: uuid.UUID) -> VisibleChannel:
     """A `_visible_query` row, with or without `_with_read_state` on it.
 
     The read state is read **by label, not by position**. Unpacking the row
@@ -413,6 +417,7 @@ def _visible_from(row: Row) -> VisibleChannel:
         my_role=row[1],
         last_read_id=columns.get("last_read_id"),
         unread_count=columns.get("unread_count", 0),
+        dm_partner_id=dms.partner_of(row[0], user_id),
     )
 
 
@@ -428,7 +433,16 @@ async def list_page(
     page: PageRequest,
 ) -> Page[VisibleChannel]:
     """One page of the caller's visible channels, keyset-paginated, with read state."""
-    query = _with_read_state(_visible_query(workspace_id, user_id), user_id)
+    # A DM is listed only once it has a top-level message (a tombstone counts).
+    # Not in `_visible_query`: an empty DM stays reachable by URL and to
+    # `join_channel`, which is how the person who just opened it lands in it.
+    has_message = exists(
+        select(Message.id).where(Message.channel_id == Channel.id, Message.thread_root_id.is_(None))
+    )
+    query = _with_read_state(
+        _visible_query(workspace_id, user_id).where(or_(Channel.kind != DM, has_message)),
+        user_id,
+    )
 
     if page.cursor:
         name, channel_id = page.cursor  # parsed and shape-checked by `LIST_CURSOR`
@@ -437,7 +451,7 @@ async def list_page(
         query = query.where(tuple_(Channel.name, Channel.id) > tuple_(name, channel_id))
 
     result = await session.execute(query.limit(page.fetch_limit))
-    rows = [_visible_from(row) for row in result.all()]
+    rows = [_visible_from(row, user_id) for row in result.all()]
     return build_page(rows, page, key=lambda v: (v.channel.name, str(v.channel.id)))
 
 
@@ -463,7 +477,7 @@ async def get_visible(
     if with_read_state:
         query = _with_read_state(query, user_id)
     row = (await session.execute(query.where(Channel.id == channel_id))).first()
-    return _visible_from(row) if row else None
+    return _visible_from(row, user_id) if row else None
 
 
 async def visible_ids(

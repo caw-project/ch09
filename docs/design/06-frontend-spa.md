@@ -193,6 +193,25 @@ offline/reconnecting UI.
 - **One mount per channel.** `ChannelView` keys `MessageList` by channel, so each channel is
   a fresh mount: it starts at its newest message, takes its own divider and flushes its own
   pending read as it unmounts.
+
+**Direct messages — added 2026-10-05** (register D8b, doc 02 §3.1.2):
+
+- **The sidebar** has a *Direct messages* section under the channels (`DirectMessageList`).
+  `ChannelList` shows `kind !== 'dm'` rows only and never reads the directory. DM rows are
+  `NavLink`s named after the other person, in name order (`localeCompare`), with the channel
+  list's count pill and bold name; the one being read shows no count.
+- **Naming.** A DM is named after `dmPartnerId`, resolved through the workspace directory
+  (`shortId` when unknown) — never the stored pair key. `channelLabel` is the bare name
+  (`general`, or the person's name) for `data-channel-name`, `data-dm-name` and the header;
+  `channelTitle` adds the `#` for a channel only, for the composer's `Message …` and a search
+  result. The header shows no `#`, topic or controls for a DM, and `ChannelView` no member panel.
+- **The picker.** The **+** opens everyone in the workspace but the caller, by display name
+  (sorted; an assumption, one line to change). Picking `POST`s `/channels/dm` and navigates to the
+  channel it returns. The mutation records the workspace it started in and navigates only if that
+  is still current, invalidating only that workspace's list key.
+- **`channel_added { channelId }`** invalidates the channel list, which cancels a fetch in flight
+  when the list has data. With no data yet, TanStack joins the first load rather than cancelling
+  it, and that load may predate the message — so the handler invalidates again when it settles.
 - **Badge.** A pill (`99+` above 99) and a bold name for a channel with unread messages,
   hidden on the open channel only while it is being read (`readingChannelId`, client state).
 
@@ -333,7 +352,8 @@ Over `GET /api/v1/search/messages` (doc 02, D8c), unchanged.
   reconnect refetches are off, and a return to the page shows the cached list then refetches
   it. A failed first fetch shows the problem with Retry; a failed later page keeps the list.
   A blank `q` fetches nothing. Channel names come from the channel list, and from the channel
-  detail (once per channel) for channels outside it, `#…` while unknown.
+  detail (once per channel) for channels outside it, `#…` while unknown. A result in a direct
+  message shows the other person's name, with no `#` (`channelTitle`, §5.2).
 - **A result is a link** to `/c/<channelId>?message=<id>`. **The jump** lives in
   `MessageList` (`useMessageJump`): it decides only while history is idle, pages back with
   `fetchNextPage({ cancelRefetch: false })` up to **10 loaded pages in total**, centres the

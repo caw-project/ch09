@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import wraps
 from typing import Any
@@ -365,6 +366,33 @@ async def publish_read_receipt(
         namespace=NAMESPACE,
         skip_sid=skip_sid,
     )
+
+
+async def publish_channel_added(
+    sio: socketio.AsyncServer | None,
+    *,
+    workspace_id: uuid.UUID,
+    channel_id: uuid.UUID,
+    user_ids: Iterable[uuid.UUID],
+) -> None:
+    """Tell people a channel has appeared in their sidebar: `{channelId}`.
+
+    Today only a DM's first message sends it. **To each person's own room, never
+    the channel's** — a DM nobody has joined yet has no audience in its room, and
+    the point is to reach people who are looking at something else. The room
+    covers all of that person's tabs. At-least-once: the SPA refetches its list,
+    so a repeat costs one request.
+    """
+    if sio is None:
+        return
+
+    for user_id in user_ids:
+        await sio.emit(
+            "channel_added",
+            {"channelId": str(channel_id)},
+            room=reader_room(workspace_id, user_id),
+            namespace=NAMESPACE,
+        )
 
 
 async def publish_reaction_changed(

@@ -93,6 +93,6 @@ def test_public_and_private_channels_can_be_created(kind):
 
 @pytest.mark.parametrize("kind", ["dm", "bogus", ""])
 def test_any_other_kind_is_refused(kind):
-    """`dm` exists in the schema (D8b) and is still refused: a DM has no name to give."""
+    """A DM is opened through `POST /channels/dm`, not created by name."""
     with pytest.raises(UnknownKindError):
         validate_kind(kind)

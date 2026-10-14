@@ -24,6 +24,7 @@ import {
   aMessage,
   aMessagePage,
   aSession,
+  aThreadPage,
   aWorkspaceMember,
   messageIdAt,
   WORKSPACE_ID,
@@ -492,4 +493,62 @@ describe('ChannelView — returning to a cached channel', () => {
       await vi.waitFor(() => expect(markIds(socket)).toEqual([idIn(GENERAL, 3)]))
     },
   )
+})
+
+describe('ChannelView — a direct message (issue 5, R7, R9)', () => {
+  const dm = aChannel({
+    id: 'channel-dm',
+    kind: 'dm',
+    name: `dm:${ADA}:${GRACE}`,
+    dmPartnerId: GRACE,
+  })
+  const general = aChannel({ id: GENERAL, name: 'general' })
+  const root = aMessage({ channelId: dm.id, authorId: GRACE, body: 'a root', replyCount: 1 })
+
+  function renderView(channel: Channel, search = '') {
+    messaging.get('/api/v1/channels/{channel_id}', () => ({ ...channel }))
+    messaging.get('/api/v1/channels/{channel_id}/messages', aMessagePage([]))
+    messaging.get('/api/v1/channels/{channel_id}/members', { items: [], nextCursor: null })
+    messaging.get('/api/v1/messages/{message_id}/thread', aThreadPage(root, []))
+    auth.members([
+      aWorkspaceMember({ id: ADA, displayName: 'Ada Lovelace' }),
+      aWorkspaceMember({ id: GRACE, displayName: 'Grace Hopper' }),
+    ])
+    return renderWithProviders(
+      <ChannelView accessToken="token" workspaceId={WORKSPACE_ID} userId={ADA} />,
+      { route: `/c/${channel.id}${search}`, path: '/c/:channelId' },
+    )
+  }
+
+  // The composer reads "Reconnecting…" as its placeholder until the socket is connected.
+  beforeEach(() => useChatStore.getState().setConnectionStatus('connected'))
+
+  it('is composed to the other person by name, and has no member panel', async () => {
+    renderView(dm)
+
+    const composer = await screen.findByRole('textbox', { name: 'Message Grace Hopper' })
+    expect(composer).toHaveAttribute('placeholder', 'Message Grace Hopper')
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Grace Hopper')
+    // After the view has rendered, so "no panel" cannot pass for a view that never rendered.
+    expect(screen.queryByRole('heading', { name: 'Members' })).not.toBeInTheDocument()
+    // The channel's own member route, not the workspace directory's (which also ends in /members).
+    expect(requests().some((r) => r.url.pathname.endsWith(`/channels/${dm.id}/members`))).toBe(
+      false,
+    )
+  })
+
+  it('still shows the member panel and a # for a public channel', async () => {
+    renderView(general)
+
+    expect(await screen.findByRole('textbox', { name: 'Message #general' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Members' })).toBeInTheDocument()
+  })
+
+  it('opens a thread beside the messages, as in any channel', async () => {
+    renderView(dm, `?thread=${root.id}`)
+
+    expect(await screen.findByRole('complementary', { name: 'Thread' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Message Grace Hopper' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Members' })).not.toBeInTheDocument()
+  })
 })

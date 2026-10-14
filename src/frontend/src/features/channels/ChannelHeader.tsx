@@ -22,15 +22,18 @@ import { useNavigate } from 'react-router-dom'
 import { ProblemBanner } from '../../components/ProblemBanner'
 import { ProblemError } from '../../lib/api/client'
 import type { Channel } from '../../lib/api/messaging'
+import { isDm } from './directMessages'
 import { useArchiveChannel, useRenameChannel } from './useChannels'
 
 interface Props {
   accessToken: string
   workspaceId: string | null
   channel: Channel
+  /** The bare name to show: the channel's, or the other person's for a DM. */
+  label: string
 }
 
-export function ChannelHeader({ accessToken, workspaceId, channel }: Props) {
+export function ChannelHeader({ accessToken, workspaceId, channel, label }: Props) {
   const navigate = useNavigate()
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState(channel.name)
@@ -39,7 +42,10 @@ export function ChannelHeader({ accessToken, workspaceId, channel }: Props) {
   const rename = useRenameChannel(accessToken, workspaceId, channel.id)
   const archive = useArchiveChannel(accessToken, workspaceId, channel.id)
 
-  const isAdmin = channel.myRole === 'admin'
+  const dm = isDm(channel)
+  // A DM has no controls whatever the role says: the server refuses every one of
+  // them (R9), and offering what is refused is a button that only shows an error.
+  const isAdmin = channel.myRole === 'admin' && !dm
   const problem = rename.error instanceof ProblemError ? rename.error : undefined
   const nameError = problem?.fieldError('name')
 
@@ -58,12 +64,16 @@ export function ChannelHeader({ accessToken, workspaceId, channel }: Props) {
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <h2 data-testid="channel-header-name" className="text-lg font-semibold text-ink">
-            <span aria-hidden="true" className="opacity-50">
-              #
-            </span>{' '}
-            {channel.name}
+            {!dm && (
+              <>
+                <span aria-hidden="true" className="opacity-50">
+                  #
+                </span>{' '}
+              </>
+            )}
+            {label}
           </h2>
-          {channel.topic && <p className="text-sm text-ink-muted">{channel.topic}</p>}
+          {!dm && channel.topic && <p className="text-sm text-ink-muted">{channel.topic}</p>}
         </div>
 
         {isAdmin && (

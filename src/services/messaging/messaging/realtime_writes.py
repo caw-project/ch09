@@ -51,6 +51,7 @@ from pydantic import Field, ValidationError
 from messaging import (
     attachments,
     channels,
+    dms,
     indexing,
     messages,
     reactions,
@@ -166,7 +167,9 @@ def register_write_handlers(  # noqa: C901 — a registry of handlers; mccabe co
         if state is TokenState.REVOKED:
             raise ProblemException.unauthorized("The access token has been revoked.")
 
-    async def authorized_channel(session, principal: UserPrincipal, channel_id: uuid.UUID) -> None:
+    async def authorized_channel(
+        session, principal: UserPrincipal, channel_id: uuid.UUID
+    ) -> channels.VisibleChannel:
         visible = await channels.get_visible(
             session,
             # From the principal, and from nothing in the payload — which has no
@@ -178,6 +181,7 @@ def register_write_handlers(  # noqa: C901 — a registry of handlers; mccabe co
         )
         if visible is None:
             raise ProblemException.not_found("No such channel.")
+        return visible
 
     @sio.event(namespace=NAMESPACE)
     @_acked
@@ -187,7 +191,7 @@ def register_write_handlers(  # noqa: C901 — a registry of handlers; mccabe co
         await check_revoked(principal)
 
         async with context.sessions() as session:
-            await authorized_channel(session, principal, event.channel_id)
+            visible = await authorized_channel(session, principal, event.channel_id)
 
             root_id: uuid.UUID | None = None
             if event.thread_root_id is not None:
@@ -221,6 +225,9 @@ def register_write_handlers(  # noqa: C901 — a registry of handlers; mccabe co
             except messages.BodyTooLongError as exc:
                 raise _body_problem(f"A message must be {max_chars} characters or fewer.") from exc
 
+            # Before the insert, as the REST route does (plan decision 15).
+            first_in_dm = await dms.opens_dm(session, visible.channel, thread_root_id=root_id)
+
             # Claim, then insert — the same order, and the same helper, as the
             # REST route, so the two transports cannot refuse differently.
             message_id = uuid7()
@@ -249,6 +256,14 @@ def register_write_handlers(  # noqa: C901 — a registry of handlers; mccabe co
             # Commit, then publish. A broadcast for a row whose transaction failed
             # is a message that exists only in other people's windows.
             await realtime.publish_message_received(sio, response)
+            pair = dms.pair_of(visible.channel) if first_in_dm else None
+            if pair is not None:
+                await realtime.publish_channel_added(
+                    sio,
+                    workspace_id=principal.workspace_id,
+                    channel_id=event.channel_id,
+                    user_ids=pair,
+                )
             if root_id is not None:
                 # Read after the commit, in this session's next transaction.
                 await publish_reply_summary(session, sio, root_id, event.channel_id)

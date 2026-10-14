@@ -63,7 +63,8 @@ interface Props {
   accessToken: string
   workspaceId: string | null
   channelId: string
-  channelName: string
+  /** What the box is addressed to: `#general`, or the other person's name for a DM. */
+  channelTitle: string
   userId: string
 }
 
@@ -73,7 +74,7 @@ export function MessageComposer({
   accessToken,
   workspaceId,
   channelId,
-  channelName,
+  channelTitle,
   userId,
 }: Props) {
   const draft = useChatStore((state) => state.drafts[channelId] ?? '')
@@ -201,8 +202,8 @@ export function MessageComposer({
             onPaste={onPaste}
             rows={2}
             disabled={offline}
-            aria-label={`Message #${channelName}`}
-            placeholder={offline ? 'Reconnecting…' : `Message #${channelName}`}
+            aria-label={`Message ${channelTitle}`}
+            placeholder={offline ? 'Reconnecting…' : `Message ${channelTitle}`}
             className="min-w-0 flex-1 resize-none rounded border border-border bg-surface px-3 py-2 text-sm text-ink disabled:opacity-60"
           />
           <button

@@ -145,6 +145,26 @@ async def test_another_workspaces_messages_are_excluded(client, ada, tokens, ind
     assert await found(client, alan, "quarterly") == ["quarterly numbers look odd"]
 
 
+async def test_a_dm_is_searchable_by_its_members_only(client, ada, grace, tokens, index):
+    """R11: a direct message's text reaches its two members and no one else in the workspace.
+
+    Alan can see a public channel, so his search runs its channel filter rather than returning
+    early; Ada finding her own message and Grace finding it too show the DM is searchable at all.
+    """
+    alan = tokens.header(user_id=uuid.uuid4(), name="Alan Turing", email="alan@collabhub.dev")
+    await make_channel(client, ada, "general")
+    opened = await client.post(
+        "/api/v1/channels/dm", json={"userId": str(tokens.GRACE)}, headers=ada
+    )
+    assert opened.status_code == 200, opened.text
+    sent = await send(client, ada, opened.json()["id"], "the launch date is the 14th")
+    await index.index(sent, workspace_id=tokens.WORKSPACE)
+
+    assert await found(client, grace, "launch") == ["the launch date is the 14th"]
+    assert await found(client, ada, "launch") == ["the launch date is the 14th"]
+    assert await found(client, alan, "launch") == []
+
+
 # --- deleted messages ------------------------------------------------------------
 
 

@@ -73,6 +73,25 @@ async def test_the_public_name_index_is_partial_and_case_folded(engine):
     assert "'public'" in definition
 
 
+async def test_the_dm_pair_index_is_unique_and_partial_on_kind_dm(engine):
+    """One DM per pair per workspace is this index (get-or-create's ON CONFLICT names it).
+
+    Breaks if it is not unique, drops `workspace_id` (one DM per pair across workspaces), or is
+    not partial (public channels would be held to it as well).
+    """
+    rows = await _rows(
+        engine, "SELECT indexdef FROM pg_indexes WHERE indexname = 'ux_channels_dm_pair'"
+    )
+
+    assert len(rows) == 1, "no index named ux_channels_dm_pair"
+    definition = rows[0][0]
+    assert "UNIQUE" in definition
+    assert "(workspace_id, name)" in definition
+    # `kind` is a varchar, so Postgres prints `((kind)::text = 'dm'::text)`: match the parts.
+    assert "WHERE" in definition
+    assert "'dm'" in definition
+
+
 async def test_the_indexes_the_sidebar_needs_exist(engine):
     rows = await _rows(
         engine,
