@@ -87,7 +87,12 @@ takes one tool call a turn takes three times as long as it needs to.
   `sed`, `find`, `git -C`, or a `cd … &&` in front, can fall outside what you're allowed,
   and every refusal costs a turn. Run an allowed command as it is listed, one per call:
   an environment-variable prefix (`KEEP_STACK=1 …`), `npx`, or a chained `; echo $?` turns
-  it into a command you aren't allowed. A pipe into `tail` or `grep` is fine. A writer
+  it into a command you aren't allowed. So does the worktree's absolute path in place of
+  a relative one — `npm --prefix /Users/…/caw-issue-<N>/src/frontend test` matches no
+  rule; `npm --prefix src/frontend test` does — and so does dropping the `--prefix`. The
+  refusal names no rule, so it reads like a lost permission; it never is. A file change
+  is Edit or Write, never a `python3` or `sed` script in Bash. A pipe into
+  `tail` or `grep` is fine. A writer
   takes a file out of the tree with `rm <path from the worktree root>`, one path a call.
 - **Installed dependencies start out missing.** A new worktree has no `node_modules/` or
   `.venv/` of its own. A stage that only reads finds the primary checkout with
