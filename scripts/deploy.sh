@@ -9,6 +9,20 @@
 #   scripts/deploy.sh status   releases, pods, jobs and ingresses
 #   scripts/deploy.sh down     delete the k3d cluster, its registry and all its data
 #
+#   scripts/deploy.sh preview up    this branch's whole app in namespace preview-<slug>,
+#                              public on two cloudflared quick tunnels (cloudflared
+#                              on PATH): one for the app, one for object storage.
+#                              Builds, pushes and deploys; prints both origins.
+#                              A rerun reuses live tunnels, else starts new ones
+#                              (new URLs, so sign in again; data is kept)
+#   scripts/deploy.sh preview url   print APP_ORIGIN= and OBJECT_STORE_ORIGIN=
+#   scripts/deploy.sh preview down  stop the tunnels, uninstall both releases and
+#                              delete the namespace; the cluster and KEDA stay
+#
+#   BRANCH names the preview (default: the checked-out branch). Two `preview up`
+#   runs at once are unsupported (both upgrade KEDA), as is `up` racing `down`.
+#   Branches whose names differ only in separators share one preview.
+#
 #   scripts/deploy.sh infra -- --set-string postgres.password=...
 #                              anything after -- goes to that command's helm call
 #
@@ -23,6 +37,8 @@
 set -euo pipefail
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+# shellcheck source=lib/preview.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/preview.sh"
 
 APP_RELEASE=collabhub
 DEPS_RELEASE=collabhub-deps
@@ -48,14 +64,10 @@ resolve_origin() {
         [ "$DEPLOY_ENV" = k3d ] || die "APP_ORIGIN is required when DEPLOY_ENV is '$DEPLOY_ENV'"
         APP_ORIGIN="$K3D_ORIGIN"
     fi
-    APP_ORIGIN="${APP_ORIGIN%/}"
-    case "$APP_ORIGIN" in
-        http://* | https://*) ;;
-        *) die "APP_ORIGIN must start with http:// or https:// (got '$APP_ORIGIN')" ;;
-    esac
-    case "${APP_ORIGIN#*://}" in
-        */*) die "APP_ORIGIN is an origin, with no path (got '$APP_ORIGIN')" ;;
-    esac
+    APP_ORIGIN="$(normalize_origin APP_ORIGIN "$APP_ORIGIN")"
+    if [ -n "$OBJECT_STORE_ORIGIN" ]; then
+        OBJECT_STORE_ORIGIN="$(normalize_origin OBJECT_STORE_ORIGIN "$OBJECT_STORE_ORIGIN")"
+    fi
 }
 
 # The environment and the cluster have to agree, in both directions: k3d values
@@ -106,6 +118,7 @@ cmd_infra() {
         --values "$REPO_ROOT/charts/collabhub-deps/values-$DEPLOY_ENV.yaml" \
         "${DEPS_CHART_FILES[@]}" \
         --set-string "origin=$APP_ORIGIN" \
+        --set-string "objectStoreOrigin=$OBJECT_STORE_ORIGIN" \
         ${helm_args[@]+"${helm_args[@]}"} \
         --wait --timeout 10m
 }
@@ -157,13 +170,14 @@ cmd_app() {
         --values "$REPO_ROOT/charts/collabhub/values-$DEPLOY_ENV.yaml" \
         --set-string "image.registry=$IMAGE_REGISTRY" \
         --set-string "image.tag=$IMAGE_TAG" \
+        --set-string "origin=$APP_ORIGIN" \
         --set-string "ingress.host=$(origin_host "$APP_ORIGIN")" \
         --set-string "components.auth.env.AUTH_ISSUER=$APP_ORIGIN" \
         --set-string "components.auth.env.SPA_REDIRECT_URI=$APP_ORIGIN/auth/callback" \
         --set-string "components.messaging.env.AUTH_ISSUER=$APP_ORIGIN" \
         --set-string "components.canvas.env.AUTH_ISSUER=$APP_ORIGIN" \
         --set-string "components.asset.env.AUTH_ISSUER=$APP_ORIGIN" \
-        --set-string "components.asset.env.OBJECT_STORE_PUBLIC_ENDPOINT=$(origin_s3_endpoint "$APP_ORIGIN")" \
+        --set-string "components.asset.env.OBJECT_STORE_PUBLIC_ENDPOINT=$(object_store_endpoint "$APP_ORIGIN" "$OBJECT_STORE_ORIGIN")" \
         --set-string "components.worker.env.REDIS_STREAMS_ADDRESS=redis-streams.$NAMESPACE.svc.cluster.local:6379" \
         ${helm_args[@]+"${helm_args[@]}"} \
         --wait --timeout 10m
@@ -220,8 +234,92 @@ cmd_up() {
     cmd_app
 }
 
+# --- preview: this branch's whole app, in its own namespace, on two quick tunnels
+
+# What a preview owns. Each would be silently overwritten or contradict k3d's
+# values, so it is refused rather than ignored. An explicit NAMESPACE=collabhub
+# can't be told from the default, and is ignored like it.
+preview_guard() {
+    require_local_cluster preview
+    [ -z "$APP_ORIGIN" ] || die "preview sets APP_ORIGIN itself from its tunnel — unset it"
+    [ -z "$OBJECT_STORE_ORIGIN" ] || die "preview sets OBJECT_STORE_ORIGIN itself from its tunnel — unset it"
+    [ "$NAMESPACE" = collabhub ] || die "preview names its own namespace — unset NAMESPACE (got '$NAMESPACE')"
+    [ "$DEPLOY_ENV" = k3d ] || die "preview runs on k3d values only — DEPLOY_ENV is '$DEPLOY_ENV'"
+    local branch
+    branch="$(preview_branch)"
+    NAMESPACE="$(preview_namespace "$branch")"
+    PREVIEW_STATE="$(preview_state_dir "$NAMESPACE")"
+}
+
+cmd_preview_up() {
+    preview_guard
+    # cloudflared first: it is the tool a developer is likeliest not to have.
+    require_cmd cloudflared
+    require_cmd k3d docker helm kubectl curl
+    log "preview $NAMESPACE"
+
+    # The cluster comes before the build: build.sh --push pushes to the registry
+    # the cluster creates.
+    cmd_cluster
+    IMAGE_TAG="$IMAGE_TAG" "$REPO_ROOT/scripts/build.sh" --push
+
+    if preview_tunnels_live "$PREVIEW_STATE"; then
+        log "reusing the running tunnels for $NAMESPACE"
+    else
+        preview_stop_tunnels "$PREVIEW_STATE"
+        log "starting two quick tunnels"
+        preview_start_tunnels "$PREVIEW_STATE"
+    fi
+    APP_ORIGIN="$(cat "$PREVIEW_STATE/app.url")"
+    OBJECT_STORE_ORIGIN="$(cat "$PREVIEW_STATE/s3.url")"
+    resolve_origin
+    cmd_infra
+    cmd_app
+
+    log "preview $NAMESPACE is up"
+    printf 'APP_ORIGIN=%s\nOBJECT_STORE_ORIGIN=%s\n' "$APP_ORIGIN" "$OBJECT_STORE_ORIGIN"
+}
+
+cmd_preview_url() {
+    preview_guard
+    preview_tunnels_live "$PREVIEW_STATE" \
+        || die "preview $NAMESPACE's tunnels are not running, or Cloudflare has dropped them — run scripts/deploy.sh preview up"
+    printf 'APP_ORIGIN=%s\nOBJECT_STORE_ORIGIN=%s\n' \
+        "$(cat "$PREVIEW_STATE/app.url")" "$(cat "$PREVIEW_STATE/s3.url")"
+}
+
+# Never creates or starts the cluster, and never touches keda or other namespaces.
+cmd_preview_down() {
+    preview_guard
+    log "taking down preview $NAMESPACE"
+    preview_stop_tunnels "$PREVIEW_STATE"
+    if command -v k3d >/dev/null 2>&1 && cluster_exists; then
+        require_cmd helm kubectl
+        local release
+        for release in "$APP_RELEASE" "$DEPS_RELEASE"; do
+            if helm_ns status "$release" >/dev/null 2>&1; then
+                helm_ns uninstall "$release" --wait
+            fi
+        done
+        kubectl --context "$KUBE_CONTEXT" delete namespace "$NAMESPACE" --ignore-not-found --wait
+    else
+        log "no k3d cluster — only the tunnels and local state to remove"
+    fi
+    rm -rf "$PREVIEW_STATE"
+}
+
 command="${1:-up}"
 [ $# -gt 0 ] && shift
+preview_command=""
+if [ "$command" = preview ]; then
+    case "${1:-}" in
+        up | url | down)
+            preview_command="$1"
+            shift
+            ;;
+        *) die "expected 'preview up', 'preview url' or 'preview down'" ;;
+    esac
+fi
 helm_args=()
 if [ "${1:-}" = -- ]; then
     shift
@@ -231,12 +329,12 @@ elif [ $# -gt 0 ]; then
 fi
 
 case "$command" in
-    up | cluster | infra | app | status | down) ;;
+    up | cluster | infra | app | status | down | preview) ;;
     -h | --help)
         usage
         exit 0
         ;;
-    *) die "unknown command '$command' (expected up, cluster, infra, app, status or down)" ;;
+    *) die "unknown command '$command' (expected up, cluster, infra, app, status, down or preview)" ;;
 esac
 
 # Helm arguments belong to one chart. `up` installs two, and a credential for
@@ -244,6 +342,7 @@ esac
 if [ ${#helm_args[@]} -gt 0 ]; then
     case "$command" in
         infra | app) ;;
+        preview) die "Helm arguments are not accepted by 'preview': it owns every value it sets" ;;
         *) die "Helm arguments go to 'infra' or 'app', not '$command'" ;;
     esac
 fi
@@ -269,6 +368,12 @@ case "$command" in
             resolve_origin
         fi
         ;;
+    # A preview's origins are its tunnels', known only once they are up.
+    preview) ;;
     *) resolve_origin ;;
 esac
-"cmd_$command"
+if [ "$command" = preview ]; then
+    "cmd_preview_$preview_command"
+else
+    "cmd_$command"
+fi

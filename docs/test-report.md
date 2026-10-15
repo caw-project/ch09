@@ -1,15 +1,15 @@
 # Test report
 
-Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `b192d9d8eaa9-dirty`.
+Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `560114e3b455-dirty`.
 
 ## Layers
 
 | Layer | Result | Passed | Failed | Skipped | Revision |
 |---|---|--:|--:|--:|---|
-| Lint | ✅ passed | | | | `b192d9d8eaa9-dirty` |
-| Unit | ✅ passed | 894 | 0 | 0 | `b192d9d8eaa9-dirty` |
-| Integration | ✅ passed | 531 | 0 | 0 | `b192d9d8eaa9-dirty` |
-| End-to-end | ✅ passed | 24 | 0 | 0 | `b192d9d8eaa9-dirty` |
+| Lint | ✅ passed | | | | `560114e3b455-dirty` |
+| Unit | ✅ passed | 938 | 0 | 0 | `560114e3b455-dirty` |
+| Integration | ⚪ not run | | | | |
+| End-to-end | ✅ passed | 24 | 0 | 0 | `560114e3b455-dirty` |
 
 ## Failures
 
@@ -122,14 +122,14 @@ None.
 
 | Service | Unit | Integration |
 |---|---|---|
-| asset | ✅ 39 passed | ✅ 34 passed |
-| auth | ✅ 59 passed | ✅ 123 passed |
+| asset | ✅ 39 passed | — |
+| auth | ✅ 59 passed | — |
 | canvas | ✅ 2 passed | — |
-| messaging | ✅ 134 passed | ✅ 325 passed |
-| shared | ✅ 94 passed | ✅ 26 passed |
-| testkit | ✅ 60 passed | ✅ 6 passed |
-| worker | ✅ 19 passed | ✅ 17 passed |
-| frontend | ✅ 487 passed | — |
+| messaging | ✅ 136 passed | — |
+| shared | ✅ 94 passed | — |
+| testkit | ✅ 101 passed | — |
+| worker | ✅ 19 passed | — |
+| frontend | ✅ 488 passed | — |
 
 ## Coverage
 

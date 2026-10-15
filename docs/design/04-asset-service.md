@@ -167,8 +167,9 @@ the claim: a download URL is only ever minted for the message that holds it.
 - **Two endpoints.** A presigned URL's host is part of its signature, so URLs are signed for
   `OBJECT_STORE_PUBLIC_ENDPOINT`, the host a *browser* reaches, while Asset's own HEAD goes
   to `OBJECT_STORE_ENDPOINT`. Compose uses `http://localhost:3900`, the test stack
-  `http://localhost:3910`, and k3d `s3.<host>` on the instance's own port, set by
-  `scripts/deploy.sh` from `APP_ORIGIN`.
+  `http://localhost:3910`, and k3d `OBJECT_STORE_ORIGIN` when that is set (a preview's
+  second tunnel), else `s3.<host>` on the instance's own port; `scripts/deploy.sh` sets it
+  from `APP_ORIGIN`.
 - **CORS.** The browser PUTs and GETs across origins, so the bucket's CORS rules allow the
   app's origin — and only it — for `PUT GET HEAD` with `content-type`, exposing `ETag`. The
   bootstrap (`charts/collabhub-deps/files/garage-bootstrap.py`) sets them through Garage's
@@ -206,7 +207,7 @@ Common vars (Conventions §8). Plus:
 | Var | Notes |
 |-----|-------|
 | `OBJECT_STORE_ENDPOINT` | Garage endpoint (or Azure Blob S3 endpoint) as Asset reaches it, for `HEAD`. |
-| `OBJECT_STORE_PUBLIC_ENDPOINT` | The same store as a **browser** reaches it. URLs are signed for this host. Required. |
+| `OBJECT_STORE_PUBLIC_ENDPOINT` | The same store as a **browser** reaches it. URLs are signed for this host. Required. On k3d: `OBJECT_STORE_ORIGIN` when set, else `s3.<APP_ORIGIN host>`. |
 | `OBJECT_STORE_ACCESS_KEY` / `_SECRET_KEY` | Secret. Garage's own key format (`GK` + 24 hex, 64 hex). |
 | `OBJECT_STORE_BUCKET` | Default bucket. |
 | `OBJECT_STORE_PRESIGN_TTL_SECONDS` | Default 900. |

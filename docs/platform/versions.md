@@ -186,6 +186,22 @@ this file so the same release is never announced twice.
     The local k3d cluster pins its k3s image to this track in scripts/k3d/cluster.yaml
     (rancher/k3s:v1.36.4-k3s1) — move it when pinned_track moves.
 
+- id: cloudflared
+  name: cloudflared
+  category: tooling
+  used_for: Quick tunnels for `scripts/deploy.sh preview` (two, per preview); runs on the developer's host, never in the cluster
+  pinned_track: "unpinned"
+  current_stable: ""        # record the version installed for the first real run
+  last_notified: ""
+  released: ""
+  base_image_hint: n/a           # host binary, not an image
+  check_url: https://github.com/cloudflare/cloudflared/releases
+  eol_url: https://github.com/cloudflare/cloudflared/releases
+  notes: >
+    Host-side, local previews only. Quick tunnels need no account. The script reads the
+    tunnel URL from the log's banner (tunnel_url_from_log), so check that format when
+    upgrading. A ~/.cloudflared/config.yml written for a named tunnel is not meant for these.
+
 - id: keda
   name: KEDA
   category: orchestration

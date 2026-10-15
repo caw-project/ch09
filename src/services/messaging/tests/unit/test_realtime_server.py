@@ -61,6 +61,41 @@ def test_ping_defaults_are_python_socketios_own() -> None:
     assert server.eio.ping_timeout == 20
 
 
+TUNNEL_HOST = "quiet-fox-runs.trycloudflare.com"
+
+
+def _admits(server, origin: str) -> bool:
+    """Whether engine.io's handshake would accept `origin`, behind k3s's Traefik.
+
+    The environ is what Traefik hands on for a request that came through a
+    Cloudflare quick tunnel: plain `http` to the pod, `ws` as the forwarded proto.
+    """
+    environ = {
+        "HTTP_HOST": TUNNEL_HOST,
+        "wsgi.url_scheme": "http",
+        "HTTP_X_FORWARDED_PROTO": "ws",
+        "HTTP_ORIGIN": origin,
+    }
+    allowed = server.eio._cors_allowed_origins(environ)
+    return allowed is None or origin in allowed
+
+
+def test_an_explicit_origin_is_matched_as_given_behind_a_tls_tunnel() -> None:
+    """A configured https origin must be admitted, or every handshake through a tunnel fails."""
+    server = _server(_settings(cors_allowed_origins=[f"https://{TUNNEL_HOST}"]))
+
+    assert _admits(server, f"https://{TUNNEL_HOST}")
+    assert not _admits(server, f"http://{TUNNEL_HOST}")
+
+
+def test_without_a_list_a_tunnel_origin_is_refused_behind_traefik() -> None:
+    """Why the chart always sets the list: the empty-list predicate rebuilds `http://`."""
+    server = _server(_settings(cors_allowed_origins=[]))
+
+    assert _admits(server, f"http://{TUNNEL_HOST}")
+    assert not _admits(server, f"https://{TUNNEL_HOST}")
+
+
 def test_ping_settings_are_read_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MESSAGING_SOCKET_PING_INTERVAL_SECONDS", "2")
     monkeypatch.setenv("MESSAGING_SOCKET_PING_TIMEOUT_SECONDS", "2")

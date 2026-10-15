@@ -16,6 +16,13 @@
 #   NAMESPACE       default: collabhub. One instance per namespace.
 #   APP_ORIGIN      the origin the browser uses, e.g. http://a.localhost:8080.
 #                   Default: http://localhost:8080 on k3d; required elsewhere.
+#   OBJECT_STORE_ORIGIN  the origin the browser uses for object storage, when it
+#                   is not `s3.<APP_ORIGIN host>` — a preview's second tunnel.
+#                   Default: empty (derive it from APP_ORIGIN).
+#   BRANCH          the branch a `deploy.sh preview` is named after. Default: the
+#                   checked-out branch.
+#   PREVIEW_STATE_ROOT  where previews keep their tunnel pids, logs and URLs.
+#                   Default: <git common dir>/collabhub-previews.
 #
 # Written for bash 3.2, which is what macOS ships: no associative arrays, and an
 # empty array is expanded as ${arr[@]+"${arr[@]}"} because `set -u` rejects it
@@ -38,6 +45,7 @@ DEPLOY_ENV="${DEPLOY_ENV:-k3d}"
 # APP_ORIGIN, because only k3d has a sensible default.
 NAMESPACE="${NAMESPACE:-collabhub}"
 APP_ORIGIN="${APP_ORIGIN:-}"
+OBJECT_STORE_ORIGIN="${OBJECT_STORE_ORIGIN:-}"
 
 # The cluster add-on charts/collabhub's Worker pools scale with. Keep in step with
 # the KEDA entry in docs/platform/versions.md.
@@ -103,8 +111,33 @@ origin_host() {
     printf '%s' "${host%%:*}"
 }
 
-# Where a browser reaches object storage for an origin: the same scheme and port on
-# an `s3.` host of its own — http://a.localhost:8080 → http://s3.a.localhost:8080.
+# An origin as the charts want it: one trailing slash trimmed, and refused unless it
+# is a scheme and a host with no path. $1 names the variable, for the message.
+normalize_origin() {
+    local name="$1" value="${2%/}"
+    case "$value" in
+        http://* | https://*) ;;
+        *) die "$name must start with http:// or https:// (got '$value')" ;;
+    esac
+    case "${value#*://}" in
+        */*) die "$name is an origin, with no path (got '$value')" ;;
+    esac
+    printf '%s' "$value"
+}
+
+# The object-store endpoint for an app origin ($1): the object-store origin ($2)
+# when there is one, else the `s3.` host origin_s3_endpoint derives.
+object_store_endpoint() {
+    if [ -n "${2:-}" ]; then
+        printf '%s' "$2"
+    else
+        origin_s3_endpoint "$1"
+    fi
+}
+
+# The default for object storage when no object-store origin is given: the same
+# scheme and port on an `s3.` host of its own — http://a.localhost:8080 →
+# http://s3.a.localhost:8080.
 # A presigned URL's host is part of its signature and the SPA's origin routes to the
 # SPA, so Garage's S3 API gets a host (and an Ingress, in charts/collabhub-deps).
 origin_s3_endpoint() {
