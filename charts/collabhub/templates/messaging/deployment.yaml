@@ -17,7 +17,7 @@ spec:
       annotations:
         # Roll this component's pods when its own config changes — scoped to the
         # component so an Auth config edit does not restart Messaging.
-        checksum/config: {{ toYaml $component.env | sha256sum }}
+        checksum/config: {{ list $component.env $.Values.origin | toJson | sha256sum }}
       labels:
         {{- include "collabhub.selectorLabels" $ctx | nindent 8 }}
     spec:

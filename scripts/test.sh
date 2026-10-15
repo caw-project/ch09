@@ -113,11 +113,14 @@ layer_lint() {
     # declared, so the ScaledObjects are checked too.
     helm lint --quiet charts/collabhub \
         --set networkPolicy.enabled=false \
+        --set-string origin=http://localhost:8080 \
         --set components.worker.autoscaling.enabled=false
     helm lint --quiet charts/collabhub --values charts/collabhub/values-k3d.yaml \
         --set components.worker.autoscaling.enabled=false \
+        --set-string origin=http://localhost:8080 \
         --set-string ingress.host=localhost
     helm template collabhub charts/collabhub --values charts/collabhub/values-k3d.yaml \
+        --set-string origin=http://localhost:8080 \
         --set-string ingress.host=localhost \
         --api-versions keda.sh/v1alpha1 >/dev/null
 
@@ -129,6 +132,7 @@ layer_lint() {
     local ingress
     ingress="$(helm template collabhub charts/collabhub \
         --values charts/collabhub/values-k3d.yaml \
+        --set-string origin=http://a.localhost:8080 \
         --set-string ingress.host=a.localhost \
         --api-versions keda.sh/v1alpha1 \
         --show-only templates/ingress.yaml)"
@@ -153,6 +157,7 @@ layer_lint() {
     local refused
     if refused="$(helm template collabhub charts/collabhub \
         --values charts/collabhub/values-k3d.yaml \
+        --set-string origin=http://a.localhost:8080 \
         --api-versions keda.sh/v1alpha1 2>&1 >/dev/null)"; then
         die "charts/collabhub rendered an enabled Ingress with no host"
     fi
@@ -187,9 +192,11 @@ layer_lint() {
 
     # The lab: ingress-nginx, plain HTTP, CollabHub bringing its own dependencies.
     helm lint --quiet charts/collabhub --values charts/collabhub/values-lab.yaml \
+        --set-string origin=http://lab.example \
         --set-string ingress.host=lab.example \
         --set components.worker.autoscaling.enabled=false
     helm template collabhub charts/collabhub --values charts/collabhub/values-lab.yaml \
+        --set-string origin=http://lab.example \
         --set-string ingress.host=lab.example \
         --api-versions keda.sh/v1alpha1 >/dev/null
     helm template collabhub-deps "${deps[@]}" --values charts/collabhub-deps/values-lab.yaml \
@@ -197,7 +204,9 @@ layer_lint() {
 }
 
 layer_unit() {
-    require_cmd npm
+    # helm too: the chart checks under testkit render with it, and a skipped one
+    # would read as green.
+    require_cmd npm helm
     log "unit tests: pytest"
     uv run pytest -m unit --cov --cov-report=term:skip-covered \
         --cov-report="xml:$RESULTS_DIR/unit-python-coverage.xml" \

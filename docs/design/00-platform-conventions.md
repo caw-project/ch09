@@ -273,6 +273,11 @@ Implemented once in `collabhub-shared` as `install_cors`, configured per service
 - **Credentials are allowed**, because the refresh cookie (§5.1) would otherwise be dropped
   on a cross-origin call. That is what makes CSRF a question, and it is answered by the
   cookie's `SameSite=Strict` rather than by CORS.
+- **Messaging's list is always `[APP_ORIGIN]` in the chart.** Behind a TLS-terminating
+  proxy the ingress reports `X-Forwarded-Proto: http`/`ws`, so engine.io's same-origin
+  predicate rebuilds the wrong scheme and refuses a browser that came in over https. An
+  explicit list is compared as given. `charts/collabhub` renders it from its required
+  `origin` value.
 
 ---
 
@@ -316,7 +321,9 @@ Real-time backplane (R2)** so that any pod can serve any client.
   from `shared`. An explicit list is used as-is; an empty one becomes an exact
   same-origin check that treats `ws`/`wss` as `http`/`https` — a WebSocket
   scheme is not a different site, only the upgraded form of one the browser
-  already trusted.
+  already trusted. The empty-list check stays as the answer for a deployment that
+  sets no list, but `charts/collabhub` always sets one (§5.6), so it is no longer
+  the deployed path.
 
 ---
 

@@ -636,6 +636,11 @@ allow-list containing nothing and refuses every browser handshake with a 400.
 `None` is its spelling of "same origin only". The bug would only appear in the
 deployment the convention was written for.
 
+*Superseded in the code:* the call is `socket_allowed_origins(settings.cors_allowed_origins)`
+(`realtime.py`), whose empty-list predicate rebuilds the origin from `X-Forwarded-Proto`.
+Behind a TLS-terminating proxy that scheme is `http`/`ws`, so the deployed chart always
+sets the list to `[APP_ORIGIN]` and the predicate is not on that path (Conventions §5.6).
+
 **The Socket.IO ASGI app wraps FastAPI and must be constructed with
 `other_asgi_app` alone.** `ASGIApp` handles the `lifespan` scope itself and only
 delegates it down when it was given neither `on_startup` nor `on_shutdown`, so

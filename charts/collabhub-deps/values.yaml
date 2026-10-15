@@ -24,6 +24,11 @@ appRelease: collabhub
 # APP_ORIGIN.
 origin: ""
 
+# The origin the browser uses for object storage, when it is not `s3.<origin host>`:
+# a preview's second tunnel. Empty keeps `s3.<origin host>`. scripts/deploy.sh sets
+# it from OBJECT_STORE_ORIGIN — it is never written into a values file (D40).
+objectStoreOrigin: ""
+
 ingress:
   # Required: the IngressClass that routes this environment's origin.
   className: ""

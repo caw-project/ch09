@@ -42,10 +42,6 @@ function SignIn() {
       >
         Sign in
       </button>
-      <p className="text-sm text-ink-muted">
-        Locally this is Dex — try <code>ada@collabhub.dev</code> with the password{' '}
-        <code>collabhub</code>.
-      </p>
     </main>
   )
 }

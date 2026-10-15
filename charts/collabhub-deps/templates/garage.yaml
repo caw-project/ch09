@@ -118,13 +118,19 @@ spec:
 {{- /*
 The S3 API on `s3.<host>`, for the browser: an attachment is PUT to a presigned
 URL and GET from another, both signed for this host (Asset's
-OBJECT_STORE_PUBLIC_ENDPOINT, which scripts/deploy.sh derives from APP_ORIGIN the
-same way). A host of its own because a presigned URL's host is part of its
-signature and the SPA's origin routes to the SPA. Only the S3 port: the admin API
-is never routed. On k3d `s3.localhost` resolves to the loopback by itself.
+OBJECT_STORE_PUBLIC_ENDPOINT, which scripts/deploy.sh derives the same way). The
+host is objectStoreOrigin's when that is given (a preview's second tunnel); the
+bucket's CORS stays `origin`, because the browser's origin is the app's whichever
+host it uploads to. A host of its own because a presigned URL's host is part of
+its signature and the SPA's origin routes to the SPA. Only the S3 port: the admin
+API is never routed. On k3d `s3.localhost` resolves to the loopback by itself.
 */}}
 {{- $origin := required "origin is empty: set it to APP_ORIGIN, as scripts/deploy.sh does" .Values.origin }}
 {{- $host := regexReplaceAll "^[a-z]+://([^:/]+).*$" $origin "${1}" }}
+{{- $s3Host := printf "s3.%s" $host }}
+{{- with .Values.objectStoreOrigin }}
+{{- $s3Host = regexReplaceAll "^[a-z]+://([^:/]+).*$" . "${1}" }}
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -134,7 +140,7 @@ metadata:
 spec:
   ingressClassName: {{ required "ingress.className is empty" .Values.ingress.className }}
   rules:
-    - host: {{ printf "s3.%s" $host | quote }}
+    - host: {{ $s3Host | quote }}
       http:
         paths:
           - path: /

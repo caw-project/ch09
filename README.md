@@ -284,6 +284,7 @@ both behind the Traefik Ingress k3s ships with.
 | `scripts/deploy.sh app` | Installs `charts/collabhub` at the current tag. Migrations run as Helm hook Jobs before any pod rolls |
 | `scripts/deploy.sh` | All three, in order. Idempotent — re-run it to upgrade |
 | `scripts/deploy.sh status` / `down` | What is running / delete the cluster, its registry and **all its data** |
+| `scripts/deploy.sh preview up` / `url` / `down` | This branch's app in `preview-<slug>`, public on two quick tunnels — see *Preview environments* |
 | `NAMESPACE=… APP_ORIGIN=… scripts/deploy.sh` | Another instance on the same cluster, e.g. `NAMESPACE=collabhub-a APP_ORIGIN=http://a.localhost:8080`. `*.localhost` needs no DNS |
 
 `scripts/deploy.sh infra -- <helm args>` and `app -- <helm args>` pass arguments to that
@@ -355,6 +356,35 @@ Four things to know before running it anywhere but your laptop:
 - **`helm uninstall collabhub-deps` is not harmless.** It deletes the Auth signing-key
   Secret, which ends every session, and the `redis-streams` PVC, which loses any job not yet
   acknowledged.
+
+### Preview environments
+
+`scripts/deploy.sh preview up` deploys the current branch's whole app into its own namespace,
+`preview-<slug>`, on the local k3d cluster, and makes it public on two
+[cloudflared](https://github.com/cloudflare/cloudflared) quick tunnels — no account needed —
+so someone on another network can use it. One tunnel serves the app, the other object storage
+(a presigned URL's host is signed, and the app's host routes to the SPA).
+
+```bash
+scripts/deploy.sh preview up     # cluster, build, push, tunnels, deploy; prints both origins
+scripts/deploy.sh preview url    # prints APP_ORIGIN=… and OBJECT_STORE_ORIGIN=… again
+scripts/deploy.sh preview down   # stops the tunnels, uninstalls, deletes the namespace
+```
+
+- `cloudflared` must be on `PATH`. `BRANCH=<name>` names the preview instead of the checked-out
+  branch (needed on a detached HEAD).
+- A rerun reuses live tunnels. If either has died, `up` starts two new ones: the URLs change,
+  so everyone signs in again, but the data is kept.
+- **A quick tunnel does not survive the machine sleeping.** When its connection drops for long
+  enough, Cloudflare deletes the tunnel; `cloudflared` keeps running and logs `Tunnel not found`
+  for ever. `up` and `url` ask each URL as well as each process, so they see this as dead. Keep
+  the machine awake while a preview is in use (`caffeinate -d` on macOS).
+- Roughly 1.5–2 GB of memory per preview, most of it Elasticsearch.
+- Do not run two `up` at once (both upgrade KEDA), nor `up` while `down` runs.
+- `feature/a_b` and `feature/a-b` share one preview, because they share a slug.
+- **Accepted risk:** anyone with a preview URL can sign in as the demo users
+  (`ada@collabhub.dev`). The sign-in page no longer shows the credentials; the URL is the secret.
+- A `~/.cloudflared/config.yml` written for a named tunnel is not meant for these quick tunnels.
 
 ### Deploying to the lab
 

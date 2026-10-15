@@ -152,8 +152,10 @@ uv run python -m messaging.openapi > src/frontend/openapi/messaging.json
 Common variables per Conventions §8, plus `MESSAGING_MAX_BODY_CHARS` (8000) and
 `MESSAGING_MAX_ATTACHMENTS` (10) from spec §6. `CORS_ALLOWED_ORIGINS` matters
 locally: the SPA is a separate origin, and without it the browser will not call
-this service at all. Empty installs no CORS middleware, which is the deployed
-case behind a single ingress.
+this service at all. Empty installs no CORS middleware and makes Socket.IO check
+the browser's origin against the request's own; behind a TLS-terminating ingress
+that rebuilds the wrong scheme, so `charts/collabhub` always sets it to
+`[APP_ORIGIN]`.
 
 All three Redis instances are configured because they are not interchangeable:
 **R1** cache and token denylist, **R2** the Socket.IO backplane, **R3** index

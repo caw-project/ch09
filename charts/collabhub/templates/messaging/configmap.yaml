@@ -16,4 +16,8 @@ data:
   {{- range $key, $value := $component.env }}
   {{ $key }}: {{ $value | quote }}
   {{- end }}
+  # Always the configured origin, never empty: engine.io then compares the browser's
+  # Origin with it as given, rather than rebuilding one from X-Forwarded-Proto, which
+  # k3s's Traefik sets to http/ws even when the browser came in over https.
+  CORS_ALLOWED_ORIGINS: {{ list (required "origin is empty: set it to APP_ORIGIN, as scripts/deploy.sh does" $.Values.origin) | toJson | quote }}
 {{- end }}

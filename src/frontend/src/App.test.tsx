@@ -116,6 +116,22 @@ describe('App routes', () => {
     expect(screen.getByRole('search', { name: 'Search messages' })).toBeInTheDocument()
   })
 
+  it('shows no email address and no password on the sign-in page', async () => {
+    aFirstVisit()
+
+    const { container } = renderWithProviders(<App />, { route: '/sign-in' })
+
+    // The page has rendered, so the absence below is not an empty screen.
+    expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument()
+    expect(screen.getByText('Sign in with your CollabHub account.')).toBeInTheDocument()
+
+    const text = container.textContent ?? ''
+    expect(text).not.toMatch(/\S+@\S+\.\S+/)
+    expect(text).not.toMatch(/password/i)
+    // The demo password; the heading's "CollabHub" is capitalised and doesn't match.
+    expect(text).not.toMatch(/\bcollabhub\b/)
+  })
+
   it('says so for a route that does not exist', async () => {
     aFirstVisit()
 
