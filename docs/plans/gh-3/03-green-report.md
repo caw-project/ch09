@@ -2,6 +2,9 @@
 
 Built Tasks 5–8: Auth's `names`, migration `0002`, `identities` suffixing, `preferences` and the two routes, and the SPA's Settings feature, formatters, return-to-path and sidebar link; the record is written. Every test and check is green, including the Display names journey on its first e2e run.
 
+## Re-verification (second code-writer run)
+The first run's work was committed by the runner as "failed at code-writer": it had written `CLAUDE.md`, which the write check refuses (only `src/ docs/ charts/ …` and `README.md` are allowed). This run found the code and record already in the tree, wrote nothing but this section, and re-ran everything: Auth unit 80 passed; Vitest 569 passed; typecheck, lint, build clean; `scripts/test.sh lint unit integration` passed (integration 595); `scripts/test.sh e2e` passed; conventions check clean; `security.sh` clean (its gitleaks/semgrep steps print `mktemp` errors in this environment). `docs/test-report.md` is the one file this run changed.
+
 ## Baseline
 Not taken as a separate run: I went straight from reading to building, so the red counts below are the red report's, not re-observed. Before building, Auth unit was 59 passing plus two files that failed at collection (red report); Vitest was 505 passing, 27 failing and 4 files failing to load. That is what the report says and nothing I saw contradicted it.
 
@@ -44,3 +47,4 @@ Not taken as a separate run: I went straight from reading to building, so the re
 - Assumed decisions to read: 14 (`lower()` folding gap), 17 (zero-width joiner refused, so emoji ZWJ names are refused), 37 (sidebar name read from the directory).
 - `security.sh` printed `mktemp` errors for its gitleaks and semgrep steps; run it where those work.
 - `main` was not merged.
+- **`CLAUDE.md` was edited by the first run** (D28 paragraph, D46 tenancy exception) and is committed. A code-writer may not write it, so a person should read that 3-line diff and keep or revert it.

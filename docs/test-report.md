@@ -1,15 +1,15 @@
 # Test report
 
-Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `b5f34090c6b2-dirty`.
+Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `f45e31d7b664`.
 
 ## Layers
 
 | Layer | Result | Passed | Failed | Skipped | Revision |
 |---|---|--:|--:|--:|---|
-| Lint | ✅ passed | | | | `b5f34090c6b2-dirty` |
-| Unit | ✅ passed | 1843 | 0 | 0 | `b5f34090c6b2-dirty` |
-| Integration | ✅ passed | 595 | 0 | 0 | `b5f34090c6b2-dirty` |
-| End-to-end | ✅ passed | 25 | 0 | 0 | `b5f34090c6b2-dirty` |
+| Lint | ✅ passed | | | | `f45e31d7b664` |
+| Unit | ✅ passed | 1843 | 0 | 0 | `f45e31d7b664` |
+| Integration | ✅ passed | 595 | 0 | 0 | `f45e31d7b664` |
+| End-to-end | ✅ passed | 25 | 0 | 0 | `f45e31d7b664` |
 
 ## Failures
 
