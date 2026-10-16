@@ -8,3 +8,4 @@ Changes this round:
 - **Smaller fixes.** Ruling 6 in the scenario vocabulary now gets the Alan exception too. The verification task first lists unmerged sibling branches (`git branch --no-merged main`).
 
 That makes 16 **assumed** decisions in total (13 before, plus 37). A Review responses section answers each finding. The plan is 614 lines, slightly over the 600 limit, mostly because of that section.
+04 plan-reviewer approved [1.6m 24 turns $1.03 · opus · default]: Approved in round 2: 0 critical, 0 major, 4 minor (left for later stages). All nine round-1 findings are fixed, and each fix was checked against the code or the installed TanStack source. The most important, decision 36 (cancel the in-flight read in onMutate, invalidate on settle), holds against mutation.js:102/115. Two of the minor points are for the test pair: the in-flight-fetch hook test needs an active observer, and asyncio.run in a function-scoped fixture is unverified.
