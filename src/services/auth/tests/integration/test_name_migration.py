@@ -103,6 +103,29 @@ async def test_stored_names_are_cleaned(at_0001: str) -> None:
     assert await names(at_0001) == ["Zed", "user"]
 
 
+async def test_duplicates_are_found_the_way_the_index_folds_case(at_0001: str) -> None:
+    """Postgres `lower()` turns U+0130 into `i`; Python's `str.lower()` into `i` + U+0307.
+
+    The older "İvan" and the newer "ivan" collide in the index, so the newer one
+    must move — a comparison made in Python never sees it and the index build fails.
+    """
+    await plant(at_0001, ("İvan", False), ("ivan", False))
+
+    await upgrade(at_0001, "0002")
+
+    assert await names(at_0001) == ["İvan", "ivan 2"]
+    engine = create_async_engine(at_0001)
+    try:
+        with pytest.raises(IntegrityError):
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text("INSERT INTO users (id, email, display_name) VALUES (:id, :email, :name)"),
+                    {"id": uuid.uuid4(), "email": "late@example.com", "name": "IVAN"},
+                )
+    finally:
+        await engine.dispose()
+
+
 async def test_afterwards_a_duplicate_cannot_be_inserted(at_0001: str) -> None:
     """The index exists and is case-insensitive — and a different name still goes in."""
     await plant(at_0001, ("Bob", False))

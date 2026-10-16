@@ -14,12 +14,15 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from auth import identities
 from auth.models import User, Workspace, WorkspaceMember
 from shared import uuid7
 
 
 def a_user(email: str = "ada@example.com") -> User:
-    return User(id=uuid7(), email=email, display_name="Ada Lovelace")
+    # A name of its own per user: display names are unique too (D46), and a test
+    # of one constraint must not trip the other.
+    return User(id=uuid7(), email=email, display_name=f"Ada {uuid.uuid4().hex[:8]}")
 
 
 async def test_a_user_round_trips(sessions) -> None:
@@ -43,9 +46,13 @@ async def test_email_uniqueness_ignores_case(sessions) -> None:
     async with sessions.begin() as session:
         session.add(a_user("ada@example.com"))
 
-    with pytest.raises(IntegrityError):
+    with pytest.raises(IntegrityError) as exc:
         async with sessions.begin() as session:
             session.add(a_user("ADA@EXAMPLE.COM"))
+
+    # An email clash is not a name clash: the first-sign-in walk would otherwise
+    # go looking for a free name forever. Fails a check that says True for any error.
+    assert identities.is_display_name_conflict(exc.value) is False
 
 
 async def test_a_user_joins_a_workspace_once(sessions) -> None:

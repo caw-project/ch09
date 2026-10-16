@@ -1,8 +1,8 @@
 {
-  "stage": "test-writer",
+  "stage": "test-reviewer",
   "status": "running",
-  "step": 10,
-  "review": "docs/plans/gh-3/reviews/code-reviewer-sendback-3.md",
+  "step": 11,
+  "review": "",
   "rounds": {
     "plan": 2,
     "test": 3,
