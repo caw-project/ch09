@@ -160,7 +160,8 @@ describe('SettingsPage — the Profile', () => {
     await user.type(input, '  Ada L ')
     await user.click(saveButton())
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Saved')
+    expect(await screen.findByText('Saved')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Saved')
     // The body is the trimmed name, and nothing else.
     expect(patches('/api/v1/users/me').map((r) => r.body)).toEqual([{ displayName: 'Ada L' }])
     // The saved name is now the one to differ from.

@@ -58,8 +58,8 @@ def test_length_is_counted_after_trimming() -> None:
 
 @pytest.mark.parametrize(
     "raw",
-    ["Ada" + ZWSP, "Ada" + BELL, "Ada" + LINE_SEP, "Ada" + PRIVATE_USE],
-    ids=["zero-width space (Cf)", "bell (Cc)", "line separator (Zl)", "private use (Co)"],
+    ["Ada" + ZWSP, "Ada" + BELL, "Ad" + LINE_SEP + "a", "Ada" + PRIVATE_USE],
+    ids=["zero-width space (Cf)", "bell (Cc)", "interior line separator (Zl)", "private use (Co)"],
 )
 def test_invisible_and_control_characters_are_refused(raw: str) -> None:
     """A name that looks like another's but carries a zero-width mark is an impersonation."""
@@ -67,6 +67,11 @@ def test_invisible_and_control_characters_are_refused(raw: str) -> None:
         validate_display_name(raw)
 
     assert caught.value.message == INVISIBLE
+
+
+def test_a_trailing_line_separator_is_trimmed_not_refused() -> None:
+    """Trimming comes first (Req 1): whitespace at the ends is padding, not an invisible mark."""
+    assert validate_display_name("Ada" + LINE_SEP) == "Ada"
 
 
 @pytest.mark.parametrize("raw", ["Émile", "Ada 🚀", "李雷"])

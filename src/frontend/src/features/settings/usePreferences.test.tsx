@@ -173,7 +173,9 @@ describe('useSetClock', () => {
       if (reads === 2) await held.promise
       return answering
     })
-    auth.updatePreferences((patch) => {
+    const patchHeld = deferred()
+    auth.updatePreferences(async (patch) => {
+      await patchHeld.promise
       serverHolds = patch.clock ? { clock: patch.clock } : {}
       return serverHolds
     })
@@ -194,9 +196,14 @@ describe('useSetClock', () => {
     })
     await vi.waitFor(() => expect(cached(queryClient)).toEqual({ clock: '24h' }))
 
-    // The old read lands last, with the old answer.
-    held.release()
+    // The old read lands with the old answer while the PATCH is still pending:
+    // only the cancel in onMutate keeps it from showing 12h again meanwhile.
     await vi.waitFor(() => expect(sent('PATCH')).toHaveLength(1))
+    held.release()
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 50)))
+    expect(cached(queryClient)).toEqual({ clock: '24h' })
+
+    patchHeld.release()
     await act(() => new Promise<void>((resolve) => setTimeout(resolve, 30)))
     expect(cached(queryClient)).toEqual({ clock: '24h' })
 
