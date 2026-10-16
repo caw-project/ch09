@@ -1,0 +1,128 @@
+"""`delivery` — the backends, for bash and for skills.
+
+    delivery [--backend B] [--url U] check
+    delivery [...] issue create --title T --body-file F [--label L ...]
+    delivery [...] issue get KEY
+    delivery [...] issue edit KEY --title T --body-file F
+    delivery [...] issue verify KEY --title T --body-file F
+    delivery [...] ensure-label NAME [--description D] [--color C]
+
+The backend is `--backend`/`--url`, else DELIVERY_BACKEND/DELIVERY_URL, else
+local. Issues print as JSON. Exit 0 ok · 1 the backend failed, or verify found
+differences · 2 bad configuration or usage.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+
+from delivery.errors import BackendError, ConfigError
+from delivery.github import GitHubBackend, Runner
+from delivery.local import LocalBackend
+from delivery.model import Backend, Issue
+from delivery.readback import differences
+from delivery.resolve import GITHUB, BackendConfig, resolve
+
+LABEL_DESCRIPTION = "Written for the delivery team (scripts/deliver.sh)"
+LABEL_COLOR = "0e8a16"
+
+
+def parser() -> argparse.ArgumentParser:
+    cli = argparse.ArgumentParser(prog="delivery", description="Where delivery issues live.")
+    cli.add_argument("--backend", help="local or github. Default: DELIVERY_BACKEND, else local")
+    cli.add_argument("--url", help="the repo's web URL. Default: DELIVERY_URL")
+    commands = cli.add_subparsers(dest="command", required=True)
+
+    commands.add_parser("check", help="fail unless the backend can take a new issue")
+
+    label = commands.add_parser("ensure-label", help="create a label, or update it")
+    label.add_argument("name")
+    label.add_argument("--description", default=LABEL_DESCRIPTION)
+    label.add_argument("--color", default=LABEL_COLOR)
+
+    issue = commands.add_parser("issue").add_subparsers(dest="action", required=True)
+    create = issue.add_parser("create", help="create an issue; print it as the backend holds it")
+    draft(create)
+    create.add_argument("--label", action="append", default=[], dest="labels")
+    issue.add_parser("get", help="print an issue").add_argument("key")
+    for action, text in (
+        ("edit", "replace an issue's title and body; print it"),
+        ("verify", "exit 0 if the issue says what the draft says, else 1 and the differences"),
+    ):
+        command = issue.add_parser(action, help=text)
+        command.add_argument("key")
+        draft(command)
+    return cli
+
+
+def draft(command: argparse.ArgumentParser) -> None:
+    command.add_argument("--title", required=True)
+    command.add_argument("--body-file", required=True, type=Path)
+
+
+def open_backend(config: BackendConfig, root: Path, run: Runner | None) -> Backend:
+    if config.kind == GITHUB:
+        assert config.url is not None  # noqa: S101 — resolve() refuses github without one.
+        return GitHubBackend(config.url, run=run)
+    return LocalBackend(root)
+
+
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    env: Mapping[str, str] | None = None,
+    root: Path | None = None,
+    run: Runner | None = None,
+) -> int:
+    args = parser().parse_args(argv)
+    try:
+        config = resolve(args.backend, args.url, os.environ if env is None else env)
+        backend = open_backend(config, root or Path.cwd(), run)
+        return dispatch(args, config, backend)
+    except ConfigError as e:
+        print(f"delivery: {e}", file=sys.stderr)  # noqa: T201
+        return 2
+    except BackendError as e:
+        print(f"delivery: {e}", file=sys.stderr)  # noqa: T201
+        return 1
+
+
+def dispatch(args: argparse.Namespace, config: BackendConfig, backend: Backend) -> int:
+    if args.command == "check":
+        backend.check()
+        print(f"{config.kind}{f' {config.url}' if config.url else ''}: ok")  # noqa: T201
+        return 0
+    if args.command == "ensure-label":
+        backend.ensure_label(args.name, args.description, args.color)
+        return 0
+    if args.action == "get":
+        return show(backend.get(args.key))
+    body = read_body(args.body_file)
+    if args.action == "create":
+        return show(backend.create(args.title, body, args.labels))
+    if args.action == "edit":
+        return show(backend.edit(args.key, args.title, body))
+    found = differences(args.title, body, backend.get(args.key))
+    print("\n".join(found) if found else "match")  # noqa: T201
+    return 1 if found else 0
+
+
+def read_body(path: Path) -> str:
+    try:
+        return path.read_text()
+    except OSError as e:
+        raise ConfigError(f"can't read the body file {path}: {e.strerror}") from e
+
+
+def show(issue: Issue) -> int:
+    print(json.dumps(issue.to_json(), indent=2, ensure_ascii=False))  # noqa: T201
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

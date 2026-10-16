@@ -117,6 +117,39 @@ def test_tests_outside_src_services_are_left_alone(repo):
     run(repo, "-m", "not unit and not integration").assert_outcomes(passed=1)
 
 
+# --- dev tooling under tools/ follows the same layout -----------------------
+
+TOOL = "tools/demo/tests"
+
+
+def test_a_tool_test_under_unit_is_selected_by_the_unit_marker(repo):
+    """Breaks if `tools/<pkg>/tests/unit/` is not marked `unit` — the delivery
+    library's tests would then run with no socket guard, and `-m unit` would
+    skip them."""
+    write(repo, f"{TOOL}/unit/test_a.py", PASSING)
+
+    run(repo, "-m", "unit").assert_outcomes(passed=1)
+
+
+def test_a_tool_test_under_integration_is_selected_by_the_integration_marker(repo):
+    """Breaks if `tools/<pkg>/tests/integration/` is not marked `integration`."""
+    write(repo, f"{TOOL}/integration/test_a.py", PASSING)
+
+    run(repo, "-m", "integration and not unit").assert_outcomes(passed=1)
+
+
+def test_a_tool_test_outside_both_layers_stops_the_run(repo):
+    """Breaks if a stray file in a tool's `tests/` is collected at all."""
+    write(repo, f"{TOOL}/test_stray.py", PASSING)
+
+    result = run(repo)
+
+    assert result.ret == pytest.ExitCode.USAGE_ERROR
+    result.stderr.fnmatch_lines(
+        ["*tools/demo/tests/test_stray.py is not under tests/unit/ or tests/integration/*"]
+    )
+
+
 # --- a unit test has no network and no Docker -------------------------------
 
 

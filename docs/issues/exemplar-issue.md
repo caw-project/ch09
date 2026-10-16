@@ -62,14 +62,14 @@ messages, newest pin first, and everyone looking at the channel sees the list ch
 
 For each pair of rules that touch the same state, what happens when both fire:
 
-- **The limit and concurrency (R2, R1):** two people pinning the fifth and sixth message at the
+- **The limit and concurrency (Req 2, Req 1):** two people pinning the fifth and sixth message at the
   same instant — exactly one succeeds; the channel never holds six.
-- **Delete and the list (R3, R5):** a delete that unpins broadcasts the new list as well as the
+- **Delete and the list (Req 3, Req 5):** a delete that unpins broadcasts the new list as well as the
   delete; a client that sees the delete first shows a tombstone until the list lands, never a
   pinned tombstone for good.
-- **The response and the echo (R5):** the pinner's own client gets the new list twice — from its
+- **The response and the echo (Req 5):** the pinner's own client gets the new list twice — from its
   request and from the broadcast — in either order. Both give the same list.
-- **An edit and the list (R4):** a pinned message edited shows its new text in the list.
+- **An edit and the list (Req 4):** a pinned message edited shows its new text in the list.
 
 > **Why:** the first version of issue 1 lost most to two clear rules colliding. R4 (write the
 > caches directly on read) and R5 (refetch the list on switch, poll, focus and reconnect) each
@@ -137,7 +137,7 @@ t2  Ada's response [M]  → Ada applies it; her list is unchanged
 
 ## Decided already
 
-1. Scope is R1–R5. Everything in *Not in this issue* stays out.
+1. Scope is Req 1–5. Everything in *Not in this issue* stays out.
 2. Anyone who can see the channel may pin — no role check.
 3. At most 5 pins per channel; the sixth is refused.
 4. A tombstone can't be pinned, and a delete unpins.
