@@ -262,11 +262,11 @@ def write_scope(stage: str, paths: Paths) -> str | None:
         # Its proof and a send-back on the branch; everything else under build/.
         return f"^{plans}/(04-proof\\.md$|reviews/acceptance-reviewer-sendback-)"
     if stage == "code-writer":
-        # Production code, config and docs anywhere — then write_denied takes the tests
-        # back out.
+        # Production code, config and docs anywhere, CLAUDE.md included for a decision the
+        # slice records there — then write_denied takes the tests back out.
         return (
             r"^(src/|docs/|charts/|docker/|scripts/|\.github/|\.env\.example$|docker-compose|"
-            r"(pyproject\.toml|uv\.lock|ruff\.toml|README\.md)$)"
+            r"(pyproject\.toml|uv\.lock|ruff\.toml|README\.md|CLAUDE\.md)$)"
         )
     return None
 

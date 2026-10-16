@@ -178,3 +178,17 @@ Settled to run on to green without a stop, at the user's word. What each failed 
     Fixed here, test first: `testkit`'s `test_dockerfiles.py` holds each Python service's
     Dockerfile to copying every workspace member root from the root `pyproject.toml` (red on all
     five), and each now copies `tools/` too. All five images build.
+- A `restart` run (38936214228) failed its preview the same way, rightly: `restart` keeps the
+  branch, and `feature/gh-4` was cut before the fix. **A delivery's branch never takes a later
+  `main`** — nothing is merged in — so a fix on `main` reaches it only by deleting the branch
+  or merging by hand. With the branch deleted, run 38936722276 went green in 5m37s: the preview
+  came up on its first try, seven checkpoints and `accepted` reached `feature/gh-4`, and
+  `run/history.log` is committed. A stub runs no tests, so the e2e Compose stack's disk and
+  memory are first measured by a real run.
+- The first real run, gh-3 (38948278868), took the plan and test pairs to approval in two rounds
+  each (48 minutes, $15.35), then failed at the code-writer after 18.6 minutes: it wrote
+  `CLAUDE.md`, as the issue's record section asks, and the code-writer's write scope had no
+  room for it. Fixed test first: the scope takes the root `CLAUDE.md` (never `.claude/`), the
+  fixture changed with it. The runner is `main`'s, not the branch's, so the fix reaches the
+  run without touching `feature/gh-3`; a rerun resumes at the code-writer, its first pass's
+  work already on the branch in the failure commit.

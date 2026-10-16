@@ -204,7 +204,7 @@
     "Bash(rm docker/*)",
     "Bash(rm scripts/*)"
    ],
-   "write_scope": "^(src/|docs/|charts/|docker/|scripts/|\\.github/|\\.env\\.example$|docker-compose|(pyproject\\.toml|uv\\.lock|ruff\\.toml|README\\.md)$)",
+   "write_scope": "^(src/|docs/|charts/|docker/|scripts/|\\.github/|\\.env\\.example$|docker-compose|(pyproject\\.toml|uv\\.lock|ruff\\.toml|README\\.md|CLAUDE\\.md)$)",
    "write_denied": "^(src/frontend/src/.*\\.test\\.tsx?$|src/frontend/src/test/|src/services/[^/]+/tests/|src/services/testkit/|tests/|\\.github/workflows/|docs/plans/issue-999/02-red-tests.md$|docs/plans/issue-999/reviews/[a-z]+-reviewer-|docs/plans/issue-999/04-proof.md$)",
    "writer_output": "docs/plans/issue-999/03-green-report.md",
    "earlier_pair": "test"

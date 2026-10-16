@@ -130,6 +130,14 @@ def test_a_code_writer_may_not_touch_a_workflow():
     assert strays("code-writer", PATHS, touched) == ([], [".github/workflows/ci.yml"])
 
 
+def test_a_code_writer_may_record_a_decision_in_claude_md():
+    # A slice records its decisions where they apply, CLAUDE.md included — gh-3's run
+    # stopped on it. Only the root file: .claude/ stays a person's.
+    touched = ["CLAUDE.md", ".claude/agents/code-writer.md", "src/frontend/CLAUDE.md"]
+
+    assert strays("code-writer", PATHS, touched) == ([".claude/agents/code-writer.md"], [])
+
+
 def test_an_unconfined_stage_has_no_strays():
     # Every stage has a scope today; the rule for one without is "anything goes".
     assert write_scope("no-such-stage", PATHS) is None
