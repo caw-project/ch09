@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { auth, messaging, requests } from '../../test/api'
 import { aMessage, aMessagePage, aWorkspaceMember, WORKSPACE_ID } from '../../test/factories'
+import { scriptDirectory, settleDirectory } from '../../test/directory'
 import { giveLayout } from '../../test/layout'
 import { renderWithProviders } from '../../test/render'
 import { MessageList } from './MessageList'
@@ -61,6 +62,37 @@ function messageArrives(queryClient: QueryClient, body: string) {
 }
 
 describe('MessageList', () => {
+  // Without it a first-time joiner's messages show an 8-character id until a reload.
+  it('shows a newcomer’s name on their message once the directory catches up', async () => {
+    const graceId = '01a13ec0-0000-7000-8000-000000000002'
+    const script = scriptDirectory({
+      [WORKSPACE_ID]: [aWorkspaceMember({ id: ADA, displayName: 'Ada Lovelace' })],
+    })
+    script.answer(WORKSPACE_ID, 2, [
+      aWorkspaceMember({ id: ADA, displayName: 'Ada Lovelace' }),
+      aWorkspaceMember({ id: graceId, displayName: 'Grace Hopper' }),
+    ])
+    messaging.get('/api/v1/channels/{channel_id}/messages', () =>
+      aMessagePage([aMessage({ channelId: CHANNEL, authorId: graceId, body: 'hello all' })]),
+    )
+
+    const { queryClient } = renderWithProviders(
+      <MessageList
+        accessToken="token"
+        workspaceId={WORKSPACE_ID}
+        channelId={CHANNEL}
+        userId={ADA}
+        myRole={null}
+        lastReadId={null}
+        channelFetching={false}
+      />,
+    )
+
+    expect(await screen.findByText('Grace Hopper')).toBeInTheDocument()
+    await settleDirectory(queryClient, WORKSPACE_ID)
+    expect(script.requests(WORKSPACE_ID)).toHaveLength(2)
+  })
+
   it('shows the newest page oldest-first, as a conversation reads', async () => {
     stubHistory()
     renderList()

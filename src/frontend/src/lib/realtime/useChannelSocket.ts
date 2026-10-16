@@ -53,7 +53,9 @@
  * nested key — so a reconnect refetches the panel with no code of its own.
  *
  * **Read state rides on the same connection.** Every connect refetches the
- * channel list (counts changed while nobody listened), and the user's own
+ * channel list (counts changed while nobody listened) and the workspace
+ * directory (messages missed while down may be from new members; a fetch in
+ * flight is joined, not cancelled), and the user's own
  * `read_receipt_updated` — another tab read — clears the count here, written
  * directly when it covers everything cached and refetched when it does not.
  */
@@ -63,7 +65,9 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { Message } from '../api/messaging'
 import { applyReadReceipt, type ReadReceiptEvent } from '../../features/channels/readCache'
+import { directoryTracker } from '../../features/channels/directoryRefresh'
 import { channelKeys } from '../../features/channels/useChannels'
+import { directoryKeys } from '../../features/channels/useWorkspaceMembers'
 import {
   applyReaction,
   messageKeys,
@@ -141,6 +145,15 @@ export function useChannelSocket(
       // Counts change while no one is listening; a connection is the moment to
       // ask again, whichever channel is open.
       void queryClient.invalidateQueries({ queryKey: channelKeys.list(workspaceId) })
+      // Messages missed while down may be from members who joined meanwhile.
+      // This is a fetch for another reason even when it joins the tracker's own
+      // (it clears the departed set), and `cancelRefetch: false` joins a fetch in
+      // flight rather than cancelling and restarting it.
+      if (workspaceId) directoryTracker(queryClient).otherReason(workspaceId)
+      void queryClient.invalidateQueries(
+        { queryKey: directoryKeys.members(workspaceId), exact: true },
+        { cancelRefetch: false },
+      )
 
       const current = activeChannel.current
       if (!current) return

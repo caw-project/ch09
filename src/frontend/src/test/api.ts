@@ -314,6 +314,27 @@ export const auth = {
   members(members: WorkspaceMember[]): void {
     authJson('get', '/api/v1/workspaces/:workspaceId/members', { items: members, nextCursor: null })
   },
+  /**
+   * The directory, answered per call and per workspace. `call` counts from 1 for
+   * each workspace, and restarts when this is called again. `reply` may return a
+   * promise, which is how a test holds a fetch in flight: the request is recorded
+   * on arrival, before the reply is awaited.
+   */
+  membersBy(
+    reply: (workspaceId: string, call: number) => WorkspaceMember[] | Promise<WorkspaceMember[]>,
+  ): void {
+    const calls = new Map<string, number>()
+    server.use(
+      http.get(AUTH_URL + '/api/v1/workspaces/:workspaceId/members', async ({ request, params: raw }) => {
+        await record(request)
+        const workspaceId = String(raw.workspaceId)
+        const call = (calls.get(workspaceId) ?? 0) + 1
+        calls.set(workspaceId, call)
+        const items = await reply(workspaceId, call)
+        return HttpResponse.json({ items, nextCursor: null })
+      }),
+    )
+  },
   refresh: (pair: TokenPair) => authJson('post', '/api/v1/auth/refresh', { ...pair }),
   exchange: (pair: TokenPair) => authJson('post', '/api/v1/auth/token', { ...pair }),
   switchWorkspace: (pair: TokenPair) =>
