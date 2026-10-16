@@ -1,15 +1,15 @@
 # Test report
 
-Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `560114e3b455-dirty`.
+Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `dca6fbbd5003-dirty`.
 
 ## Layers
 
 | Layer | Result | Passed | Failed | Skipped | Revision |
 |---|---|--:|--:|--:|---|
-| Lint | ✅ passed | | | | `560114e3b455-dirty` |
-| Unit | ✅ passed | 938 | 0 | 0 | `560114e3b455-dirty` |
+| Lint | ✅ passed | | | | `dca6fbbd5003-dirty` |
+| Unit | ✅ passed | 953 | 0 | 0 | `dca6fbbd5003-dirty` |
 | Integration | ⚪ not run | | | | |
-| End-to-end | ✅ passed | 24 | 0 | 0 | `560114e3b455-dirty` |
+| End-to-end | ✅ passed | 24 | 0 | 0 | `dca6fbbd5003-dirty` |
 
 ## Failures
 
@@ -129,7 +129,7 @@ None.
 | shared | ✅ 94 passed | — |
 | testkit | ✅ 101 passed | — |
 | worker | ✅ 19 passed | — |
-| frontend | ✅ 488 passed | — |
+| frontend | ✅ 503 passed | — |
 
 ## Coverage
 
@@ -144,4 +144,4 @@ Unit tests only.
 | messaging | `█████░░░░░` 56% | `███░░░░░░░` 31% |
 | shared | `█████████░` 90% | `███████░░░` 75% |
 | worker | `██████░░░░` 65% | `███░░░░░░░` 30% |
-| frontend | `█████████░` 95% | `████████░░` 87% |
+| frontend | `█████████░` 96% | `████████░░` 87% |

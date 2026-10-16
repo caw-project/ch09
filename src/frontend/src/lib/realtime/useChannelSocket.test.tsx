@@ -5,8 +5,16 @@ import { describe, expect, it, vi } from 'vitest'
 import { channelKeys } from '../../features/channels/useChannels'
 import { messageKeys, useMessages } from '../../features/channels/useMessages'
 import { useChatStore } from '../../stores/chat'
+import { directoryKeys, useWorkspaceMembers } from '../../features/channels/useWorkspaceMembers'
 import { messaging, requests } from '../../test/api'
-import { aChannel, aMessage, aMessagePage, messageIdAt } from '../../test/factories'
+import { scriptDirectory, settleDirectory } from '../../test/directory'
+import {
+  aChannel,
+  aMessage,
+  aMessagePage,
+  aWorkspaceMember,
+  messageIdAt,
+} from '../../test/factories'
 import { createTestQueryClient, renderHookWithProviders } from '../../test/render'
 import { latestSocket, type FakeSocket } from '../../test/socket'
 import type { Channel, ChannelPage, Message, MessagePage } from '../api/messaging'
@@ -424,6 +432,106 @@ describe('useChannelSocket', () => {
       // was the user check, not a socket that never delivers the event.
       act(() => socket.serverEmit('read_receipt_updated', receipt(newer)))
       expect(listChannel(queryClient)).toMatchObject({ lastReadId: newer, unreadCount: 0 })
+    })
+  })
+
+  describe('the workspace directory', () => {
+    const grace = aWorkspaceMember({ id: '01a13ec0-0000-7000-8000-000000000002', displayName: 'Grace Hopper' })
+    const alan = aWorkspaceMember({ id: '01b20000-0000-7000-8000-000000000003', displayName: 'Alan Turing' })
+    const ada = aWorkspaceMember({ id: ADA, displayName: 'Ada Lovelace' })
+    const pause = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 25)))
+    const directoryWith = (asking: string[]) => {
+      return renderHookWithProviders(() => {
+        useChannelSocket('token', WORKSPACE, null, ADA)
+        const directory = useWorkspaceMembers('token', WORKSPACE)
+        return asking.map(directory.nameFor)
+      })
+    }
+
+    // Without it messages recovered after a drop show ids for authors who joined meanwhile.
+    it('refetches the workspace directory on every connect', () => {
+      const queryClient = createTestQueryClient()
+      const key = directoryKeys.members(WORKSPACE)
+      const seed = () => queryClient.setQueryData(key, [ada])
+      seed()
+      renderHookWithProviders(() => useChannelSocket('token', WORKSPACE, CHANNEL, ADA), {
+        queryClient,
+      })
+      const socket = latestSocket()
+      expect(queryClient.getQueryState(key)?.isInvalidated).toBe(false)
+
+      act(() => socket.serverConnect())
+      expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true)
+
+      seed()
+      expect(queryClient.getQueryState(key)?.isInvalidated).toBe(false)
+      act(() => socket.serverDisconnect())
+      act(() => socket.serverConnect())
+      expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true)
+    })
+
+    // Without the join a connect cancels and restarts the fetch (two requests); without
+    // the mark a departed author stays short after the recovered history.
+    it('a connect while a refetch for an unknown author is in flight joins it, and still clears the departed set', async () => {
+      const script = scriptDirectory({ [WORKSPACE]: [ada] })
+      const asking = [alan.user.id]
+      const view = directoryWith(asking)
+      const queryClient = view.queryClient
+      await vi.waitFor(() => expect(script.requests(WORKSPACE)).toHaveLength(2))
+      await settleDirectory(queryClient, WORKSPACE)
+      const socket = latestSocket()
+
+      const third = script.hold(WORKSPACE, 3)
+      asking.push(grace.user.id)
+      view.rerender()
+      await vi.waitFor(() => expect(script.requests(WORKSPACE)).toHaveLength(3))
+
+      act(() => socket.serverConnect())
+      await pause()
+      expect(script.requests(WORKSPACE)).toHaveLength(3)
+
+      script.now[WORKSPACE] = [ada, grace]
+      await third.release([ada, grace])
+      await vi.waitFor(() => expect(view.result.current[1]).toBe('Grace Hopper'))
+      // The joined fetch cleared the departed set, so Alan earns one more.
+      await vi.waitFor(() => expect(script.requests(WORKSPACE)).toHaveLength(4))
+      await settleDirectory(queryClient, WORKSPACE)
+
+      // Quiet: further renders ask for nothing, and a new id still can.
+      view.rerender()
+      view.rerender()
+      await settleDirectory(queryClient, WORKSPACE)
+      expect(script.requests(WORKSPACE)).toHaveLength(4)
+      asking.push('0199c0de-0000-7000-8000-000000000001')
+      view.rerender()
+      await vi.waitFor(() => expect(script.requests(WORKSPACE)).toHaveLength(5))
+      await settleDirectory(queryClient, WORKSPACE)
+      expect(script.requests(WORKSPACE)).toHaveLength(5)
+      expect(view.result.current[0]).toBe(alan.user.id.slice(0, 8))
+    })
+
+    // Without it a reconnect's refetch and a recovered author are two requests.
+    it('an unknown author arriving during a reconnect’s refetch joins it', async () => {
+      const script = scriptDirectory({ [WORKSPACE]: [ada] })
+      const asking: string[] = []
+      const view = directoryWith(asking)
+      await vi.waitFor(() => expect(script.requests(WORKSPACE)).toHaveLength(1))
+      await settleDirectory(view.queryClient, WORKSPACE)
+      const socket = latestSocket()
+
+      const second = script.hold(WORKSPACE, 2)
+      act(() => socket.serverConnect())
+      await vi.waitFor(() => expect(script.requests(WORKSPACE)).toHaveLength(2))
+
+      asking.push(grace.user.id)
+      view.rerender()
+      await pause()
+      expect(script.requests(WORKSPACE)).toHaveLength(2)
+
+      await second.release([ada, grace])
+      await vi.waitFor(() => expect(view.result.current).toEqual(['Grace Hopper']))
+      await settleDirectory(view.queryClient, WORKSPACE)
+      expect(script.requests(WORKSPACE)).toHaveLength(2)
     })
   })
 

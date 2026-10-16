@@ -201,7 +201,7 @@ offline/reconnecting UI.
   `NavLink`s named after the other person, in name order (`localeCompare`), with the channel
   list's count pill and bold name; the one being read shows no count.
 - **Naming.** A DM is named after `dmPartnerId`, resolved through the workspace directory
-  (`shortId` when unknown) — never the stored pair key. `channelLabel` is the bare name
+  (`shortId` while unknown — the directory refetches once for an id it lacks; see *Names*) — never the stored pair key. `channelLabel` is the bare name
   (`general`, or the person's name) for `data-channel-name`, `data-dm-name` and the header;
   `channelTitle` adds the `#` for a channel only, for the composer's `Message …` and a search
   result. The header shows no `#`, topic or controls for a DM, and `ChannelView` no member panel.
@@ -305,6 +305,17 @@ keystroke immediately, because a trailing debounce would delay the indicator by
 its own window. There is no stop event: the receiver drops a name 4s after its
 last `user_typing`. Names are resolved through the workspace directory like
 every other name in the UI; the event carries only a user id.
+
+**Names — added 2026-10-15.** The directory is one query per workspace, stale
+after 5 minutes. An id it doesn't hold refetches it once, joining a fetch already
+in flight (`cancelRefetch: false` — TanStack's default cancels and restarts it);
+the short id shows meanwhile. An id seen before a fetch that lands without it is
+*departed* and asks for nothing more until a fetch for another reason lands (a
+mount, a window focus, a reconnect — a reconnect counts even when it joins the
+tracker's own fetch; a stale mount or focus refetch that joins one does not).
+Every socket connect refetches the directory. **Renames are not covered**: a
+changed name shows at the next refetch after the 5 minutes are up (a mount, a
+window focus, a reconnect, or an unknown id). Code: `features/channels/directoryRefresh.ts`.
 
 **Threads — added 2026-10-02** (register D8a, ADR 261002). Single-level; the code
 is in `/features/threads`.
