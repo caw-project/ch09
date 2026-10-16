@@ -59,7 +59,9 @@ Base path `/api/v1`. Token endpoints and JWKS are unauthenticated; all others re
 | POST | `/auth/logout` | Bearer | Revoke the `jti` and the cookie's refresh token; clear the cookie. |
 | GET | `/auth/userinfo` | Bearer | Claims for the current token. |
 | GET | `/users/me` | Bearer | Current user profile. |
-| PATCH | `/users/me` | Bearer | Update own profile (display name, avatar ref). |
+| PATCH | `/users/me` | Bearer | Update own profile (display name, avatar ref). The name is trimmed and 1–100 code points with no control or invisible characters (`400`, `errors.displayName`); a name already taken by anyone, in any case, deleted accounts included, is `409` `"That name is already taken."` (D46). Saving the name you have writes nothing. |
+| GET | `/users/me/preferences` | Bearer | Own preferences, `{ "clock"?: "12h" \| "24h" }` — a key that is not set is absent; no row is created by a read (D28). |
+| PATCH | `/users/me/preferences` | Bearer | Set keys; `null` removes one, `{}` writes nothing. Unknown keys and bad values are `400` with `errors.<key>`. Answers with the merged object. A deleted account is `404`. Both preferences routes stay on `require_user`, so they fail open with R1 down. |
 | GET | `/users/{id}` | Bearer | Public profile of a user (name, avatar). |
 | GET | `/workspaces/{id}/members` | Bearer (member) | List members + roles. |
 | POST | `/workspaces/{id}/members` | Bearer (admin) | Invite/add member. |
@@ -207,6 +209,28 @@ CREATE TABLE refresh_tokens (
 CREATE INDEX ix_refresh_user ON refresh_tokens (user_id) WHERE revoked_at IS NULL;
 ```
 
+**Added 2026-10-16 (migration `0002`, register D28 and D46):**
+
+```sql
+-- Display names are unique across CollabHub, case-insensitively, deleted accounts included.
+-- The only arbiter; trimming is guaranteed by auth.names, not by the index.
+CREATE UNIQUE INDEX uq_users_display_name ON users (lower(display_name));
+
+-- One row per user, created by the first preference write.
+CREATE TABLE user_preferences (
+    user_id     uuid PRIMARY KEY REFERENCES users(id),
+    prefs       jsonb NOT NULL DEFAULT '{}',
+    version     integer NOT NULL DEFAULT 0,
+    updated_at  timestamptz NOT NULL DEFAULT now()
+);
+```
+
+A preferences write is one `INSERT … ON CONFLICT (user_id) DO UPDATE SET prefs = (prefs ||
+excluded.prefs) - :removed`, so writers of different keys both land; the same key is last write
+wins. `0002` first cleans stored names and renames existing duplicates (the oldest account
+keeps its name, the rest become `X 2`, `X 3`…, never taking a name another account holds); it is
+one-way.
+
 SQLAlchemy models map one-to-one to these tables; Alembic owns the migration history.
 
 `refresh_tokens.workspace_id` was added during implementation and is not in the original
@@ -239,6 +263,14 @@ elsewhere.
    expiry, and `nonce`. It upserts `users` + `external_identities`, writes
    `auth:code:{code}` to R1, and redirects to `SPA_REDIRECT_URI?code=…`.
 3. SPA calls `/auth/token` with the code + its `codeVerifier` → access + refresh tokens.
+
+**A first sign-in under a taken display name (added 2026-10-16, D46).** The provider's name is
+cleaned (trimmed, refused characters dropped, cut to 100, `user` if nothing is left), then the
+first free of `X`, `X 2`, `X 3`… is used. Each candidate is skipped if any account holds it
+(deleted included, case-insensitively) and otherwise inserted inside a savepoint; losing a race
+to the unique index moves on to the next candidate, so sign-in never fails over a name. The
+user's own workspace is named from the name they ended up with. A return visit never touches the
+name.
 
 **Two independent PKCE exchanges**, and they must not be conflated: Auth↔provider, and
 SPA↔Auth. The second is what makes the CollabHub authorization code safe to carry in a

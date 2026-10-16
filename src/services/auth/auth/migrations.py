@@ -30,17 +30,22 @@ def alembic_config(dsn: str) -> Config:
     return config
 
 
-def _upgrade(connection: Connection, dsn: str) -> None:
+def _upgrade(connection: Connection, dsn: str, revision: str) -> None:
     config = alembic_config(dsn)
     config.attributes["connection"] = connection
-    command.upgrade(config, "head")
+    command.upgrade(config, revision)
+
+
+async def upgrade(dsn: str, revision: str = "head") -> None:
+    """Bring the database at `dsn` up to `revision` (default: the latest)."""
+    engine = create_async_engine(dsn)
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(_upgrade, dsn, revision)
+    finally:
+        await engine.dispose()
 
 
 async def upgrade_to_head(dsn: str) -> None:
     """Bring the database at `dsn` up to the latest revision."""
-    engine = create_async_engine(dsn)
-    try:
-        async with engine.begin() as connection:
-            await connection.run_sync(_upgrade, dsn)
-    finally:
-        await engine.dispose()
+    await upgrade(dsn)

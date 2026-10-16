@@ -20,9 +20,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Self
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, model_validator
 from pydantic.alias_generators import to_camel
 
 
@@ -129,8 +129,16 @@ class PublicUserResponse(CamelModel):
 class UpdateUserRequest(CamelRequest):
     """A profile edit. Absent fields are left alone; `null` clears the avatar."""
 
-    display_name: str | None = Field(default=None, min_length=1, max_length=100)
+    # No length limits here: `auth.names.validate_display_name` decides, and it
+    # counts after trimming, which a field constraint would not.
+    display_name: str | None = None
     avatar_asset: uuid.UUID | None = None
+
+
+class PreferencesResponse(CamelModel):
+    """One user's preferences; a key that is not set is absent, not null."""
+
+    clock: Literal["12h", "24h"] | None = None
 
 
 class AddMemberRequest(CamelRequest):

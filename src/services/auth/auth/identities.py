@@ -12,8 +12,10 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import Select, func, select, text, tuple_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from auth import names
 from auth.models import ExternalIdentity, User, Workspace, WorkspaceMember
 from shared import Page, PageRequest, build_page, uuid7
 
@@ -83,6 +85,50 @@ async def ensure_demo_workspace(session: AsyncSession, name: str) -> Workspace:
     return workspace
 
 
+async def display_name_taken(session: AsyncSession, name: str) -> bool:
+    """Whether any account, deleted ones included, already holds `name` in any case."""
+    query = (
+        # conventions: ok — a deleted account's name stays taken (D46).
+        select(User.id).where(func.lower(User.display_name) == func.lower(name)).limit(1)
+    )
+    result = await session.execute(query)
+    return result.first() is not None
+
+
+def is_display_name_conflict(exc: IntegrityError) -> bool:
+    """Whether an integrity error is the display-name index, not some other constraint.
+
+    SQLAlchemy's asyncpg adaptor raises its own error `from` asyncpg's, and only
+    asyncpg's carries `constraint_name`. An email clash in the same insert must
+    stay an error rather than send the caller looking for another name.
+    """
+    cause = getattr(exc.orig, "__cause__", None)
+    return getattr(cause, "constraint_name", None) == "uq_users_display_name"
+
+
+async def _insert_with_free_name(session: AsyncSession, *, email: str, display_name: str) -> User:
+    """Insert the user under the first of `X`, `X 2`, `X 3`… that holds.
+
+    The pre-check keeps the common case to one insert; the savepoint turns a
+    lost race — another sign-in took the name between the check and the insert,
+    which the unique index reports once that transaction commits — into a move
+    to the next candidate instead of a failed sign-in. Flushes, never commits.
+    """
+    for candidate in names.candidates(names.provisional_name(display_name)):
+        if await display_name_taken(session, candidate):
+            continue
+        user = User(id=uuid7(), email=email, display_name=candidate)
+        try:
+            async with session.begin_nested():
+                session.add(user)
+        except IntegrityError as exc:
+            if not is_display_name_conflict(exc):
+                raise
+            continue
+        return user
+    raise AssertionError("names.candidates is unbounded")  # pragma: no cover
+
+
 async def provision_user(
     session: AsyncSession, *, email: str, display_name: str, demo_workspace_name: str | None
 ) -> User:
@@ -98,11 +144,9 @@ async def provision_user(
     if user is not None:
         return user
 
-    user = User(id=uuid7(), email=email, display_name=display_name)
-    session.add(user)
-    await session.flush()
+    user = await _insert_with_free_name(session, email=email, display_name=display_name)
 
-    own = Workspace(id=uuid7(), name=f"{display_name}'s Workspace")
+    own = Workspace(id=uuid7(), name=f"{user.display_name}'s Workspace")
     session.add(own)
     await session.flush()
     session.add(WorkspaceMember(workspace_id=own.id, user_id=user.id, role=OWNER))

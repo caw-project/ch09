@@ -36,7 +36,7 @@ login flow (PKCE), and direct-to-Garage uploads.
 | Canvas rendering | `react-konva` / `pixi.js` / custom WebGL | Pick per perf needs (Open Decision). |
 | Auth | *(no library — hand-written)* | See below. |
 | Forms / validation | React Hook Form + Zod | Zod schemas mirror `collabhub-contracts` (Pydantic models). |
-| Styling | **Tailwind CSS v4** | 🟢 Decided 2026-08-15 (D26), via `@tailwindcss/vite`. No `tailwind.config.js` or PostCSS config — the theme is `@theme` tokens in `src/index.css`. **Light palette only** — there is no user-preferences feature to store a theme choice in (§9), so following the OS setting would mean maintaining two schemes for a setting nobody can override. Components use tokens (`text-ink-muted`), never literal colours; that is what keeps adding a dark palette cheap later. [ADR](../adr/260815-tailwind-v4-for-spa-styling.md) |
+| Styling | **Tailwind CSS v4** | 🟢 Decided 2026-08-15 (D26), via `@tailwindcss/vite`. No `tailwind.config.js` or PostCSS config — the theme is `@theme` tokens in `src/index.css`. **Light palette only** — preferences exist now but hold only the clock (§9), so a theme choice needs its own key, and following the OS setting would mean maintaining two schemes for a setting nobody can override yet. Components use tokens (`text-ink-muted`), never literal colours; that is what keeps adding a dark palette cheap later. [ADR](../adr/260815-tailwind-v4-for-spa-styling.md) |
 | Acceptance tests | **Gherkin + pytest-bdd + Playwright** | 🟢 Decided 2026-08-15 (D27). Run against `docker compose up`. Selectors are `data-testid` only and live in page objects — a step definition never holds one. [ADR](../adr/260815-pytest-bdd-and-playwright-for-acceptance-tests.md) |
 
 **No OIDC library.** Earlier drafts named `oidc-client-ts`; it was not used, and the reason is
@@ -66,6 +66,7 @@ fewer moving parts than configuring a library out of doing the things it exists 
     /yjs          # Yjs doc factory + Socket.IO sync provider
   /features
     /channels     # channel list, channel view, composer
+    /settings     # the Settings page: display name and clock (added 2026-10-16)
     /threads
     /canvas       # document view, toolbar, layers, cursors
     /presence     # online users, live cursors, awareness
@@ -106,9 +107,13 @@ need a folder of its own. `/features/canvas`, `/features/presence`,
      origin behind a single ingress. Under `SameSite=Strict` a genuinely cross-site split
      stops the cookie being sent, and the symptom is a silent sign-out rather than an error.
 
-   The only thing the SPA persists is the PKCE verifier, in `sessionStorage`, for the seconds
-   between redirecting to the provider and returning. It is single-use, useless without the
-   matching authorization code, and cleared before that code is spent.
+   The only things the SPA persists are two short-lived `sessionStorage` keys, for the seconds
+   between redirecting to the provider and returning. The PKCE verifier is single-use, useless
+   without the matching authorization code, and cleared before that code is spent. The
+   **return path** (`collabhub.returnTo`, added 2026-10-16) is the route a signed-out visitor
+   asked for: the guard passes it to `/sign-in`, Sign in stores it, and the callback navigates
+   there. It is taken once, and only a plain path on this origin is kept (not `//host`, `/\host`,
+   `/sign-in` or the callback), because whatever is stored is navigated to.
 5. An Axios/fetch interceptor attaches `Authorization: Bearer`. Renewal is **ahead of expiry
    on a timer**, not reactive on a 401: waiting for a failure means every call site needs
    retry logic, whereas renewing early means they only ever see a valid token. Rotation makes
@@ -313,9 +318,12 @@ the short id shows meanwhile. An id seen before a fetch that lands without it is
 *departed* and asks for nothing more until a fetch for another reason lands (a
 mount, a window focus, a reconnect — a reconnect counts even when it joins the
 tracker's own fetch; a stale mount or focus refetch that joins one does not).
-Every socket connect refetches the directory. **Renames are not covered**: a
-changed name shows at the next refetch after the 5 minutes are up (a mount, a
-window focus, a reconnect, or an unknown id). Code: `features/channels/directoryRefresh.ts`.
+Every socket connect refetches the directory. **Renames** (updated 2026-10-16): the
+renamer's own tab changes at once — a successful rename writes the session's profile and every
+cached directory and invalidates them, and the sidebar reads its own name from the directory, so
+it and the user's own authors never disagree. Everyone else, and the renamer's other tabs, see it
+at the next refetch after the 5 minutes are up (a mount, a window focus, a reconnect, or an
+unknown id); nothing is broadcast. Code: `features/channels/directoryRefresh.ts`.
 
 **Threads — added 2026-10-02** (register D8a, ADR 261002). Single-level; the code
 is in `/features/threads`.
@@ -476,14 +484,12 @@ Over `GET /api/v1/search/messages` (doc 02, D8c), unchanged.
 - PWA/offline shell for the mobile path; service worker caches the app shell, not data.
 
 ## 9. Open Decisions
-- **User preferences — there is no feature for them anywhere** (register D28). `users`
-  carries a display name, an avatar reference and a status (doc 01 §4), and
-  `PATCH /users/me` updates the first two. Nothing stores a per-user choice, so
-  a theme toggle, a locale, a timezone or notification settings all need the
-  same missing thing first: a place to put them, and a decision about whether
-  they are Auth's (a column, in the token, cached in R1) or a separate concern.
-  Currently blocking a dark mode; i18n and notification channels (Worker D18)
-  will want it too.
+- **User preferences — decided 2026-10-16 (register D28 🟢).** Auth stores them per user
+  (`user_preferences`, doc 01 §4) at `/users/me/preferences`; the SPA holds them in TanStack
+  Query under `['preferences']`, fetched by `ChatLayout` and the Settings page, and the three
+  time formatters read the clock through `useClock()`. The only preference is `clock`. A theme,
+  a locale or notification settings (Worker D18) each still need their own key and decision;
+  the SPA stays light-only by D26's choice.
 - **React Native vs. PWA** for mobile — separate codebase vs. shared (the architecture lists
   both). Affects how much of `/lib` is platform-agnostic.
 - **Canvas renderer:** Konva (DOM/2D, simpler) vs. PixiJS/WebGL (perf) vs. custom. Driven by

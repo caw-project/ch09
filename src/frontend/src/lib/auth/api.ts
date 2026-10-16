@@ -97,6 +97,41 @@ export function me(accessToken: string): Promise<Profile> {
   return request<Profile>('/api/v1/users/me', { headers: authorized(accessToken) })
 }
 
+/** Rename yourself (design doc 01 §3). 400 for a refused name, 409 for a taken one. */
+export function updateMe(accessToken: string, body: { displayName: string }): Promise<Profile> {
+  return request<Profile>('/api/v1/users/me', {
+    method: 'PATCH',
+    headers: authorized(accessToken),
+    body: JSON.stringify(body),
+  })
+}
+
+/** The one preference there is so far; absent means Automatic (the browser's own format). */
+export type Clock = '12h' | '24h'
+
+/** Per-user settings stored by Auth (register D28). A key that is not set is absent. */
+export interface Preferences {
+  clock?: Clock
+}
+
+export function preferences(accessToken: string): Promise<Preferences> {
+  return request<Preferences>('/api/v1/users/me/preferences', {
+    headers: authorized(accessToken),
+  })
+}
+
+/** `null` removes a key. Answers with the merged object. */
+export function updatePreferences(
+  accessToken: string,
+  patch: { clock: Clock | null },
+): Promise<Preferences> {
+  return request<Preferences>('/api/v1/users/me/preferences', {
+    method: 'PATCH',
+    headers: authorized(accessToken),
+    body: JSON.stringify(patch),
+  })
+}
+
 export function workspaces(accessToken: string): Promise<{ items: Workspace[] }> {
   return request<{ items: Workspace[] }>('/api/v1/workspaces', { headers: authorized(accessToken) })
 }

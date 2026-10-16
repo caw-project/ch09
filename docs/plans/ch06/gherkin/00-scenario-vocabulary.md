@@ -29,7 +29,8 @@ Three facts about the harness shape everything below:
 - **Every Gherkin tag becomes a pytest marker and has to be declared** in the root
   `pyproject.toml:69`. `bdd` and `smoke` are declared. Nothing else is, and this run adds none.
 - **Ada and Grace are the only signed-in users**, and ruling 6 forbids a slice adding a
-  session-scoped fixture that signs in a third.
+  session-scoped fixture that signs in a third. **One exception (issue gh-3, 2026-10-16):**
+  Alan, for the display-name journey only.
 
 ---
 
@@ -49,7 +50,12 @@ each other's channels.
   revokes the refresh token the session-scoped context is holding, ending that user's session for
   every later scenario (S2 gap 9). No step clicks it, in any file.
 
-🔴 **A scenario that seems to need a third person is a Contract question, not a local decision.**
+🟢 **Exception, issue gh-3 (2026-10-16): Alan** (`alan@collabhub.dev`) is a third person with a
+session-scoped context beside Ada's and Grace's, for `display_names.feature` alone. Renaming is
+permanent in Auth and the suite does not restore it, so the journey renames Alan, whom no other
+scenario uses, and never Ada or Grace.
+
+🔴 **Any other scenario that seems to need a third person is a Contract question, not a local decision.**
 Say so in your return with what the third person was for; do not invent `Hopper`, and do not
 reshape the scenario into one Grace can play if that changes what it proves.
 

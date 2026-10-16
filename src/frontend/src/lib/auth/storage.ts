@@ -19,9 +19,13 @@
  *   way the refresh token was not: it is single-use, lives for the seconds
  *   between leaving and returning, is useless without the matching authorization
  *   code, and is deleted before that code is spent.
+ * - **The return path** is a second short-lived `sessionStorage` key, for the
+ *   same reason: the route a signed-out visitor asked for must survive the
+ *   redirect to the provider. It is only ever a path on this origin.
  */
 
 const VERIFIER_KEY = 'collabhub.pkceVerifier'
+const RETURN_KEY = 'collabhub.returnTo'
 
 function read(key: string): string | null {
   try {
@@ -58,4 +62,39 @@ export const pkceVerifier = {
   read: () => read(VERIFIER_KEY),
   write: (verifier: string) => write(VERIFIER_KEY, verifier),
   clear: () => clear(VERIFIER_KEY),
+}
+
+/**
+ * Whether `path` is somewhere to go after signing in: a plain path on this
+ * origin, and not a page that would just bounce the visitor back.
+ *
+ * What is stored is navigated to, so this is an open-redirect surface:
+ * `//host` and `/\host` are read by browsers as another origin, and anything
+ * without a leading slash could be a full URL.
+ */
+function isReturnable(path: string): boolean {
+  if (!path.startsWith('/') || path.startsWith('//') || path.startsWith('/\\')) return false
+  const [pathname] = path.split(/[?#]/)
+  return pathname !== '/sign-in' && !pathname.startsWith('/auth/callback')
+}
+
+/**
+ * The route a signed-out visitor asked for, held across the round trip to the
+ * identity provider so sign-in can land them there instead of at `/`. A second
+ * short-lived key beside the verifier, for the same reason: it has to survive a
+ * full-page redirect. Taken once, and checked again on the way out in case
+ * something else wrote the key.
+ */
+export const returnPath = {
+  /** Remember `path`; `null` or `undefined` forgets what was remembered. */
+  write: (path: string | null | undefined) => {
+    if (path && isReturnable(path)) write(RETURN_KEY, path)
+    else clear(RETURN_KEY)
+  },
+  /** Read and clear. `null` when nothing valid was held. */
+  take: (): string | null => {
+    const path = read(RETURN_KEY)
+    clear(RETURN_KEY)
+    return path !== null && isReturnable(path) ? path : null
+  },
 }

@@ -18,7 +18,7 @@
  */
 
 import * as api from './api'
-import { pkceVerifier } from './storage'
+import { pkceVerifier, returnPath } from './storage'
 import { challengeFor, createVerifier } from './pkce'
 
 /** Renew this long before expiry, so a slow request cannot straddle it. */
@@ -73,13 +73,28 @@ export function snapshot(): State {
   return state
 }
 
+/**
+ * How many times `updateProfile` has replaced the profile. `adopt` reads it
+ * before and after its fetch of `/users/me`: if it moved, a rename landed while
+ * that fetch was in flight, and the fetch may carry the name from before it.
+ */
+let profileWrites = 0
+
 async function adopt(pair: api.TokenPair): Promise<void> {
   // Nothing to store: the refresh cookie was set by the response that carried
   // this access token, and the browser will send it back unprompted.
-  const [profile, workspaceList] = await Promise.all([
+  const writesBefore = profileWrites
+  const [fetched, workspaceList] = await Promise.all([
     api.me(pair.accessToken),
     api.workspaces(pair.accessToken),
   ])
+  // Keep the renamed profile over a fetch that began before the rename. Only a
+  // fetch in flight is guarded: a renewal that starts afterwards asks the server
+  // after the rename, so its answer is the newer one.
+  const profile =
+    profileWrites !== writesBefore && state.status === 'signedIn'
+      ? state.session.profile
+      : fetched
 
   set({
     status: 'signedIn',
@@ -155,10 +170,28 @@ export async function restore(): Promise<void> {
   await renew()
 }
 
-/** Begin a login. Navigates away, so nothing after this runs. */
-export async function signIn(provider = 'dex'): Promise<void> {
+/**
+ * Replace the signed-in user's own profile after they changed it (a rename).
+ *
+ * Does nothing when signed out or when the profile is somebody else's, so a late
+ * response cannot write one user's profile into another's session.
+ */
+export function updateProfile(profile: api.Profile): void {
+  if (state.status !== 'signedIn' || state.session.profile.id !== profile.id) return
+  profileWrites += 1
+  set({ status: 'signedIn', session: { ...state.session, profile } })
+}
+
+/**
+ * Begin a login. Navigates away, so nothing after this runs.
+ *
+ * `returnTo` is where to land afterwards. It replaces whatever an earlier,
+ * abandoned sign-in left behind, so a stale path cannot send this one elsewhere.
+ */
+export async function signIn(provider = 'dex', returnTo?: string): Promise<void> {
   const verifier = createVerifier()
   pkceVerifier.write(verifier)
+  returnPath.write(returnTo)
   window.location.assign(api.loginUrl(provider, await challengeFor(verifier)))
 }
 

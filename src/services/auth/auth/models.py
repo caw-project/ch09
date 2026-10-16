@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     ForeignKey,
@@ -24,7 +25,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import CITEXT, TIMESTAMP, UUID
+from sqlalchemy.dialects.postgresql import CITEXT, JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 # Every timestamp on the platform is UTC `timestamptz` (Conventions §3).
@@ -37,6 +38,9 @@ class Base(DeclarativeBase):
 
 class User(Base):
     __tablename__ = "users"
+    # The sole arbiter of display-name uniqueness (D46): global, case-insensitive,
+    # deleted accounts included. Trimming is guaranteed by `auth.names`, not here.
+    __table_args__ = (Index("uq_users_display_name", text("lower(display_name)"), unique=True),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     email: Mapped[str] = mapped_column(CITEXT, nullable=False, unique=True)
@@ -51,6 +55,25 @@ class User(Base):
     )
     deleted_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+
+
+class UserPreferences(Base):
+    """One user's preferences as a JSON object, validated by key on write (D28).
+
+    A row exists only once a preference has been set. Merged by one statement
+    (`auth.preferences.merge`), never read-modify-written.
+    """
+
+    __tablename__ = "user_preferences"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True
+    )
+    prefs: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default="{}")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    updated_at: Mapped[datetime] = mapped_column(
+        Timestamp, nullable=False, server_default=func.now()
+    )
 
 
 class ExternalIdentity(Base):

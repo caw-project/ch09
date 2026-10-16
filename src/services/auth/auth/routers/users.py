@@ -13,14 +13,17 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth import identities
+from auth import identities, names
 from auth.db import session as db_session
 from auth.schemas import PublicUserResponse, UpdateUserRequest, UserResponse
 from shared import ProblemException, UserPrincipal, require_user
 
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
+
+_NAME_TAKEN = "That name is already taken."
 
 
 @router.get("/me", response_model=UserResponse)
@@ -57,21 +60,48 @@ async def update_me(
         raise ProblemException.not_found("This account no longer exists.")
 
     supplied = body.model_fields_set
+    renamed = False
     if "display_name" in supplied:
         if body.display_name is None:
             raise ProblemException.validation_error(
                 "displayName cannot be null.",
                 errors={"displayName": ["A display name is required"]},
             )
-        user.display_name = body.display_name
+        try:
+            name = names.validate_display_name(body.display_name)
+        except names.InvalidDisplayNameError as invalid:
+            raise ProblemException.validation_error(
+                invalid.message, errors={"displayName": [invalid.message]}
+            ) from invalid
+        # Exact comparison: "ADA" for "ada" is a change (your own capitals are
+        # yours to change), while saving the name you have writes nothing.
+        renamed = name != user.display_name
+        if renamed:
+            user.display_name = name
     if "avatar_asset" in supplied:
         # No existence check against the Asset service: services do not read
         # each other's data, and a synchronous call here would put Asset on the
         # path of a profile edit. A dangling reference renders as no avatar.
         user.avatar_asset = body.avatar_asset
+    elif not renamed:
+        # Nothing to change — not even a version bump, which would be a change.
+        return UserResponse.model_validate(user, from_attributes=True)
 
     user.updated_at = datetime.now(UTC)
     user.version += 1
+    try:
+        # Flush inside the try: the unique index on lower(display_name) is the
+        # only arbiter of uniqueness, and it answers here — after waiting on any
+        # uncommitted holder of the name.
+        await session.flush()
+    except IntegrityError as conflict:
+        if not identities.is_display_name_conflict(conflict):
+            raise
+        await session.rollback()
+        # Fixed text on purpose: it names no user, email or workspace (D46).
+        raise ProblemException.conflict(
+            _NAME_TAKEN, errors={"displayName": [_NAME_TAKEN]}
+        ) from conflict
     await session.commit()
 
     return UserResponse.model_validate(user, from_attributes=True)

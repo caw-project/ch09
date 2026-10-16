@@ -564,8 +564,18 @@ op.create_table(
 
 ## Found while building
 
-*Filled in by the code-writer: every deviation from this plan, and every bug the first real run
-found, each with the test that now pins it down. Empty until then.*
+- **`tests/integration/conftest.py` `TABLES` and `test_schema.py` `a_user` were not changed.** The plan
+  made both GREEN, but the code-writer may not write any test file. Neither is needed: `testkit.truncate`
+  runs `TRUNCATE … CASCADE`, which clears `user_preferences`, and the citext test passes because it only
+  asserts an `IntegrityError`. The sharper assertion (that the email index, not the name index, refused
+  it) is not made — a follow-up for the test pair. No test pins it.
+- **`directoryKeys.all()`** (`['workspace-members']`) added to `useWorkspaceMembers.ts` for the rename's
+  `setQueriesData`/`invalidateQueries`. Pinned by `useProfile.test.tsx`.
+- **Settings radios also unlock on a failed preferences read** (`isFetchedAfterMount || isError`), so one
+  bad request cannot lock the section. No test.
+- **`PATCH /users/me` with `{}`** now writes nothing (it used to bump `version`); a consequence of decision 20.
+- No bug was found by the first e2e run; the journey passed on its first run.
+- Sibling branches: `git branch --no-merged main` lists none.
 
 ## Not in this plan
 

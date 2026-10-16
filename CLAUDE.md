@@ -108,6 +108,7 @@ Library versions (FastAPI, SQLAlchemy, React) are out of that file's scope — p
 - **All config comes from environment variables**, loaded with pydantic-settings. Nothing baked into images. `SCREAMING_SNAKE_CASE`.
 - **Timestamps are always UTC `timestamptz`.** Soft delete via `deleted_at`; queries filter `deleted_at IS NULL`. **Check the table first.** Two exceptions, both in Messaging and both in Conventions §3: `channels` has no `deleted_at` and archives through `archived_at`, so its reads filter that instead (doc 02 §4) — and `messages` has `deleted_at` and its read path filters **neither**, because history returns deleted rows as tombstones with `body` redacted server-side (doc 02 §3.1.4). So the rule is "filter the soft-delete column *unless the doc says otherwise*", and `ix_messages_channel_time` carries no `WHERE deleted_at IS NULL` for exactly that reason.
 - **A resource the caller may not see is a 404, not a 403.** 403 confirms the thing exists and leaks its name to someone with no access. Applies to another workspace's rows and to private resources you are not a member of.
+- **Display names are the one thing unique across workspaces (D46).** Globally, trimmed, case-insensitive, deleted accounts included, enforced by the index `uq_users_display_name` alone. A rename onto a taken name is a 409 that names no user, email or workspace — the accepted exception to "not visible means 404", since the name belongs to no tenant.
 - **No cloud-specific SDKs where an agnostic alternative exists.** Object storage sits behind an `ObjectStore` protocol so Garage ↔ Azure Blob is a config swap.
 - Structured JSON logs via structlog, always carrying `traceId`, `userId`, `service`, `env`. No PII beyond user IDs.
 
@@ -121,7 +122,7 @@ D8d settles the *semantics* only. **How long a tombstone is kept before hard del
 
 **Attachments are built on D13, still 🔴.** They use the one bucket `collabhub-assets`; nothing decides where avatars or exports go, so work on either needs D13 decided first.
 
-**There is no user-preferences feature anywhere** (D28, 🔴). `users` carries a display name, an avatar reference and a status, and nothing stores a per-user choice — so a theme, a locale or notification settings all need that decided first. It is why the SPA is light-only rather than following the OS.
+**User preferences exist now** (D28, 🟢): Auth's `user_preferences`, per user, keys validated by the server, at `/api/v1/users/me/preferences`; the only key so far is `clock`. A theme, a locale or notification settings each still need their own key and decision. The SPA is light-only by D26's choice, not for want of a store.
 
 When a decision gets made: update the register's status, reflect it back into the source design doc, and write an ADR in `docs/adr/` with the `adr-writer` skill if it's significant. Record it **in the slice that makes it**, not in a docs sweep at the end — a register that says 🔴 for something already built on is worse than no register.
 
