@@ -5,7 +5,7 @@ description: Write a delivery issue — docs/issues/NNN.md for scripts/deliver.s
 
 # Issue writer
 
-The issue is the whole spec `scripts/deliver.sh` gives its six agents, and nobody is there to
+The issue is the whole spec `scripts/deliver.sh` gives its seven agents, and nobody is there to
 answer a question mid-run. A good one leaves no stage stopping for a human over the spec, and
 every stage reading it the same way. Past issues were clear rule by rule and still cost rounds
 where the rules **meet**, on **paths** nobody walked, on **assumptions** stated as facts, and on
@@ -61,7 +61,12 @@ each one asked, with your recommendation, and answered by the user.
   sent and what is seen.
 
 **And for the issue as a whole:** what is decided already, what is left to the plan on
-purpose, what is not in this issue, and the first real run's checks. A 🔴 register entry the
+purpose, what is not in this issue, and the acceptance checks — the ones the
+acceptance-reviewer proves on the branch's preview. For each check, ask: would it fail on
+`main` today, and from what starting state? A check that would pass there too either gets a
+starting state that only the change can decide (a user who has never signed in, a page
+loaded before the other user acts), or is cut. If running the check spends its state, the
+issue names a different user for each check that needs one. A 🔴 register entry the
 work depends on can't be built on: put it to the user as a decision to make first, or cut it
 from scope.
 
@@ -89,6 +94,8 @@ Read the issue once as the plan-writer will, with no memory of the grilling:
 
 - every exemplar section present, or its absence explained;
 - every `Why` in the exemplar answered by something in this issue;
+- every acceptance check states what makes it fail on `main`, and none depends on state an
+  earlier check has already used;
 - no sentence two plan runs could read two ways. Each one you find goes back to the user as
   a question, and the issue is rewritten with the answer.
 

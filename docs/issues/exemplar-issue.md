@@ -178,9 +178,10 @@ what the broadcast carries.
 - Who pinned what, shown to other users beyond `pinnedBy`.
 - A pin limit that varies by channel.
 
-## Acceptance — first real run on Compose
+## Acceptance — on the branch's preview
 
-With Ada and Grace in two browsers:
+With Ada and Grace in two browsers. Each check fails on `main`, which has no pins, and each
+makes its own channel, so none needs a fresh preview:
 - Ada pins a message; Grace's header shows it at once. Ada's shows it once.
 - Ada pins a sixth; she reads why it was refused.
 - Grace leaves #general, Ada pins another, Grace comes back: the new pin is there.
@@ -189,6 +190,17 @@ With Ada and Grace in two browsers:
 > **Why:** the first real run is where issue 1 expected to find what the tests didn't. Put the
 > unusual paths from *Paths each rule holds on* here — the return, the second tab — or the run
 > checks only what the tests already proved.
+
+> **Why each check says what makes it fail without the change:** the acceptance-reviewer turns
+> every check into a browser test on the branch's preview, and a test that passes on `main`
+> proves nothing about the branch. Issue 7's three checks all passed on its preview, but two
+> passed on `main` as well: "Grace is listed by name" and "after a reconnect nothing shows a
+> short id" ran after the first check had already made Grace known to Ada's page, so the bug
+> never had a stale directory to show. Only a rerun against `main` found it
+> (`docs/plans/ch09/03-acceptance-reviewer-handoff.md`). For each check, name the starting
+> state that leaves only the change to decide it. If that state is spent by running the check
+> — a first sign-in, an empty workspace — say so, and name a different user for each check
+> that needs one: a preview keeps its data between runs.
 
 ## References
 

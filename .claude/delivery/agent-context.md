@@ -8,8 +8,8 @@ only what your role does. Where the two disagree, your agent file wins for your 
 
 ## The team
 
-One issue goes through six stages, a writer and a reviewer for each of plan, tests and
-code:
+One issue goes through seven stages: a writer and a reviewer for each of plan, tests and
+code, then the acceptance-reviewer:
 
 | Stage | Does | Writes |
 |---|---|---|
@@ -19,6 +19,7 @@ code:
 | **test-reviewer** | checks the tests fail for the reasons the plan gives — the red gate | its review |
 | **code-writer** | builds the GREEN tasks until the tests pass, then the record and the verification | code, the docs the plan records, the plan's *Found while building*, `docs/test-report.md`, and `docs/plans/issue-<N>/03-green-report.md` |
 | **code-reviewer** | checks the code against the plan, the tests and the conventions | its review |
+| **acceptance-reviewer** | deploys the branch's preview, runs the smoke packs, checks the issue's criteria and the record | `docs/plans/issue-<N>/04-proof.md`, and its evidence under the ignored `build/acceptance/` |
 
 Each stage sees the issue, the plan, the reviews and the repo — **never another agent's
 conversation**. Write everything the next stage needs into the files, because nothing
@@ -41,7 +42,7 @@ Your prompt is a **context block**. The lines it can hold:
   worktree root. The issue file is a copy, refreshed every run.
 - `Red report:` — from the test pair on: the test-writer's account of every failing
   test, what it fails with, and where the tests depart from the plan.
-- `Green report:` — the code pair: the code-writer's account of what it built, what ran
+- `Green report:` — the code pair and the acceptance-reviewer: the code-writer's account of what it built, what ran
   and what it printed, and where the code departs from the plan.
 - `Worktree:` — where you are, and its branch.
 - `Stage: <stage>, round <R> of <last>` — see *Rounds*. `<last>` is the pair's final
@@ -51,6 +52,10 @@ Your prompt is a **context block**. The lines it can hold:
 - `Review to address:` — a writer being sent back: the review to answer, or a later
   stage's send-back file (see *Sending work back*).
 - `Write your review to:` — a reviewer: exactly where the review goes.
+- `Proof:`, `Evidence:` — the acceptance-reviewer, in place of a review: where its proof
+  goes, and the ignored directory for everything else it makes.
+- `Preview:` — the acceptance-reviewer: the preview the workflow deployed before this
+  pass, `up at <origin>` or `failed twice`, and its log.
 - `Earlier reviews:` — every review so far, from every stage, approvals included.
 - `Human answers:` — a person's answers to an earlier stop. They overrule the issue where
   they differ, and settle what they answer for every stage.
@@ -299,8 +304,8 @@ The work you take over can be wrong in a way that is not yours to fix: a test no
 build could pass, or a fault in the test harness only running it shows; a plan interface
 the code contradicts, or an expected red the runtime can't produce. When the pair that
 owns it could fix it from the issue, the plan, the code and what you write — nobody has to
-decide anything — send it back to them. Code stages send back to the test-writer, test
-stages to the plan-writer. Never fix it yourself, and never build round it: the write check
+decide anything — send it back to them. The acceptance-reviewer sends back to the
+code-writer, code stages to the test-writer, test stages to the plan-writer. Never fix it yourself, and never build round it: the write check
 blocks the first, and the second hides the fault from the pair that owns it.
 
 - **Finish first.** Do everything that doesn't depend on the fault, so the return costs
@@ -317,7 +322,8 @@ test they fix may already pass against code you built, and they can't run a jour
 say so, and you rerun it. A send-back never lands in the earlier pair's final round; what
 bounds it is a count — a pair takes three, and a human sees the fourth first.
 
-- **A reviewer that sends back writes its review as well**, with every finding it has for
+- **A reviewer that sends back writes its review as well** (the acceptance-reviewer, which
+  has no writer, its proof instead), with every finding it has for
   its own writer. That writer gets it as `Review to address:` when the flow comes forward,
   and the reviewer's next review is a new round's file.
 - **A fault further back than the pair you can reach** — a code stage finding the plan
@@ -345,6 +351,7 @@ Then **record it**, because an assumption nobody can see is a silent departure:
   changing to it later would cost;
 - the test-writer and the code-writer, under *Departures from the plan* in their reports;
 - a reviewer, under *Left for later stages* or *Left for the human* in its review.
+- the acceptance-reviewer, under *For the human* in its proof.
 
 Every later stage builds on a recorded assumption as settled. A reviewer that would have
 chosen the other reading accepts one that is recorded and defensible; it is a finding only
@@ -383,7 +390,9 @@ lists it. The workflow reads nothing else, so a JSON block in your reply is not 
 
 - `status` — a writer returns `done` or `needs_human`; a reviewer returns `approved`,
   `changes_requested` or `needs_human`; from the test pair on, any stage may return
-  `send_back` (*Sending work back*). Anything else stops the workflow.
+  `send_back` (*Sending work back*). The acceptance-reviewer has no writer to take
+  `changes_requested`: it returns `approved`, `send_back` or `needs_human`. Anything else
+  stops the workflow.
 - `summary` — two or three sentences for the human reading the run's log. Your agent file
   says what goes in it.
 - `files` — the files you wrote, relative to the worktree root.

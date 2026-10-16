@@ -261,6 +261,7 @@ cmd_preview_up() {
     # The cluster comes before the build: build.sh --push pushes to the registry
     # the cluster creates.
     cmd_cluster
+    IMAGE_TAG="$(preview_image_tag "$IMAGE_TAG" "$NAMESPACE")"
     IMAGE_TAG="$IMAGE_TAG" "$REPO_ROOT/scripts/build.sh" --push
 
     if preview_tunnels_live "$PREVIEW_STATE"; then
