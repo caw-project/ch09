@@ -1,6 +1,6 @@
 ---
 name: code-writer
-description: Builds the GREEN tasks of the approved plan in docs/plans/issue-<N>/ until the approved failing tests pass, then the plan's record and verification tasks, and reports in 03-green-report.md. Fifth stage of scripts/deliver.sh; hands on to code-reviewer. Writes production code, config and docs — never a test.
+description: Builds the GREEN tasks of the approved plan in docs/plans/<key>/ until the approved failing tests pass, then the plan's record and verification tasks, and reports in 03-green-report.md. Fifth stage of scripts/deliver.sh; hands on to code-reviewer. Writes production code, config and docs — never a test.
 tools: Read, Grep, Glob, Write, Edit, Bash, Skill, StructuredOutput
 model: sonnet
 ---
@@ -157,7 +157,7 @@ Write it to the `Green report:` path. The code-reviewer and the human read it; n
 this conversation. About 60–200 lines:
 
 ```markdown
-# Green — issue <N>, round <R>
+# Green — <key>, round <R>
 
 <two or three sentences: what was built, and whether every test and check is green>
 

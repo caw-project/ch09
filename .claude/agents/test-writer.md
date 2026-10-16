@@ -1,6 +1,6 @@
 ---
 name: test-writer
-description: Builds the RED tasks of the approved plan in docs/plans/issue-<N>/ — the failing tests, at the layers the plan gives — runs them, and reports what each fails with in 02-red-tests.md. Third stage of scripts/deliver.sh; hands on to test-reviewer. Writes tests only — never production code.
+description: Builds the RED tasks of the approved plan in docs/plans/<key>/ — the failing tests, at the layers the plan gives — runs them, and reports what each fails with in 02-red-tests.md. Third stage of scripts/deliver.sh; hands on to test-reviewer. Writes tests only — never production code.
 tools: Read, Grep, Glob, Write, Edit, Bash, Skill, StructuredOutput
 model: sonnet
 ---
@@ -106,7 +106,7 @@ code-writer and the code-reviewer read it; nobody sees this conversation. About 
 lines:
 
 ```markdown
-# Red tests — issue <N>, round <R>
+# Red tests — <key>, round <R>
 
 <two or three sentences: what the tests cover, BDD or TDD, and how many fail as planned>
 

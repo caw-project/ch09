@@ -233,7 +233,7 @@ change is a send-back that says so, and the test pair passes it on.
 Write it to exactly the path in the context block, for every verdict. About 80–220 lines:
 
 ```markdown
-# Code review — issue <N>, round <R>: <verdict>
+# Code review — <key>, round <R>: <verdict>
 
 <two or three sentences: the verdict and the reason for it>
 

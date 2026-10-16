@@ -12,18 +12,21 @@
 # needs_human, and two that aren't an agent's: max_turns (the turn cap) and
 # crash (no result at all).
 #
-# It builds issue 999 in ../caw-issue-999-loop on feature/issue-999-loop, from
-# HEAD, and removes both after every scenario. Nothing is committed.
+# It builds issue-999 — docs/issues/999.md, written for the run and removed after
+# it — in ../caw-issue-999-loop on feature/issue-999-loop, from HEAD, and removes
+# both after every scenario. Nothing is committed.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK="$(mktemp -d)"
 WORKTREE="$(dirname "$ROOT")/caw-issue-999-loop"
 BRANCH=feature/issue-999-loop
-trap 'cleanup; rm -rf "$WORK"' EXIT
+ISSUE="$ROOT/docs/issues/999.md"
+trap 'cleanup; rm -rf "$WORK" "$ISSUE"' EXIT
 
 mkdir -p "$WORK/bin"
-printf 'Issue: 999\n\n# Issue 999 — the loop test\n' >"$WORK/issue.md"
+# The local backend reads issues from the checkout that runs the workflow.
+printf 'Issue: 999\n\n# Issue 999 — the loop test\n\n## Summary\n\nA loop.\n' >"$ISSUE"
 
 # The fake. It takes the next verdict from $FAKE_SCRIPT, records the prompt it
 # was given, and writes the file the workflow expects that verdict to leave.
@@ -129,7 +132,7 @@ scenario() {
     printf '%s\n' "$@" >"$FAKE_SCRIPT"
     printf '%s\n' "$NAME"
     PATH="$WORK/bin:$PATH" DELIVER_RUN=loop DELIVER_BASE=HEAD DELIVER_RETRY_WAIT=0 \
-        "$ROOT/scripts/deliver.sh" "$WORK/issue.md" >"$FAKE_LOG.out" 2>&1
+        "$ROOT/scripts/deliver.sh" --backend local issue-999 >"$FAKE_LOG.out" 2>&1
     status=$?
     [ "$status" = "$expected" ] || fail "exit $status, expected $expected — $(tail -n 3 "$FAKE_LOG.out" | tr '\n' ' ')"
     [ ! -s "$FAKE_SCRIPT" ] || fail "verdicts left unused: $(tr '\n' ' ' <"$FAKE_SCRIPT")"
@@ -396,7 +399,7 @@ unset DELIVER_MODEL_PLAN_WRITER DELIVER_EFFORT_PLAN_WRITER
 echo
 if [ "$failures" -gt 0 ]; then
     echo "$failures check(s) failed. Each scenario's output: $WORK/<name>.log.out"
-    trap cleanup EXIT
+    trap 'cleanup; rm -f "$ISSUE"' EXIT
     exit 1
 fi
 echo "Every scenario passed."

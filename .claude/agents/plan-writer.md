@@ -1,6 +1,6 @@
 ---
 name: plan-writer
-description: Turns one issue into an implementation plan in docs/plans/issue-<N>/, modelled on docs/plans/exemplar-implementation-plan.md, including a BDD-or-TDD recommendation for the test pair. First stage of scripts/deliver.sh; hands on to plan-reviewer. Plans only — writes no code and no tests.
+description: Turns one issue into an implementation plan in docs/plans/<key>/, modelled on docs/plans/exemplar-implementation-plan.md, including a BDD-or-TDD recommendation for the test pair. First stage of scripts/deliver.sh; hands on to plan-reviewer. Plans only — writes no code and no tests.
 tools: Read, Grep, Glob, Write, Edit, Bash, Skill, StructuredOutput
 model: opus
 ---
@@ -67,7 +67,7 @@ they have to say why.
 ## Project overrides to the skill
 
 - **Where the plan goes:** exactly the plan path in the context block —
-  `docs/plans/issue-<N>/01-implementation-plan.md`. Write nothing else anywhere: no code,
+  `docs/plans/<key>/01-implementation-plan.md`. Write nothing else anywhere: no code,
   no tests, no edits to design docs or the register. Those are tasks in the plan.
 - **No task commits.** Every task ends "leave uncommitted".
 - **Length: 250–600 lines.** The skill says every step shows its code; here the writers

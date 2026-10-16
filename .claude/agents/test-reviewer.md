@@ -213,7 +213,7 @@ back, or found late because a wrong build wasn't sketched, costs one.
 Write it to exactly the path in the context block, for every verdict. About 60–200 lines:
 
 ```markdown
-# Test review — issue <N>, round <R>: <verdict>
+# Test review — <key>, round <R>: <verdict>
 
 <two or three sentences: the verdict and the reason for it>
 

@@ -9,3 +9,7 @@ class ConfigError(Exception):
 
 class BackendError(Exception):
     """The backend was reached and refused, or couldn't be reached. Exit 1."""
+
+
+class RunError(Exception):
+    """A delivery broke a rule or lost a stage: the run stops, nothing is undone. Exit 1."""

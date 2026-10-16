@@ -13,13 +13,13 @@ code, then the acceptance-reviewer:
 
 | Stage | Does | Writes |
 |---|---|---|
-| **plan-writer** | turns the issue into an implementation plan | `docs/plans/issue-<N>/01-implementation-plan.md` |
+| **plan-writer** | turns the issue into an implementation plan | `docs/plans/<key>/01-implementation-plan.md` |
 | **plan-reviewer** | checks the plan against the issue, the exemplar and the code | its review |
-| **test-writer** | builds the plan's RED tasks: the failing tests | tests, and `docs/plans/issue-<N>/02-red-tests.md` |
+| **test-writer** | builds the plan's RED tasks: the failing tests | tests, and `docs/plans/<key>/02-red-tests.md` |
 | **test-reviewer** | checks the tests fail for the reasons the plan gives — the red gate | its review |
-| **code-writer** | builds the GREEN tasks until the tests pass, then the record and the verification | code, the docs the plan records, the plan's *Found while building*, `docs/test-report.md`, and `docs/plans/issue-<N>/03-green-report.md` |
+| **code-writer** | builds the GREEN tasks until the tests pass, then the record and the verification | code, the docs the plan records, the plan's *Found while building*, `docs/test-report.md`, and `docs/plans/<key>/03-green-report.md` |
 | **code-reviewer** | checks the code against the plan, the tests and the conventions | its review |
-| **acceptance-reviewer** | deploys the branch's preview, runs the smoke packs, checks the issue's criteria and the record | `docs/plans/issue-<N>/04-proof.md`, and its evidence under the ignored `build/acceptance/` |
+| **acceptance-reviewer** | deploys the branch's preview, runs the smoke packs, checks the issue's criteria and the record | `docs/plans/<key>/04-proof.md`, and its evidence under the ignored `build/acceptance/` |
 
 Each stage sees the issue, the plan, the reviews and the repo — **never another agent's
 conversation**. Write everything the next stage needs into the files, because nothing
@@ -36,10 +36,15 @@ what the issue leaves open as *Decide, record, carry on* says, and stop only for
 `CLAUDE.md` is already in your context — the harness loads it before your prompt. Don't
 read it again; where a prompt cites it, it means what you already have.
 
-Your prompt is a **context block**. The lines it can hold:
+Your prompt is a **context block**. Every path you use comes from it, or from the
+plan dir it names — never build one from the key. The lines it can hold:
 
-- `Issue:`, `Issue file:`, `Plan:` — the issue number, and the paths relative to the
-  worktree root. The issue file is a copy, refreshed every run.
+- `Issue:` — the issue's **key**: `issue-8`, `gh-3`. It names the delivery, not where the
+  issue lives; you never need to know that, and never fetch it.
+- `Issue file:`, `Plan dir:`, `Plan:` — paths relative to the worktree root. The issue
+  file is a copy, refreshed every run: the title as a heading, then the body. The plan dir
+  is where the delivery's record lives — the plan, the reports, `reviews/`, the proof and
+  `needs-human.md`.
 - `Red report:` — from the test pair on: the test-writer's account of every failing
   test, what it fails with, and where the tests depart from the plan.
 - `Green report:` — the code pair and the acceptance-reviewer: the code-writer's account of what it built, what ran
@@ -93,7 +98,7 @@ takes one tool call a turn takes three times as long as it needs to.
   and every refusal costs a turn. Run an allowed command as it is listed, one per call:
   an environment-variable prefix (`KEEP_STACK=1 …`), `npx`, or a chained `; echo $?` turns
   it into a command you aren't allowed. So does the worktree's absolute path in place of
-  a relative one — `npm --prefix /Users/…/caw-issue-<N>/src/frontend test` matches no
+  a relative one — `npm --prefix /Users/…/caw-<key>/src/frontend test` matches no
   rule; `npm --prefix src/frontend test` does — and so does dropping the `--prefix`. The
   refusal names no rule, so it reads like a lost permission; it never is. A file change
   is Edit or Write, never a `python3` or `sed` script in Bash. A pipe into
@@ -107,6 +112,12 @@ takes one tool call a turn takes three times as long as it needs to.
 - **Write only where your stage writes** (the table above, and your agent file). The
   workflow compares the tree before and after you run, and stops if you wrote anywhere
   else.
+- **CI workflows are out of scope for every stage.** Nothing under `.github/workflows/` is a
+  delivery's to change: a workflow runs with the repo's secrets, and pushing one needs a
+  token the delivery doesn't hold. The code-writer's write check refuses it. No plan task,
+  test or review asks for one. If the issue seems to need a workflow change, plan and build
+  everything else, and name the change in your output file as work left for a person —
+  it is not a reason to stop.
 - **Never commit**, and never tell anyone to. The workflow checks HEAD after every stage
   and stops if it moved. Committing is the human's, always.
 
@@ -233,7 +244,7 @@ stage), `changes_requested` (back to the writer, round +1) or `needs_human`. A p
 answers every finding the first time, and a reviewer that raises everything it has in
 round 1, are what keep a run short.
 
-**Reviews** go in `docs/plans/issue-<N>/reviews/<reviewer>-<round>.md`, one per round, and
+**Reviews** go in the plan dir's `reviews/<reviewer>-<round>.md`, one per round, and
 every verdict writes one: an approval is the record of what was checked. Findings are
 numbered from 1 in each review and graded on one scale for the whole team:
 
@@ -376,7 +387,7 @@ phases), a flaky test, or a fault an earlier pair could fix (*Sending work back*
 
 Leave your work as it stands. Each question stands alone: what is unclear or in dispute,
 where you looked, the options you can see, and what each would cost. A person answers them
-in `docs/plans/issue-<N>/needs-human.md` and reruns the workflow, which resumes at your
+in `needs-human.md` in the plan dir and reruns the workflow, which resumes at your
 stage — so ask everything at once.
 
 **Running out of turns** gets you resumed once, in the same session, with half as many
