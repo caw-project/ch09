@@ -55,30 +55,28 @@ def needs_human_entry(key: str, stop: HumanStop, *, first: bool) -> str:
 # --- what a stage wrote ----------------------------------------------------------
 
 
-def snapshot(worktree: Path) -> dict[str, str]:
-    """Every uncommitted path outside build/, tracked or not, with a hash of what is in it
-    now. Two snapshots differ exactly where a stage wrote."""
-    out = subprocess.run(  # noqa: S603 — fixed program, argument list.
-        ["git", "-C", str(worktree), "status", "--porcelain", "-z", "--untracked-files=all"],  # noqa: S607
+def snapshot(worktree: Path, base: str, *, ignore: tuple[str, ...]) -> dict[str, str]:
+    """Every path changed since the branch left `base` — committed or not, tracked or not —
+    outside the `ignore` prefixes, with a hash of what is in it now. Against the base rather
+    than HEAD, so the runner's own checkpoints change nothing: two snapshots differ exactly
+    where a stage wrote."""
+    since = git_out(worktree, "merge-base", base, "HEAD").strip()
+    changed = git_out(worktree, "diff", "--name-only", "--no-renames", "-z", since)
+    untracked = git_out(worktree, "ls-files", "--others", "--exclude-standard", "-z")
+    paths = {p for p in (changed + untracked).split("\0") if p}
+    return {
+        p: content_hash(worktree / p)
+        for p in sorted(paths)
+        if not any(p.startswith(prefix) for prefix in ignore)
+    }
+
+
+def git_out(worktree: Path, *args: str) -> str:
+    return subprocess.run(  # noqa: S603 — fixed program, argument list.
+        ["git", "-C", str(worktree), *args],  # noqa: S607
         capture_output=True,
         check=True,
     ).stdout.decode()
-    entries = out.split("\0")
-    found: dict[str, str] = {}
-    i = 0
-    while i < len(entries):
-        entry = entries[i]
-        i += 1
-        if not entry:
-            continue
-        code, path = entry[:2], entry[3:]
-        # A rename's entry is followed by the path it came from, which no longer exists.
-        if "R" in code or "C" in code:
-            i += 1
-        if path.startswith("build/"):
-            continue
-        found[path] = content_hash(worktree / path)
-    return found
 
 
 def content_hash(path: Path) -> str:

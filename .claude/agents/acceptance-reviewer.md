@@ -184,7 +184,7 @@ Assumed decisions, departures, and every open *Left for the human* / *Left for l
 stages*, each with where it came from. Then anything you found.
 
 ## The run
-Each stage's line from build/delivery/history.log.
+Each stage's line from `run/history.log` in the plan dir.
 ```
 
 ## What you return

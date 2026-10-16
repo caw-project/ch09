@@ -14,7 +14,9 @@
 #
 # It builds issue-999 — docs/issues/999.md, written for the run and removed after
 # it — in ../caw-issue-999-loop on feature/issue-999-loop, from HEAD, and removes
-# both after every scenario. Nothing is committed.
+# both after every scenario. The runner commits to that branch as it would to any
+# delivery's, so the scenarios check those commits; DELIVER_PUSH=0, so nothing is
+# fetched or pushed.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -28,65 +30,10 @@ mkdir -p "$WORK/bin"
 # The local backend reads issues from the checkout that runs the workflow.
 printf 'Issue: 999\n\n# Issue 999 — the loop test\n\n## Summary\n\nA loop.\n' >"$ISSUE"
 
-# The fake. It takes the next verdict from $FAKE_SCRIPT, records the prompt it
-# was given, and writes the file the workflow expects that verdict to leave.
-cat >"$WORK/bin/claude" <<'FAKE'
-#!/usr/bin/env bash
-prompt="" agent="" resumed="" model="" effort=""
-while [ $# -gt 0 ]; do
-    case "$1" in
-        -p) prompt="$2"; shift ;;
-        --agent) agent="$2"; shift ;;
-        --resume) resumed=" resumed"; shift ;;
-        --model) model="$2"; shift ;;
-        --effort) effort="$2"; shift ;;
-    esac
-    shift
-done
-verdict="$(head -n 1 "$FAKE_SCRIPT")"
-sed -i '' 1d "$FAKE_SCRIPT"
-n=$(($(ls "$FAKE_LOG" | wc -l) + 1))
-printf '%s\n' "$prompt" >"$FAKE_LOG/$(printf '%02d' "$n")-$agent-$verdict${resumed:+-resumed}.txt"
-printf '%s%s %s\n' "$agent" "$resumed" "$verdict" >>"$FAKE_LOG.calls"
-printf 'model=%s effort=%s\n' "$model" "$effort" >>"$FAKE_LOG.flags"
-
-# A resumed session still has its context block: the one its first run was given.
-[ -z "$resumed" ] || prompt="$(cat "$(ls "$FAKE_LOG"/*-"$agent"-*.txt | grep -v -- '-resumed.txt$' | tail -n 1)")"
-field() { printf '%s\n' "$prompt" | sed -n "s/^$1: //p" | head -n 1; }
-leave() { mkdir -p "$(dirname "$1")" && printf '%s by %s\n' "$verdict" "$agent" >>"$1"; }
-result() {
-    printf '{"subtype":"%s","is_error":%s,"num_turns":3,"total_cost_usd":0.5,"duration_ms":60000,"session_id":"fake-session","structured_output":%s}\n' "$1" "$2" "$3"
-}
-status="$verdict"
-case "$verdict" in approved_bare | stray) status=approved ;; esac
-out='{"status":"'"$status"'","summary":"fake","files":[],"questions":["what?"]}'
-case "$verdict" in
-    crash) exit 1 ;;
-    max_turns) result error_max_turns true null; exit 1 ;;
-    done)
-        case "$agent" in
-            plan-writer) leave "$(field Plan)" ;;
-            test-writer) leave "$(field 'Red report')" ;;
-            code-writer) leave "$(field 'Green report')" ;;
-        esac
-        ;;
-    approved | changes_requested)
-        # A reviewer with no writer of its own writes a proof, not a review.
-        f="$(field 'Write your review to')"
-        [ -n "$f" ] || f="$(field Proof)"
-        [ -z "$f" ] || leave "$f"
-        ;;
-    approved_bare) ;;
-    stray) leave src/stray.txt && leave "$(field Proof)" ;;
-    send_back)
-        leave "$(field 'Send-back file, if you send work back')"
-        [ -z "$(field 'Write your review to')" ] || leave "$(field 'Write your review to')"
-        [ -z "$(field Proof)" ] || leave "$(field Proof)"
-        ;;
-esac
-result success false "$out"
-FAKE
-chmod +x "$WORK/bin/claude"
+# The fake: .claude/delivery/stub-claude, which takes the next verdict from
+# $FAKE_SCRIPT, records the prompt it was given under $FAKE_LOG, and writes the file
+# the workflow expects that verdict to leave.
+cp "$ROOT/.claude/delivery/stub-claude" "$WORK/bin/claude"
 
 # The preview deploy deliver.sh runs before each acceptance pass. It fails its
 # first $FAKE_DEPLOY_FAILS calls, then prints the origins as deploy.sh does.
@@ -131,7 +78,8 @@ scenario() {
     rm -rf "$FAKE_LOG" "$FAKE_LOG.calls" "$FAKE_LOG.flags" "$FAKE_LOG.deploys" && mkdir -p "$FAKE_LOG"
     printf '%s\n' "$@" >"$FAKE_SCRIPT"
     printf '%s\n' "$NAME"
-    PATH="$WORK/bin:$PATH" DELIVER_RUN=loop DELIVER_BASE=HEAD DELIVER_RETRY_WAIT=0 \
+    BASE_SHA="$(git -C "$ROOT" rev-parse HEAD)"
+    PATH="$WORK/bin:$PATH" DELIVER_RUN=loop DELIVER_BASE=HEAD DELIVER_RETRY_WAIT=0 DELIVER_PUSH=0 \
         "$ROOT/scripts/deliver.sh" --backend local issue-999 >"$FAKE_LOG.out" 2>&1
     status=$?
     [ "$status" = "$expected" ] || fail "exit $status, expected $expected — $(tail -n 3 "$FAKE_LOG.out" | tr '\n' ' ')"
@@ -152,7 +100,11 @@ exists() { ! $RAN || [ -s "$WORKTREE/docs/plans/issue-999/$1" ] || fail "no $1";
 # logged <text> — the workflow's own output said it; deploys <n> — preview deploys run.
 logged() { ! $RAN || grep -qF -- "$1" "$FAKE_LOG.out" || fail "output has no '$1'"; }
 deploys() { ! $RAN || [ "$(cat "$FAKE_LOG.deploys" 2>/dev/null | wc -l | tr -d ' ')" = "$1" ] || fail "deployed $(cat "$FAKE_LOG.deploys" 2>/dev/null | wc -l | tr -d ' ') times, expected $1"; }
-history_has() { ! $RAN || grep -qE -- "$1" "$WORKTREE/build/delivery/history.log" || fail "history.log has no '$1'"; }
+history_has() { ! $RAN || grep -qE -- "$1" "$WORKTREE/docs/plans/issue-999/run/history.log" || fail "history.log has no '$1'"; }
+# committed <subject> — the runner committed it on the branch; commits <n> — its commit count.
+subjects() { git -C "$WORKTREE" log --format=%s "$BASE_SHA..HEAD" 2>/dev/null; }
+committed() { ! $RAN || subjects | grep -qxF -- "$1" || fail "no commit '$1': $(subjects | tr '\n' '|')"; }
+commits() { ! $RAN || [ "$(subjects | wc -l | tr -d ' ')" = "$1" ] || fail "$(subjects | wc -l | tr -d ' ') commits, expected $1"; }
 
 FILTER="${1:-}"
 REVIEWS=docs/plans/issue-999/reviews
@@ -188,6 +140,11 @@ flags 6 '' ''
 history_has '^01 plan-writer done \[1m 3 turns \$0.5 · opus · default\]: fake'
 history_has '^04 test-reviewer approved \[1m 3 turns \$0.5 · sonnet · default\]'
 history_has '^06 code-reviewer approved \[1m 3 turns \$0.5 · opus · default\]'
+# A checkpoint a stage, and the approval for the last.
+commits 7
+committed 'delivery(issue-999): plan-writer done, round 1'
+committed 'delivery(issue-999): code-reviewer approved, round 1'
+committed 'delivery(issue-999): accepted'
 
 scenario three-rounds-then-a-human 2 done changes_requested done changes_requested done changes_requested
 told 3 "Review to address: $REVIEWS/plan-reviewer-1.md"
@@ -284,9 +241,12 @@ ran plan-writer plan-writer plan-reviewer test-writer test-reviewer code-writer 
 told 2 'Stage: plan-writer, round 1 of 3'
 
 scenario crash-twice 1 crash crash
+committed 'delivery(issue-999): failed at plan-writer, round 1'
 
 scenario asks-a-human 2 done needs_human
 exists needs-human.md
+commits 2
+committed 'delivery(issue-999): needs a human at plan-reviewer, round 1'
 
 # The acceptance-reviewer approves only with its proof written.
 scenario acceptance-approves-without-proof 1 done approved done approved done approved approved_bare

@@ -118,8 +118,10 @@ takes one tool call a turn takes three times as long as it needs to.
   test or review asks for one. If the issue seems to need a workflow change, plan and build
   everything else, and name the change in your output file as work left for a person —
   it is not a reason to stop.
-- **Never commit**, and never tell anyone to. The workflow checks HEAD after every stage
-  and stops if it moved. Committing is the human's, always.
+- **Never commit**, and never tell anyone to. The workflow — the runner, never an agent —
+  commits and pushes the branch itself after every stage, at a stop and at the approval;
+  it checks HEAD after every stage and stops if an agent moved it. The plan dir's `run/`
+  is the workflow's own: never write there.
 
 ## Running tests
 

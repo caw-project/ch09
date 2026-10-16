@@ -15,6 +15,19 @@ def test_the_defaults_are_the_bash_ones():
     assert (s.base, s.run, s.permission_mode) == ("main", "", "dontAsk")
     assert (s.model, s.rework_model, s.effort, s.rework_effort) == ("", "", "", "")
     assert (s.retry_wait, s.deploy_sh) == (30.0, "scripts/deploy.sh")
+    assert (s.remote, s.push, s.deadline, s.deadline_margin) == ("", True, None, 75)
+
+
+def test_pushing_can_be_turned_off_and_the_remote_named():
+    s = Settings.from_env({"DELIVER_PUSH": "0", "DELIVER_REMOTE": "upstream"})
+
+    assert (s.push, s.remote) == (False, "upstream")
+
+
+def test_a_deadline_is_epoch_seconds_and_its_margin_minutes():
+    s = Settings.from_env({"DELIVER_DEADLINE": "1792150000", "DELIVER_DEADLINE_MARGIN": "30"})
+
+    assert (s.deadline, s.deadline_margin) == (1792150000, 30)
 
 
 def test_a_stages_own_setting_is_read_by_its_name():
@@ -34,6 +47,10 @@ def test_a_stages_own_setting_is_read_by_its_name():
         ({"DELIVER_MAX_SENDBACKS": "x"}, "DELIVER_MAX_SENDBACKS must be a positive number"),
         ({"DELIVER_REWORK_MAX_TURNS": ""}, "DELIVER_REWORK_MAX_TURNS must be a positive number"),
         ({"DELIVER_MAX_TURNS": "-3"}, "DELIVER_MAX_TURNS must be a positive number"),
+        ({"DELIVER_PUSH": "no"}, "DELIVER_PUSH must be 0 or 1"),
+        ({"DELIVER_DEADLINE": "tomorrow"}, "DELIVER_DEADLINE must be a positive number"),
+        ({"DELIVER_DEADLINE_MARGIN": "0"}, "DELIVER_DEADLINE_MARGIN must be a positive number"),
+        ({"DELIVER_REMOTE": "a b"}, "DELIVER_REMOTE is not a remote name"),
         ({"DELIVER_RUN": "a b"}, "DELIVER_RUN may hold letters, digits, - and _ only"),
         (
             {"DELIVER_FINAL_EFFORT": "huge"},

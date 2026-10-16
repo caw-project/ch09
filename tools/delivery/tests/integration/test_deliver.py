@@ -2,13 +2,15 @@
 
 `.claude/delivery/loop-test.sh` proves the state machine through `scripts/deliver.sh` with the
 local backend; this proves what only a remote backend does — the fetch, the issue copy,
-`source.json` and every name taken from the key.
+`source.json` and every name taken from the key — and what only a real remote does: the
+branch committed after every stage and pushed, brought level before a run, and never forced.
 """
 
 from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -33,33 +35,102 @@ def git(cwd: Path, *args: str) -> str:
 
 @pytest.fixture
 def repo(tmp_path) -> Path:
-    """A primary checkout with the two plan agents committed on main."""
+    """A primary checkout with the two plan agents committed on main, and `origin` — a bare
+    repo, as GitHub is to a runner — holding main."""
     root = tmp_path / "caw-project"
     agents = root / ".claude" / "agents"
     agents.mkdir(parents=True)
     for stage in ("plan-writer", "plan-reviewer"):
         (agents / f"{stage}.md").write_text(f"---\nname: {stage}\nmodel: opus\n---\n")
     (root / ".env.example").write_text("APP_ORIGIN=\n")
+    (root / ".gitignore").write_text("build/\n.env\n")
     git(tmp_path, "init", "-q", "-b", "main", str(root))
+    git(root, "config", "user.name", "t")
+    git(root, "config", "user.email", "t@example.com")
     git(root, "add", ".")
-    git(root, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "init")
+    git(root, "commit", "-qm", "init")
+    git(tmp_path, "init", "-q", "--bare", "-b", "main", str(tmp_path / "origin.git"))
+    git(root, "remote", "add", "origin", str(tmp_path / "origin.git"))
+    git(root, "push", "-q", "origin", "main")
     return root
 
 
-class FakeAgent:
-    """The plan-writer writes its plan; the plan-reviewer stops for a human."""
+@pytest.fixture
+def remote(repo) -> Path:
+    return repo.parent / "origin.git"
 
-    def __init__(self) -> None:
+
+@pytest.fixture
+def person(repo, remote) -> Callable[[str, str], str]:
+    """Someone else's clone: `person(path, text)` commits `path` with `text` on feature/gh-3
+    and pushes it, as a person answering on GitHub does. Returns the commit."""
+
+    def push(path: str, text: str) -> str:
+        clone = repo.parent / "person"
+        if not clone.exists():
+            git(repo.parent, "clone", "-q", "-b", "feature/gh-3", str(remote), str(clone))
+        git(clone, "pull", "-q", "--ff-only")
+        (clone / path).parent.mkdir(parents=True, exist_ok=True)
+        (clone / path).write_text(text)
+        git(clone, "add", path)
+        git(
+            clone,
+            "-c",
+            "user.name=p",
+            "-c",
+            "user.email=p@example.com",
+            "commit",
+            "-qm",
+            "an answer",
+        )
+        git(clone, "push", "-q", "origin", "feature/gh-3")
+        return git(clone, "rev-parse", "HEAD").strip()
+
+    return push
+
+
+def subjects(cwd: Path, ref: str = "feature/gh-3") -> list[str]:
+    """The commit subjects on a branch since main, newest first."""
+    return git(cwd, "log", "--format=%s", f"main..{ref}").splitlines()
+
+
+def committed(cwd: Path, ref: str = "feature/gh-3") -> set[str]:
+    return set(git(cwd, "ls-tree", "-r", "--name-only", ref).splitlines())
+
+
+class FakeAgent:
+    """The plan-writer writes its plan; the plan-reviewer stops for a human, or returns
+    `reviewer`. `during(stage, cwd)` runs inside a stage, as anything a person does while an
+    agent works; `stray` makes the plan-writer write outside its scope."""
+
+    def __init__(
+        self,
+        reviewer: str = "needs_human",
+        during: Callable[[str, Path], None] | None = None,
+        stray: bool = False,
+    ) -> None:
         self.prompts: list[str] = []
+        self.reviewer = reviewer
+        self.during = during
+        self.stray = stray
 
     def __call__(self, args: list[str], cwd: Path) -> str:
         prompt = args[args.index("-p") + 1]
         stage = args[args.index("--agent") + 1]
         self.prompts.append(prompt)
-        lines = dict(line.split(": ", 1) for line in prompt.splitlines())
+        lines = dict(line.split(": ", 1) for line in prompt.splitlines() if ": " in line)
+        if self.during:
+            self.during(stage, cwd)
         if stage == "plan-writer":
             (cwd / lines["Plan"]).write_text("# The plan\n")
+            if self.stray:
+                (cwd / "src").mkdir(exist_ok=True)
+                (cwd / "src" / "stray.py").write_text("x = 1\n")
             out = {"status": "done", "summary": "planned", "files": [], "questions": []}
+        elif self.reviewer == "approved":
+            (cwd / lines["Write your review to"]).parent.mkdir(parents=True, exist_ok=True)
+            (cwd / lines["Write your review to"]).write_text("Approved.\n")
+            out = {"status": "approved", "summary": "looks right", "files": [], "questions": []}
         else:
             out = {
                 "status": "needs_human",
@@ -80,17 +151,18 @@ class FakeAgent:
         )
 
 
-def run(repo, gh, agent, url=URL):
+def run(repo, gh, agent, url=URL, *, env=None, restart=False, clock=None):
     return deliver(
         "gh-3",
-        restart=False,
+        restart=restart,
         config=BackendConfig(kind="github", url=url),
         backend=GitHubBackend(url, run=gh),
         root=repo,
-        env={"DELIVER_RETRY_WAIT": "0"},
+        env={"DELIVER_RETRY_WAIT": "0", **(env or {})},
         agent=agent,
         which=lambda cmd: f"/usr/bin/{cmd}",
         runs=lambda args: True,
+        **({"clock": clock} if clock else {}),
     )
 
 
@@ -123,7 +195,7 @@ def test_a_github_issue_is_delivered_under_its_key(repo, issue_3):
         "Plan dir: docs/plans/gh-3/",
     ]
     assert not any(URL in prompt for prompt in agent.prompts)
-    history = (worktree / "build" / "delivery" / "history.log").read_text().splitlines()
+    history = (plans / "run" / "history.log").read_text().splitlines()
     assert [line.split(" [")[0] for line in history] == [
         "01 plan-writer done",
         "02 plan-reviewer needs_human",
@@ -146,7 +218,7 @@ def test_a_rerun_resumes_where_it_stopped_with_the_issue_fetched_again(repo, iss
 
 def test_a_finished_delivery_is_left_as_it_was(repo, issue_3, gh_issue):
     run(repo, issue_3, FakeAgent())
-    run_dir = repo.parent / "caw-gh-3" / "build" / "delivery"
+    run_dir = repo.parent / "caw-gh-3" / "docs" / "plans" / "gh-3" / "run"
     (run_dir / "state.json").write_text(
         (run_dir / "state.json").read_text().replace('"needs_human"', '"done"')
     )
@@ -196,3 +268,219 @@ def test_a_missing_tool_stops_before_the_fetch(repo, gh, capsys):
     assert code == 1
     assert "'gh' is not on PATH" in capsys.readouterr().err
     assert gh.calls == []
+
+
+# --- the branch: committed after every stage, pushed, brought level, never forced ------
+
+
+def test_every_stage_leaves_a_checkpoint_on_the_remote(repo, remote, issue_3):
+    code = run(repo, issue_3, FakeAgent(reviewer="approved"))
+
+    # The test-writer has no agent in this repo, so the run pauses after the plan pair.
+    assert code == 3
+    assert subjects(remote) == [
+        "delivery(gh-3): plan-reviewer approved, round 1",
+        "delivery(gh-3): plan-writer done, round 1",
+    ]
+    assert git(remote, "log", "-1", "--format=%an|%b", "feature/gh-3").strip() == "t|looks right"
+    files = committed(remote)
+    assert {
+        "docs/plans/gh-3/00-issue.md",
+        "docs/plans/gh-3/source.json",
+        "docs/plans/gh-3/01-implementation-plan.md",
+        "docs/plans/gh-3/reviews/plan-reviewer-1.md",
+        "docs/plans/gh-3/run/state.json",
+        "docs/plans/gh-3/run/history.log",
+    } <= files
+    assert not any(f.startswith("build/") for f in files)
+    assert ".env" not in files
+
+
+def test_a_stop_for_a_human_is_committed_and_pushed(repo, remote, issue_3):
+    code = run(repo, issue_3, FakeAgent())
+
+    assert code == 2
+    assert subjects(remote) == [
+        "delivery(gh-3): needs a human at plan-reviewer, round 1",
+        "delivery(gh-3): plan-writer done, round 1",
+    ]
+    assert "docs/plans/gh-3/needs-human.md" in committed(remote)
+    state = json.loads(git(remote, "show", "feature/gh-3:docs/plans/gh-3/run/state.json"))
+    assert (state["stage"], state["status"]) == ("plan-reviewer", "needs_human")
+
+
+def test_a_stop_answered_on_the_remote_resumes_on_another_machine(repo, issue_3, person):
+    run(repo, issue_3, FakeAgent())
+    person("docs/plans/gh-3/needs-human.md", "# gh-3\n\n1. Which?\n\n   **Answer:** That one.\n")
+    # A hosted runner starts with nothing but the remote.
+    git(repo, "worktree", "remove", "--force", str(repo.parent / "caw-gh-3"))
+    git(repo, "branch", "-D", "feature/gh-3")
+    agent = FakeAgent()
+
+    code = run(repo, issue_3, agent)
+
+    worktree = repo.parent / "caw-gh-3"
+    assert code == 2
+    assert agent.prompts[0].splitlines()[5] == "Stage: plan-reviewer, round 1 of 3"
+    assert "Human answers:" in agent.prompts[0]
+    assert "That one." in (worktree / "docs/plans/gh-3/needs-human.md").read_text()
+    assert (
+        git(worktree, "rev-parse", "--abbrev-ref", "@{upstream}").strip() == "origin/feature/gh-3"
+    )
+
+
+def test_an_answer_pushed_to_the_branch_is_fast_forwarded_into_the_worktree(
+    repo, remote, issue_3, person
+):
+    run(repo, issue_3, FakeAgent())
+    answer = person("docs/plans/gh-3/needs-human.md", "**Answer:** That one.\n")
+    agent = FakeAgent()
+
+    run(repo, issue_3, agent)
+
+    worktree = repo.parent / "caw-gh-3"
+    assert git(worktree, "merge-base", "--is-ancestor", answer, "HEAD") == ""
+    assert "Human answers:" in agent.prompts[0]
+    assert subjects(remote)[0] == "delivery(gh-3): needs a human at plan-reviewer, round 1"
+    assert git(worktree, "rev-list", "--merges", "main..HEAD") == ""
+
+
+def test_a_branch_that_has_diverged_stops_before_any_stage(repo, issue_3, person, capsys):
+    run(repo, issue_3, FakeAgent())
+    worktree = repo.parent / "caw-gh-3"
+    (worktree / "notes.md").write_text("mine\n")
+    git(worktree, "add", "notes.md")
+    git(worktree, "commit", "-qm", "a local commit")
+    person("docs/plans/gh-3/needs-human.md", "theirs\n")
+    capsys.readouterr()
+    agent = FakeAgent()
+
+    code = run(repo, issue_3, agent)
+
+    assert code == 1
+    assert "diverged" in capsys.readouterr().err
+    assert agent.prompts == []
+
+
+def test_uncommitted_work_with_the_remote_ahead_stops_before_any_stage(
+    repo, issue_3, person, capsys
+):
+    run(repo, issue_3, FakeAgent())
+    worktree = repo.parent / "caw-gh-3"
+    (worktree / "docs/plans/gh-3/01-implementation-plan.md").write_text("# Edited here\n")
+    person("docs/plans/gh-3/needs-human.md", "theirs\n")
+    capsys.readouterr()
+    agent = FakeAgent()
+
+    code = run(repo, issue_3, agent)
+
+    assert code == 1
+    assert "uncommitted" in capsys.readouterr().err
+    assert agent.prompts == []
+
+
+def test_a_push_rejected_mid_run_stops_it_and_names_both_commits(
+    repo, remote, issue_3, person, capsys
+):
+    run(repo, issue_3, FakeAgent())
+    theirs: list[str] = []
+
+    def answers_while_it_works(stage: str, cwd: Path) -> None:
+        theirs.append(person("docs/plans/gh-3/elsewhere.md", "pushed meanwhile\n"))
+
+    capsys.readouterr()
+
+    code = run(repo, issue_3, FakeAgent(during=answers_while_it_works))
+
+    worktree = repo.parent / "caw-gh-3"
+    ours = git(worktree, "rev-parse", "HEAD").strip()
+    err = capsys.readouterr().err
+    assert code == 1
+    assert ours[:7] in err
+    assert theirs[0][:7] in err
+    # Never forced: the remote still has the person's commit on top.
+    assert git(remote, "rev-parse", "feature/gh-3").strip() == theirs[0]
+
+
+def test_with_pushing_off_the_run_commits_and_touches_no_remote(repo, issue_3):
+    git(repo, "remote", "remove", "origin")
+
+    code = run(repo, issue_3, FakeAgent(), env={"DELIVER_PUSH": "0"})
+
+    assert code == 2
+    assert subjects(repo)[0] == "delivery(gh-3): needs a human at plan-reviewer, round 1"
+
+
+def test_a_restart_starts_again_on_top_of_the_branch(repo, remote, issue_3):
+    run(repo, issue_3, FakeAgent())
+    agent = FakeAgent()
+
+    code = run(repo, issue_3, agent, restart=True)
+
+    assert code == 2
+    assert agent.prompts[0].splitlines()[5] == "Stage: plan-writer, round 1 of 3"
+    assert subjects(remote) == [
+        "delivery(gh-3): needs a human at plan-reviewer, round 1",
+        "delivery(gh-3): plan-writer done, round 1",
+        "delivery(gh-3): needs a human at plan-reviewer, round 1",
+        "delivery(gh-3): plan-writer done, round 1",
+    ]
+
+
+def test_out_of_time_ends_the_run_at_a_checkpoint(repo, remote, issue_3, capsys):
+    start = 1_792_150_000
+    now = [start]
+
+    def ninety_minutes_a_stage(stage: str, cwd: Path) -> None:
+        now[0] += 90 * 60
+
+    agent = FakeAgent(reviewer="approved", during=ninety_minutes_a_stage)
+
+    code = run(
+        repo,
+        issue_3,
+        agent,
+        env={"DELIVER_DEADLINE": str(start + 120 * 60)},
+        clock=lambda: now[0],
+    )
+
+    assert code == 4
+    assert len(agent.prompts) == 1
+    assert subjects(remote) == ["delivery(gh-3): plan-writer done, round 1"]
+    state = json.loads(git(remote, "show", "feature/gh-3:docs/plans/gh-3/run/state.json"))
+    assert state["stage"] == "plan-reviewer"
+    assert "run again" in capsys.readouterr().err
+
+
+def test_a_stage_that_breaks_a_rule_is_committed_as_a_failure(repo, remote, issue_3, capsys):
+    code = run(repo, issue_3, FakeAgent(stray=True))
+
+    assert code == 1
+    assert "wrote outside" in capsys.readouterr().err
+    assert subjects(remote) == ["delivery(gh-3): failed at plan-writer, round 1"]
+    assert git(remote, "log", "-1", "--format=%b", "feature/gh-3").startswith(
+        "plan-writer wrote outside"
+    )
+
+
+def test_an_agent_that_commits_still_stops_the_run(repo, issue_3, capsys):
+    def commits(stage: str, cwd: Path) -> None:
+        (cwd / "sneaky.md").write_text("x\n")
+        git(cwd, "add", "sneaky.md")
+        git(cwd, "commit", "-qm", "an agent's own commit")
+
+    code = run(repo, issue_3, FakeAgent(during=commits))
+
+    assert code == 1
+    assert "plan-writer committed" in capsys.readouterr().err
+
+
+def test_a_finished_delivery_leaves_no_new_commit(repo, remote, issue_3):
+    run(repo, issue_3, FakeAgent())
+    run_dir = repo.parent / "caw-gh-3" / "docs" / "plans" / "gh-3" / "run"
+    state = json.loads((run_dir / "state.json").read_text())
+    (run_dir / "state.json").write_text(json.dumps({**state, "status": "done", "stage": "done"}))
+    before = git(repo.parent / "caw-gh-3", "rev-parse", "HEAD")
+
+    assert run(repo, issue_3, FakeAgent()) == 0
+    assert git(repo.parent / "caw-gh-3", "rev-parse", "HEAD") == before

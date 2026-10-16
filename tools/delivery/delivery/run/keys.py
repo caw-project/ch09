@@ -36,6 +36,10 @@ class Paths:
     reviews: str
     #: Where the issue came from — read by the workflow only, never named to an agent.
     source: str
+    #: The run's state, history and send-back snapshots — committed with the plan, so a run
+    #: resumes on any machine that has the branch. Not in the context block; only the
+    #: workflow writes it.
+    run_dir: str
     #: The acceptance-reviewer's screenshots, packs and results: disposable, under the
     #: ignored build/, outside every snapshot.
     evidence: str = "build/acceptance"
@@ -54,6 +58,7 @@ def paths_for(key: str) -> Paths:
         answers=f"{plans}/needs-human.md",
         reviews=f"{plans}/reviews",
         source=f"{plans}/source.json",
+        run_dir=f"{plans}/run",
     )
 
 
@@ -67,6 +72,17 @@ def check_key(key: str, backend: str) -> None:
         raise ConfigError(f"{key} is a {owner} key, which is not supported yet")
     if owner != backend:
         raise ConfigError(f"{key} is a {owner} key, but the backend is {backend}")
+
+
+#: Each backend's remote: a GitHub issue's branch goes to GitHub, so its stop can be answered
+#: there; a local issue's to the Forgejo the team works from.
+REMOTES = {LOCAL: "forge", GITHUB: "origin"}
+
+
+def remote_for(key: str, override: str) -> str:
+    """Where a key's branch is pushed: DELIVER_REMOTE, else its backend's remote."""
+    match = KEY.fullmatch(key)
+    return override or REMOTES[PREFIXES[match.group(1)] if match else LOCAL]
 
 
 def branch_for(key: str, run: str) -> str:
