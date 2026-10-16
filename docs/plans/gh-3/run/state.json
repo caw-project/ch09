@@ -1,28 +1,30 @@
 {
-  "stage": "code-reviewer",
+  "stage": "test-writer",
   "status": "running",
-  "step": 9,
-  "review": "",
+  "step": 10,
+  "review": "docs/plans/gh-3/reviews/code-reviewer-sendback-3.md",
   "rounds": {
     "plan": 2,
-    "test": 2,
-    "code": 1,
+    "test": 3,
+    "code": 2,
     "acceptance": 1
   },
   "final": {
     "plan": 3,
-    "test": 3,
+    "test": 4,
     "code": 3,
     "acceptance": 3
   },
   "sendbacks": {
     "plan": 0,
-    "test": 0,
+    "test": 1,
     "code": 0
   },
-  "open_sendbacks": {},
+  "open_sendbacks": {
+    "code-reviewer": "docs/plans/gh-3/reviews/code-reviewer-sendback-3.md"
+  },
   "pending": {
     "test": "",
-    "code": ""
+    "code": "docs/plans/gh-3/reviews/code-reviewer-1.md"
   }
 }
