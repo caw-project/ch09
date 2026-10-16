@@ -1,7 +1,7 @@
 {
-  "stage": "acceptance-reviewer",
-  "status": "running",
-  "step": 14,
+  "stage": "done",
+  "status": "done",
+  "step": 15,
   "review": "",
   "rounds": {
     "plan": 2,
