@@ -163,5 +163,18 @@ Settled to run on to green without a stop, at the user's word. What each failed 
 - `scripts/test.sh lint unit` — green (1248 pytest, 503 Vitest; actionlint clean).
 - `scripts/test.sh integration -- tools/delivery` — 26 passed.
 - `.claude/delivery/loop-test.sh` — every scenario passed.
-- Not yet: task 15, the stubbed dispatch on `caw-project/ch09`. It needs this branch on that
-  repo's `main` and its Claude secret set — a person's push.
+- Task 15, the stubbed dispatch on `caw-project/ch09` (`4ef9d61` pushed to its `main`, issue
+  #4, run 38930381295): green in 2m51s. Seven stages, a `github-actions[bot]` commit for each
+  and `accepted` last, all on `origin`'s `feature/gh-4`; the bundle and acceptance artifacts
+  uploaded, the transcripts not (public repo). Two things it found:
+  - **`history.log` was never committed** — the repo ignores `*.log`, and the integration
+    fixture's own `.gitignore` hid it. The fixture now copies the repo's `.gitignore`, which
+    went red, and `.gitignore` un-ignores `docs/plans/*/run/history.log`.
+  - **The preview failed both tries, and every service image fails to build on `main`:**
+    slice 1 (`a8da719`) made `tools/*` a uv workspace member, and the service Dockerfiles copy
+    only `src/services/`, so `uv sync --locked` can't find `collabhub-delivery`. It breaks the
+    e2e stack and every preview, locally too — not this slice's, but it stops the stub run
+    proving k3d and disk. The stub approved regardless, as a stub does.
+    Fixed here, test first: `testkit`'s `test_dockerfiles.py` holds each Python service's
+    Dockerfile to copying every workspace member root from the root `pyproject.toml` (red on all
+    five), and each now copies `tools/` too. All five images build.

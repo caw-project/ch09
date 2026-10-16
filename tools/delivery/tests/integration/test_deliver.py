@@ -9,6 +9,7 @@ branch committed after every stage and pushed, brought level before a run, and n
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -20,6 +21,7 @@ from delivery.resolve import BackendConfig
 from delivery.run import deliver
 
 URL = "https://github.com/caw-project/ch09"
+REPO_ROOT = Path(__file__).resolve().parents[4]
 BODY = "## Summary\n\nDisplay names are unique.\n"
 
 
@@ -43,7 +45,8 @@ def repo(tmp_path) -> Path:
     for stage in ("plan-writer", "plan-reviewer"):
         (agents / f"{stage}.md").write_text(f"---\nname: {stage}\nmodel: opus\n---\n")
     (root / ".env.example").write_text("APP_ORIGIN=\n")
-    (root / ".gitignore").write_text("build/\n.env\n")
+    # The repo's own ignore rules: what a checkpoint commits depends on them.
+    shutil.copy(REPO_ROOT / ".gitignore", root / ".gitignore")
     git(tmp_path, "init", "-q", "-b", "main", str(root))
     git(root, "config", "user.name", "t")
     git(root, "config", "user.email", "t@example.com")
