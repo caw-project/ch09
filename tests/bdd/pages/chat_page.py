@@ -85,6 +85,36 @@ class ChatPage:
         self.page.locator(f'[data-testid="workspace-option"][data-workspace-name="{name}"]').click()
         expect(self.page.get_by_test_id("workspace-name")).to_have_text(name)
 
+    # --- settings ---------------------------------------------------------
+
+    def rename_self(self, name: str) -> None:
+        """Open Settings from the sidebar's name and save a new display name.
+
+        The form is drawn once the server has answered with the current name, so
+        waiting for the field is waiting for that. If Save is disabled the name
+        is already the one asked for — a rerun against a kept stack, where
+        Auth's tables survived the last run — and there is nothing to confirm.
+        Otherwise the step ends on the "Saved" confirmation, which the SPA shows
+        only after the server's 200.
+        """
+        self.page.get_by_test_id("current-user").click()
+        field = self.page.get_by_test_id("display-name-input")
+        expect(field).to_be_visible()
+        field.fill(name)
+        save = self.page.get_by_test_id("display-name-save")
+        if save.is_disabled():
+            return
+        save.click()
+        expect(self.page.get_by_test_id("display-name-saved")).to_be_visible()
+
+    def own_name(self) -> str:
+        """The signed-in user's name in the sidebar right now — for failure messages."""
+        return self.page.get_by_test_id("current-user").inner_text().strip()
+
+    def has_own_name(self, name: str) -> bool:
+        """Whether the sidebar names the signed-in user `name`, waiting for it."""
+        return _holds(lambda: expect(self.page.get_by_test_id("current-user")).to_have_text(name))
+
     # --- reading ----------------------------------------------------------
 
     def workspace_name(self) -> str:

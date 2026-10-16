@@ -14,9 +14,11 @@ import type { Profile, TokenPair, Workspace } from '../../lib/auth/api'
 import * as session from '../../lib/auth/session'
 import { useSession } from '../../lib/auth/useSession'
 import { auth, messaging } from '../../test/api'
-import { aChannel } from '../../test/factories'
+import { settleDirectory } from '../../test/directory'
+import { aChannel, aMessage, aMessagePage, aWorkspaceMember } from '../../test/factories'
 import { renderWithProviders } from '../../test/render'
 import { latestSocket, openedSockets } from '../../test/socket'
+import { ChannelView } from './ChannelView'
 import { ChatLayout } from './ChatLayout'
 
 const HOME = '0199a000-0000-7000-8000-0000000000a1'
@@ -111,5 +113,78 @@ describe('ChatLayout — switching workspace', () => {
     release()
     expect(await screen.findByRole('link', { name: 'design' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'general' })).not.toBeInTheDocument()
+  })
+})
+
+const OPEN = '0199a000-0000-7000-8000-0000000000c1'
+
+/** The shell with the real channel view in it, so an author line is the real one. */
+function ShellWithChannel() {
+  const state = useSession()
+  if (state.status !== 'signedIn') return null
+  return (
+    <ChatLayout current={state.session}>
+      <ChannelView
+        accessToken={state.session.accessToken}
+        workspaceId={state.session.activeWorkspaceId}
+        userId={state.session.profile.id}
+      />
+    </ChatLayout>
+  )
+}
+
+/** Messaging with one open channel holding one message by the signed-in user. */
+function stubOpenChannel() {
+  const channel = aChannel({ id: OPEN, name: 'general' })
+  messaging.get('/api/v1/channels', { items: [channel], nextCursor: null })
+  messaging.get('/api/v1/channels/{channel_id}', channel)
+  messaging.get(
+    '/api/v1/channels/{channel_id}/messages',
+    aMessagePage([aMessage({ channelId: OPEN, authorId: PROFILE.id, body: 'good morning' })]),
+  )
+  messaging.get('/api/v1/channels/{channel_id}/members', { items: [], nextCursor: null })
+}
+
+describe('ChatLayout — the signed-in name', () => {
+  it('links to Settings, remembering the page it left', async () => {
+    stubOpenChannel()
+    auth.members([aWorkspaceMember({ id: PROFILE.id, displayName: 'Ada Lovelace' })])
+    const { user, location } = renderWithProviders(<ShellWithChannel />, {
+      route: `/c/${OPEN}`,
+      path: '/c/:channelId',
+    })
+
+    await user.click(await screen.findByRole('link', { name: 'Ada Lovelace' }))
+
+    expect(location().pathname).toBe('/settings')
+    expect(location().state).toMatchObject({ from: `/c/${OPEN}` })
+  })
+
+  it('names the user as the directory does, so the sidebar and her own messages agree', async () => {
+    stubOpenChannel()
+    // Another tab renamed her: the directory has the new name, the session the old one.
+    auth.members([aWorkspaceMember({ id: PROFILE.id, displayName: 'Ada L' })])
+
+    renderWithProviders(<ShellWithChannel />, { route: `/c/${OPEN}`, path: '/c/:channelId' })
+
+    // The message row is already so today; the sidebar must come to the same name.
+    await screen.findByText('good morning')
+    await vi.waitFor(() => expect(screen.getAllByText('Ada L')).toHaveLength(2))
+    expect(screen.getByRole('link', { name: 'Ada L' })).toBeInTheDocument()
+    expect(screen.queryByText('Ada Lovelace')).not.toBeInTheDocument()
+  })
+
+  it('falls back to the session’s name while the directory has no entry for her', async () => {
+    stubOpenChannel()
+    auth.members([aWorkspaceMember({ displayName: 'Grace Hopper' })])
+
+    const { queryClient } = renderWithProviders(<ShellWithChannel />, {
+      route: `/c/${OPEN}`,
+      path: '/c/:channelId',
+    })
+    await screen.findByText('good morning')
+    await settleDirectory(queryClient, HOME)
+
+    expect(screen.getByRole('link', { name: 'Ada Lovelace' })).toBeInTheDocument()
   })
 })

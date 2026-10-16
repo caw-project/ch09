@@ -9,3 +9,12 @@ Changes this round:
 
 That makes 16 **assumed** decisions in total (13 before, plus 37). A Review responses section answers each finding. The plan is 614 lines, slightly over the 600 limit, mostly because of that section.
 04 plan-reviewer approved [1.6m 24 turns $1.03 · opus · default]: Approved in round 2: 0 critical, 0 major, 4 minor (left for later stages). All nine round-1 findings are fixed, and each fix was checked against the code or the installed TanStack source. The most important, decision 36 (cancel the in-flight read in onMutate, invalidate on settle), holds against mutation.js:102/115. Two of the minor points are for the test pair: the in-flight-fetch hook test needs an active observer, and asyncio.run in a function-scoped fixture is unverified.
+05 test-writer done [13.9m 141 turns $3.26 · sonnet · default]: I wrote every RED task, using BDD outside-in with the rules pushed down the pyramid: 1 journey, 2 Auth unit files, 4 new Auth integration files plus 2 tests added to `test_r1_unreachable.py`, and 13 Vitest files. Auth integration ran against real Postgres and Dex: 30 tests fail as planned, and 8 pass, 3 of them by design. Auth integration did not run `test_name_migration.py` because it fails at import (the missing `auth.migrations.upgrade`), as the plan expects. The Auth unit files also fail at import.
+
+Vitest: the full suite is 505 passed, 27 failed, plus 4 files that fail to load (`time`, `SettingsPage`, `useProfile`, `usePreferences`). Those 4 files and both Auth unit files fail to load because every test in them needs the missing module. The baseline was 503 passed, and the 2 extra passes are by design. The typecheck shows only the missing modules and exports. The BDD scenario was not run (no Compose stack): its feature collects (25 tests) and every step binds.
+
+Departures, all listed in the report:
+- The signed-out `/settings` App test stops earlier than the plan says, at the missing route rather than the stored path.
+- `test_saving_the_name_you_have_changes_nothing` reads version 2 against 0, because it sends two no-op saves.
+- I added a few tests: the avatar no-op, unicode kept, the trailing-space cut, a clock test with no stored preference, the profile and directory refusal, and the later-renewal case.
+- Shared helpers I added: `auth.meBy` in `api.ts`, a `routeState` option in `render.tsx`, and the `alan` fixtures and `rename_self` page methods in the BDD harness.

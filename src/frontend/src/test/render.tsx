@@ -36,6 +36,8 @@ export function createTestQueryClient(): QueryClient {
 
 export interface ProviderOptions {
   route?: string
+  /** `location.state` of the first entry — what a `<Link state>` navigation leaves behind. */
+  routeState?: unknown
   path?: string
   queryClient?: QueryClient
   socket?: FakeSocket | null
@@ -47,7 +49,7 @@ function LocationSpy({ onChange }: { onChange: (location: Location) => void }) {
   return null
 }
 
-function setUp({ route = '/', path, queryClient, socket }: ProviderOptions) {
+function setUp({ route = '/', routeState, path, queryClient, socket }: ProviderOptions) {
   const client = queryClient ?? createTestQueryClient()
   const fake = socket === undefined ? new FakeSocket('test-token') : socket
   const seen: { current: Location | null } = { current: null }
@@ -58,7 +60,9 @@ function setUp({ route = '/', path, queryClient, socket }: ProviderOptions) {
   function Providers({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={client}>
-        <MemoryRouter initialEntries={[route]}>
+        <MemoryRouter
+          initialEntries={[routeState === undefined ? route : { pathname: route, state: routeState }]}
+        >
           <SocketProvider socket={fake ? asSocket(fake) : null}>
             {path ? (
               <Routes>
@@ -87,8 +91,8 @@ export function renderWithProviders(
   ui: ReactElement,
   options: ProviderOptions & Omit<RenderOptions, 'wrapper'> = {},
 ) {
-  const { route, path, queryClient, socket, ...renderOptions } = options
-  const { Providers, ...rest } = setUp({ route, path, queryClient, socket })
+  const { route, routeState, path, queryClient, socket, ...renderOptions } = options
+  const { Providers, ...rest } = setUp({ route, routeState, path, queryClient, socket })
   const user = userEvent.setup()
   return { ...render(ui, { wrapper: Providers, ...renderOptions }), ...rest, user }
 }

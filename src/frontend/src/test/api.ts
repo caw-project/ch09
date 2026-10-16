@@ -17,7 +17,14 @@
 import { http, HttpResponse, type DefaultBodyType } from 'msw'
 import { setupServer } from 'msw/node'
 
-import type { Profile, TokenPair, Workspace, WorkspaceMember } from '../lib/auth/api'
+import type {
+  Clock,
+  Preferences,
+  Profile,
+  TokenPair,
+  Workspace,
+  WorkspaceMember,
+} from '../lib/auth/api'
 import { ASSET_URL, AUTH_URL, MESSAGING_URL } from '../lib/config'
 import type { components as AssetComponents } from '../types/asset'
 import type { paths } from '../types/messaging'
@@ -28,7 +35,18 @@ export { ASSET_URL, AUTH_URL, MESSAGING_URL }
 /** Where the presigned PUT of the tests goes: Garage, as the browser reaches it. */
 export const GARAGE_URL = 'http://garage.test'
 
-export const server = setupServer()
+/**
+ * The one handler every test starts with: an empty preferences object, answered
+ * and **not recorded**. `ChatLayout` reads preferences on mount, so every test
+ * that renders it would otherwise need a stub, and every test that asserts the
+ * order of recorded requests would see a new one. `server.resetHandlers()`
+ * keeps initial handlers, and a test's own `auth.preferences(...)` goes in front.
+ */
+const defaultPreferences = http.get(`${AUTH_URL}/api/v1/users/me/preferences`, () =>
+  HttpResponse.json({}),
+)
+
+export const server = setupServer(defaultPreferences)
 
 type Method = 'get' | 'post' | 'patch' | 'delete'
 
@@ -340,6 +358,52 @@ export const auth = {
   switchWorkspace: (pair: TokenPair) =>
     authJson('post', '/api/v1/auth/switch-workspace', { ...pair }),
   me: (profile: Profile) => authJson('get', '/api/v1/users/me', { ...profile }),
+  /** `GET /users/me`, answered per request: the reply may be a promise, which holds it in flight. */
+  meBy(reply: () => Profile | Promise<Profile>): void {
+    server.use(
+      http.get(`${AUTH_URL}/api/v1/users/me`, async ({ request }) => {
+        await record(request)
+        return HttpResponse.json({ ...(await reply()) })
+      }),
+    )
+  },
+  /**
+   * `PATCH /users/me`. A function reply sees the body and may return a promise,
+   * which holds the response while the request stays recorded.
+   */
+  updateMe(reply: Profile | ((body: { displayName: string }) => Profile | Promise<Profile>)): void {
+    server.use(
+      http.patch(`${AUTH_URL}/api/v1/users/me`, async ({ request }) => {
+        const body = (await record(request)) as { displayName: string }
+        const profile = typeof reply === 'function' ? await reply(body) : reply
+        return HttpResponse.json({ ...profile })
+      }),
+    )
+  },
+  /** `GET /users/me/preferences`; a function reply may hold the response. Recorded. */
+  preferences(reply: Preferences | (() => Preferences | Promise<Preferences>)): void {
+    server.use(
+      http.get(`${AUTH_URL}/api/v1/users/me/preferences`, async ({ request }) => {
+        await record(request)
+        const prefs = typeof reply === 'function' ? await reply() : reply
+        return HttpResponse.json({ ...prefs })
+      }),
+    )
+  },
+  /** `PATCH /users/me/preferences`; a function reply sees the patch and may hold the response. */
+  updatePreferences(
+    reply:
+      | Preferences
+      | ((patch: { clock: Clock | null }) => Preferences | Promise<Preferences>),
+  ): void {
+    server.use(
+      http.patch(`${AUTH_URL}/api/v1/users/me/preferences`, async ({ request }) => {
+        const patch = (await record(request)) as { clock: Clock | null }
+        const prefs = typeof reply === 'function' ? await reply(patch) : reply
+        return HttpResponse.json({ ...prefs })
+      }),
+    )
+  },
   workspaces: (items: Workspace[]) => authJson('get', '/api/v1/workspaces', { items }),
   logout(): void {
     server.use(

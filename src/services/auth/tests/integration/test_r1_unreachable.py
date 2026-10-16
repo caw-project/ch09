@@ -110,6 +110,38 @@ async def test_signing_out_still_ends_the_session_when_r1_is_unreachable(
 
 
 # --------------------------------------------------------------------------
+# Profile and preference writes fail open (gh-3; neither is in §5.2's sensitive set)
+# --------------------------------------------------------------------------
+
+
+async def test_a_rename_fails_open(
+    reachable: httpx.AsyncClient, r1_down: httpx.AsyncClient
+) -> None:
+    """Green by design at red: the guard that the route stays on `require_user`."""
+    ada = await sign_in(reachable, ADA)
+
+    resp = await r1_down.patch(
+        "/api/v1/users/me", headers=bearer(ada), json={"displayName": "Ada L"}
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["displayName"] == "Ada L"
+
+
+async def test_a_preferences_patch_fails_open(
+    reachable: httpx.AsyncClient, r1_down: httpx.AsyncClient
+) -> None:
+    ada = await sign_in(reachable, ADA)
+
+    resp = await r1_down.patch(
+        "/api/v1/users/me/preferences", headers=bearer(ada), json={"clock": "24h"}
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"clock": "24h"}
+
+
+# --------------------------------------------------------------------------
 # Member writes fail closed (Conventions §5.2, doc 01 §3)
 # --------------------------------------------------------------------------
 

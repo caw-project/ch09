@@ -9,7 +9,7 @@
 
 import { screen } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Profile, TokenPair, Workspace } from './lib/auth/api'
 import { auth, AUTH_URL, messaging, server } from './test/api'
@@ -52,10 +52,19 @@ function aFirstVisit() {
 
 let App: AppModule['App']
 
-beforeEach(async () => {
+async function freshApp(): Promise<AppModule['App']> {
   vi.resetModules()
   const module: AppModule = await import('./App')
-  App = module.App
+  return module.App
+}
+
+beforeEach(async () => {
+  App = await freshApp()
+})
+
+afterEach(() => {
+  window.sessionStorage.clear()
+  vi.unstubAllGlobals()
 })
 
 describe('App routes', () => {
@@ -132,11 +141,64 @@ describe('App routes', () => {
     expect(text).not.toMatch(/\bcollabhub\b/)
   })
 
+  it('renders /settings on a direct load', async () => {
+    aReturningUser()
+    auth.members([aWorkspaceMember({ id: PROFILE.id, displayName: 'Ada Lovelace' })])
+
+    renderWithProviders(<App />, { route: '/settings' })
+
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
+    // Inside the shell, reached from the sidebar’s name.
+    expect(screen.getByRole('search', { name: 'Search messages' })).toBeInTheDocument()
+  })
+
   it('says so for a route that does not exist', async () => {
     aFirstVisit()
 
     renderWithProviders(<App />, { route: '/no/such/page' })
 
     expect(await screen.findByText('No such page.')).toBeInTheDocument()
+  })
+})
+
+describe('App — coming back after sign-in', () => {
+  const RETURN_KEY = 'collabhub.returnTo'
+  const VERIFIER_KEY = 'collabhub.pkceVerifier'
+
+  it('takes a signed-out visitor on /settings through sign-in and back to /settings', async () => {
+    aFirstVisit()
+    const assign = vi.fn()
+    vi.stubGlobal('location', { ...window.location, assign })
+    const first = renderWithProviders(<App />, { route: '/settings' })
+
+    // Sent to sign in, remembering where from.
+    await first.user.click(await screen.findByRole('button', { name: 'Sign in' }))
+    await vi.waitFor(() => expect(assign).toHaveBeenCalled())
+    expect(first.location().pathname).toBe('/sign-in')
+    expect(window.sessionStorage.getItem(RETURN_KEY)).toBe('/settings')
+    first.unmount()
+
+    // The identity provider sends the browser back, to a page load of its own.
+    const Callback = await freshApp()
+    aReturningUser()
+    auth.exchange(PAIR)
+    auth.members([aWorkspaceMember({ id: PROFILE.id, displayName: 'Ada Lovelace' })])
+    expect(window.sessionStorage.getItem(VERIFIER_KEY)).not.toBeNull()
+    const second = renderWithProviders(<Callback />, { route: '/auth/callback?code=c' })
+
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
+    expect(second.location().pathname).toBe('/settings')
+    expect(window.sessionStorage.getItem(RETURN_KEY)).toBeNull()
+  })
+
+  it('lands on / when no path was remembered', async () => {
+    aReturningUser()
+    auth.exchange(PAIR)
+    window.sessionStorage.setItem(VERIFIER_KEY, 'verifier')
+
+    const { location } = renderWithProviders(<App />, { route: '/auth/callback?code=c' })
+
+    expect(await screen.findByText('Pick a channel, or create one.')).toBeInTheDocument()
+    expect(location().pathname).toBe('/')
   })
 })

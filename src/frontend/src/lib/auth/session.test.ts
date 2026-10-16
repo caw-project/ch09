@@ -324,4 +324,118 @@ describe('signIn', () => {
     expect(target.searchParams.get('codeChallenge')).toMatch(/^[A-Za-z0-9_-]{43}$/)
     vi.unstubAllGlobals()
   })
+
+  describe('the path to return to', () => {
+    const RETURN_KEY = 'collabhub.returnTo'
+
+    beforeEach(() => {
+      vi.stubGlobal('location', { ...window.location, assign: vi.fn() })
+    })
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    it('is kept for the callback to take', async () => {
+      await session.signIn('dex', '/settings')
+
+      expect(window.sessionStorage.getItem(RETURN_KEY)).toBe('/settings')
+    })
+
+    it('is cleared by a sign-in that names none, so an old one cannot linger', async () => {
+      window.sessionStorage.setItem(RETURN_KEY, '/c/left-over')
+
+      await session.signIn('dex')
+
+      expect(window.sessionStorage.getItem(RETURN_KEY)).toBeNull()
+    })
+  })
+})
+
+describe('updateProfile', () => {
+  const RENAMED: Profile = { ...PROFILE, displayName: 'Ada L' }
+
+  it('replaces the signed-in profile', async () => {
+    auth.refresh(pair(HOME))
+    await session.restore()
+
+    session.updateProfile(RENAMED)
+
+    expect(signedInSession(session).profile.displayName).toBe('Ada L')
+  })
+
+  it('ignores a profile that is somebody else’s', async () => {
+    auth.refresh(pair(HOME))
+    await session.restore()
+
+    session.updateProfile({ ...RENAMED, id: 'user-grace' })
+
+    expect(signedInSession(session).profile).toEqual(PROFILE)
+  })
+
+  it('does nothing when signed out', async () => {
+    auth.problem('post', '/api/v1/auth/refresh', 401, { title: 'Unauthorized' })
+    await session.restore()
+
+    session.updateProfile(RENAMED)
+
+    expect(session.snapshot()).toEqual({ status: 'signedOut', error: undefined })
+  })
+
+  /** Holds the renewal’s `GET /users/me`, answering with the profile it was asked for. */
+  function holdMe(answer: Profile) {
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let arrived!: () => void
+    const inFlight = new Promise<void>((resolve) => {
+      arrived = resolve
+    })
+    server.use(
+      http.get(`${AUTH_URL}/api/v1/users/me`, async () => {
+        arrived()
+        await held
+        return HttpResponse.json({ ...answer })
+      }),
+    )
+    return { release, inFlight }
+  }
+
+  it('is not undone by a renewal that fetched the old profile', async () => {
+    auth.refresh(pair(HOME))
+    await session.restore()
+    const me = holdMe(PROFILE)
+    const renewal = session.restore()
+    await me.inFlight
+
+    session.updateProfile(RENAMED)
+    me.release()
+    await renewal
+
+    expect(signedInSession(session).profile.displayName).toBe('Ada L')
+  })
+
+  it('stands when the rename comes after the renewal', async () => {
+    auth.refresh(pair(HOME))
+    await session.restore()
+    await session.restore()
+
+    session.updateProfile(RENAMED)
+
+    expect(signedInSession(session).profile.displayName).toBe('Ada L')
+  })
+
+  it('does not stop a later renewal from taking what the server holds', async () => {
+    // The guard is for a fetch already in flight when the rename lands. A
+    // renewal that starts afterwards asks the server after the rename, so its
+    // answer — here another tab’s newer name — is the one to keep.
+    auth.refresh(pair(HOME))
+    await session.restore()
+    session.updateProfile(RENAMED)
+    auth.me({ ...PROFILE, displayName: 'Ada From Another Tab' })
+
+    await session.restore()
+
+    expect(signedInSession(session).profile.displayName).toBe('Ada From Another Tab')
+  })
 })

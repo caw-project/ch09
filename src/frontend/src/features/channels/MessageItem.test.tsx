@@ -4,12 +4,13 @@
  * unit-tested in Messaging — so these tests are about the offer.
  */
 
-import { screen } from '@testing-library/react'
+import { act, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { Message } from '../../lib/api/messaging'
+import { requests } from '../../test/api'
 import { aMessage } from '../../test/factories'
-import { renderWithProviders } from '../../test/render'
+import { createTestQueryClient, renderWithProviders } from '../../test/render'
 import { MessageItem } from './MessageItem'
 
 const ADA = '0199a000-0000-7000-8000-00000000000a'
@@ -137,5 +138,44 @@ describe('MessageItem', () => {
     await user.click(screen.getByRole('button', { name: 'Delete' }))
 
     expect(onDelete).toHaveBeenCalledOnce()
+  })
+})
+
+describe('MessageItem — the clock preference', () => {
+  it('shows the time as the cached preference says, re-rendering a message already on screen', async () => {
+    // Local 13:05 wherever the suite runs. Cached 24-hour first, then 12-hour, so
+    // one half fails in any default locale if the preference is not read.
+    const message = aMessage({
+      authorId: ADA,
+      createdAt: new Date(2026, 9, 16, 13, 5).toISOString(),
+    })
+    const queryClient = createTestQueryClient()
+    queryClient.setQueryData(['preferences'], { clock: '24h' })
+    renderWithProviders(
+      <MessageItem
+        message={message}
+        authorName="Ada Lovelace"
+        userId={ADA}
+        myRole={null}
+        editError={undefined}
+        editPending={false}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onToggleReaction={vi.fn()}
+      />,
+      { queryClient },
+    )
+
+    const time = screen.getByText('13:05').closest('time')
+    expect(time).toHaveAttribute('dateTime', message.createdAt)
+
+    act(() => {
+      queryClient.setQueryData(['preferences'], { clock: '12h' })
+    })
+
+    await vi.waitFor(() => expect(time?.textContent).not.toContain('13'))
+    expect(time?.textContent).toContain('1:05')
+    // The re-render came from the cache alone: nothing was fetched.
+    expect(requests()).toHaveLength(0)
   })
 })
