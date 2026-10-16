@@ -1,7 +1,7 @@
 {
-  "stage": "code-reviewer",
+  "stage": "acceptance-reviewer",
   "status": "running",
-  "step": 13,
+  "step": 14,
   "review": "",
   "rounds": {
     "plan": 2,
@@ -20,9 +20,7 @@
     "test": 1,
     "code": 0
   },
-  "open_sendbacks": {
-    "code-reviewer": "docs/plans/gh-3/reviews/code-reviewer-sendback-3.md"
-  },
+  "open_sendbacks": {},
   "pending": {
     "test": "",
     "code": ""
