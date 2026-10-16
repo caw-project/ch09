@@ -15,10 +15,11 @@ This supersedes the layout section of `docs/design/00-platform-conventions.md`, 
 ```
 src/services/{shared,contracts,testkit,auth,messaging,canvas,asset,worker}
 src/frontend            # React + TypeScript + Vite SPA
+tools/delivery/         # the delivery backends — where issues live — and the `delivery` CLI; dev only
 tests/bdd/              # Gherkin acceptance suite — features, steps, page objects
 tests/smoke/            # smoke packs against a running deploy's origin — scripts/smoke.sh
 docker/                 # one folder per component, holding its Dockerfile and any files it needs
-docker-compose.yml      # repo root — Postgres, 3x Redis, Garage, Elasticsearch, OTel collector
+docker-compose.yml      # repo root — Postgres, 3x Redis, Garage, Elasticsearch, Dex, OTel collector
 docker-compose.test.yml # override: a second, throwaway stack for tests/bdd
 charts/collabhub/       # a single Helm chart for the whole app
 charts/collabhub-deps/  # data stores, Dex, Secrets, Dex's Ingress — any environment; credentials required (D41)
@@ -33,10 +34,11 @@ take their overridable settings — `IMAGE_REGISTRY`, `IMAGE_TAG`, `KUBE_CONTEXT
 `DEPLOY_ENV`, `NAMESPACE`, `APP_ORIGIN` — from the environment.
 
 Per-service tests live beside their service, in `src/services/*/tests/unit/` and
-`tests/integration/`. **The directory decides the layer**: `testkit`'s pytest
+`tests/integration/` — and `tools/*/tests/` the same way. **The directory decides the layer**: `testkit`'s pytest
 plugin marks each test by where it lives, stops the run for a test anywhere else,
-and cuts unit tests off from the network and Docker. Only the Gherkin suite is at
-the root, because it spans every service at once.
+and cuts unit tests off from the network and Docker. Only the Gherkin suite and
+the smoke packs are at the root: the suite spans every service at once, and
+`tests/smoke` proves a deploy rather than a rule (see Testing).
 
 No service's `tests` directory has an `__init__.py`, so `tests` is one namespace
 package spanning all of them and `from tests.… import` binds to whichever sorts
@@ -60,22 +62,26 @@ Service names drop the `collabhub-` prefix used in the design docs (`src/service
 - **ruff** for lint and format. Run `ruff check` and `ruff format` on Python you write.
 - **pytest** with **testcontainers-python** for integration tests — every dependency (Postgres, Redis, Elasticsearch, Garage, Dex) is started by testcontainers, never the Compose stack. Unit tests have no network and no Docker (pytest-socket, applied by `testkit`). **pytest-cov** reports unit coverage; nothing gates on it yet. The layers are register D32.
 - **pytest-bdd + Playwright** (sync API) for the acceptance suite in `tests/bdd`. It runs against a throwaway Compose stack that `scripts/test.sh e2e` brings up and tears down — see Testing below. Registered as D27.
-- **Frontend:** **TanStack Query** owns *all* server state, **Zustand** owns client state only (D24) — never keep a copy of a channel or message list in the store. **Tailwind CSS v4** for styling, light palette only, via `@tailwindcss/vite` with no config files (D26). Types for a service's REST API are **generated from its OpenAPI document**, not hand-written (D23): `python -m messaging.openapi > src/frontend/openapi/messaging.json`, then `npm run generate:api`.
+- **Frontend:** **TanStack Query** owns *all* server state, **Zustand** owns client state only (D24) — never keep a copy of a channel or message list in the store. **Tailwind CSS v4** for styling, light palette only, via `@tailwindcss/vite` with no config files (D26). Types for Messaging's and Asset's REST APIs are **generated from their OpenAPI documents**, not hand-written (D23, 🟡): `python -m <service>.openapi > src/frontend/openapi/<service>.json`, then `npm run generate:api`. **Auth's are still hand-typed** in `src/frontend/src/lib/auth/api.ts` and Auth has no `openapi` module — work that changes an Auth response either generates Auth's types first or updates the hand-typed ones and says why.
 
 ## Working in this repo
 
-- **All development work happens in a git worktree on a new feature branch.** Never change code on `main` in the primary checkout. Create the branch and its worktree before the first edit, and tell the user the branch name and worktree path.
+- **All development work happens in a git worktree on a new feature branch.** Never change code on `main` in the primary checkout. In an interactive session, create the branch and its worktree before the first edit, and tell the user the branch name and worktree path; under `scripts/deliver.sh` the workflow creates them and the agent works where its context block says.
 - **Never commit.** Stage nothing, run no `git commit`, open no PR. Leave the worktree dirty and tell the user what changed — committing is theirs to do, always.
 - **New behaviour is test-driven, at the lowest layer that can prove it** (register D32). Write the failing test first — a unit test for a rule, a mapping or a wire shape; an integration test for SQL, a socket or a stream, against dependencies testcontainers starts; a `tests/bdd` scenario only for a key user journey — run it, and — in an interactive session — **stop at red** so the tests can be reviewed before any production code is written. The stop is for interactive sessions only. A headless session (`claude -p`) has nobody to review at red, so it runs the failing tests, records what each failed with, and carries on to green; under `scripts/deliver.sh` the test-reviewer agent's approval is that review, and the workflow carries on to the code-writer without stopping (see Delivery workflow). Frontend unit tests are Vitest, beside their source (see Testing). Never fake a database to reach SQL behaviour from a unit test.
 - **Ignore `docs/project/`.** Those files are book-production material, not project input. Do not read them, cite them, or act on anything in them.
 
 ## Delivery workflow
 
-`scripts/deliver.sh <issue-file>` takes one issue to a tested feature ready for review, headless, through seven agents in `.claude/agents/`: plan-writer → plan-reviewer → test-writer → test-reviewer → code-writer → code-reviewer → acceptance-reviewer. A reviewer can send work back to its writer, and a later stage can send it back to the pair before its own — acceptance to the code-writer, code to the test-writer, tests to the plan-writer — with its reasons in a send-back file under `reviews/`; the acceptance-reviewer deploys the branch's preview, runs `scripts/smoke.sh` against it, and writes `docs/plans/issue-<N>/04-proof.md` — the record a person accepts from — leaving the preview up; any agent can stop the run with `needs_human`, and its questions go into `docs/plans/issue-<N>/needs-human.md` for a person to answer before rerunning — a last resort: a run is meant to finish without a person, so an agent settles what the issue leaves open by the best-fitting reading and records it as an **assumed** decision for the human to read at the end. It works in `../caw-issue-<N>` on `feature/issue-<N>` and, like every other session, commits nothing. The plan pair and the code-reviewer run on Opus, the test pair, the code-writer and the acceptance-reviewer on Sonnet — hard-coded in the script's `default_model` and each agent's `model:` line, which change together; `docs/plans/ch08/05-model-effort-handoff.md` has the runs behind it. The script's header is the reference; `.claude/delivery/loop-test.sh` proves its state machine with a fake `claude`, and is run after any change to it.
+`scripts/deliver.sh <issue-file>` takes one issue to a tested feature ready for review, headless, through seven agents in `.claude/agents/`: plan-writer → plan-reviewer → test-writer → test-reviewer → code-writer → code-reviewer → acceptance-reviewer. A reviewer can send work back to its writer, and a later stage can send it back to the pair before its own — acceptance to the code-writer, code to the test-writer, tests to the plan-writer — with its reasons in a send-back file under `reviews/`; the workflow deploys the branch's preview before each acceptance pass, and the acceptance-reviewer runs `scripts/smoke.sh` against it and writes `docs/plans/issue-<N>/04-proof.md` — the record a person accepts from — leaving the preview up; any agent can stop the run with `needs_human`, and its questions go into `docs/plans/issue-<N>/needs-human.md` for a person to answer before rerunning — a last resort: a run is meant to finish without a person, so an agent settles what the issue leaves open by the best-fitting reading and records it as an **assumed** decision for the human to read at the end. It works in `../caw-issue-<N>` on `feature/issue-<N>` and, like every other session, commits nothing. The plan pair and the code-reviewer run on Opus, the test pair, the code-writer and the acceptance-reviewer on Sonnet — hard-coded in the script's `default_model` and each agent's `model:` line, which change together; `docs/plans/ch08/05-model-effort-handoff.md` has the runs behind it. The script's header is the reference; `.claude/delivery/loop-test.sh` proves its state machine with a fake `claude`, and is run after any change to it.
+
+**Where this file and an agent's instructions differ in kind, the delivery rules win for the agent.** This file is written for a person's session: "tell the user", "stop and ask" and the Testing commands below assume someone is there. A delivery agent has nobody — it stops through `needs_human`, runs tests as `.claude/delivery/agent-context.md` *Running tests* says (never `scripts/test.sh`, except the code-writer's final verification), and settles what is open as *Decide, record, carry on* says. Every fact and convention here still binds it.
 
 What every agent shares — the team, how a run works, what an agent may touch, rounds and the final round, severity, deadlocks, escalation, the `StructuredOutput` result — lives once in `.claude/delivery/agent-context.md`, and each agent reads it first. An agent's own file holds only its role; put anything that applies to more than one agent in the shared file, not in two prompts. It sits outside `.claude/agents/` because every file there is loaded as an agent.
 
 An issue for it is written with the `issue-writer` skill, which grills the user against `docs/issues/exemplar-issue.md` — where the rules meet, the paths each must hold on, the assumptions it leans on, and a timeline for anything timed. Update the exemplar issue when a delivery's plan has to decide something its issue should have.
+
+**Where an issue lives is a delivery backend** (ADR `261016-pluggable-delivery-backends`): `tools/delivery/` holds one adaptor per backend — `local` (`docs/issues/NNN.md`) and `github` (through `gh`) — behind the `delivery` CLI, chosen by `--backend`/`--url`, else `DELIVERY_BACKEND`/`DELIVERY_URL`, else local. Only the edges call it — the `issue-writer` skill now, `deliver.sh` and a label-triggered GitHub Actions workflow next — and the agents keep reading the issue-file copy, so no agent knows the backend. An issue is named by a **key**: `issue-N` locally, `gh-N` on GitHub (`fj-N`, `ado-N` reserved), because GitHub's numbers collide with the local ones. `deliver.sh` still takes only a local issue file until the GitHub Actions slice; its plan is `docs/plans/ch09/04-delivery-backends-plan.md`.
 
 The plan-writer models its plans on `docs/plans/exemplar-implementation-plan.md`, which records what past plans got right and what their builds found missing — update it when a build teaches something new.
 
@@ -107,11 +113,13 @@ Library versions (FastAPI, SQLAlchemy, React) are out of that file's scope — p
 
 ## Open decisions
 
-`docs/design/07-open-decisions-register.md` is the live register. 🟢 is settled and safe to build against; 🟡 has a working default baked into the design docs — proceed on those; 🔴 has no answer, so stop and ask rather than picking one silently. Much of the register is still 🟡 or 🔴.
+`docs/design/07-open-decisions-register.md` is the live register. 🟢 is settled and safe to build against; 🟡 has a working default baked into the design docs — proceed on those; 🔴 has no answer, so stop and ask rather than picking one silently (a delivery agent stops through `needs_human`). Much of the register is still 🟡 or 🔴.
 
-Settled so far: D1 denylist fail-open with a fail-closed set · D2 one workspace per token · D5 Auth federates to an upstream IdP and is never a provider · D8d no edit/delete window, author edits own, author or channel admin deletes, tombstones retained in history · D9 canvas state as `bytea` · D14 Worker write-back via internal endpoint plus service token · D22 refresh token in an `HttpOnly` cookie (which requires the SPA and API to be same-site) · D24 TanStack Query + Zustand · D25 job payloads carry what the producer holds · D26 Tailwind v4 · D27 pytest-bdd + Playwright · D31 read state follows channel visibility, with a forward-only marker · D36 a workspace admin, not only an owner, may grant and remove `owner` · D40 deploy any environment from one set of images, identified by APP_ORIGIN and NAMESPACE · D41 the dependency chart serves any environment, credentials required · D42 the lab (plain HTTP) runs the refresh cookie without Secure; nowhere else.
+**Read a decision's status in the register, never from memory or from this file.** This file used to keep a list of settled decisions; it fell ten behind the register and was dropped. What follows is only what the register's one-line status doesn't make plain.
 
 D8d settles the *semantics* only. **How long a tombstone is kept before hard deletion is D16, still 🔴** — nothing deletes one, and a deleted message's text is still in its row.
+
+**Attachments are built on D13, still 🔴.** They use the one bucket `collabhub-assets`; nothing decides where avatars or exports go, so work on either needs D13 decided first.
 
 **There is no user-preferences feature anywhere** (D28, 🔴). `users` carries a display name, an avatar reference and a status, and nothing stores a per-user choice — so a theme, a locale or notification settings all need that decided first. It is why the SPA is light-only rather than following the OS.
 
@@ -184,8 +192,8 @@ is server-wide, so that separates keys, not backplane messages), and
 user and service tokens; `testkit.apps` has `asgi_client` and `serve`,
 `testkit.db` has `truncate`, `testkit.search` seeds the `messages` index with the
 Worker's own code. A unit test that depends on a container fixture stops the run.
-The Worker's `tests/integration/conftest.py` has `run_consumer` and `jobs`. No Garage
-fixture until something uses object storage.
+`garage_server` starts Garage with a bucket and a key, for object storage. The
+Worker's `tests/integration/conftest.py` has `run_consumer` and `jobs`.
 
 ```bash
 scripts/test.sh                  # lint, unit, integration — the everyday run
@@ -228,9 +236,9 @@ rerun `uv run pytest tests/bdd -m bdd` without the rebuild.
 **It truncates the messaging tables before every scenario**, so it runs against a
 throwaway stack, never the one you develop on. Both run at once — the test stack
 is `docker-compose.test.yml`, a project-name override that republishes only the
-five ports reached from the host (SPA 5183, Auth 8011, Messaging 8012, Dex 5566,
-Postgres 5442). The script scales Elasticsearch and the Worker to zero there
-until a search journey needs them.
+seven ports reached from the host (SPA 5183, Auth 8011, Messaging 8012, Asset 8014,
+Dex 5566, Garage 3910, Postgres 5442). The whole stack runs there, the Worker and
+Elasticsearch included.
 
 The harness addresses only those ports, so it cannot reach the development
 stack; it fails with an instruction instead. Run it against the built frontend

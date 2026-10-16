@@ -26,7 +26,7 @@ dependencies = [
 package = false
 
 [tool.uv.workspace]
-members = ["src/services/*"]
+members = ["src/services/*", "tools/*"]
 
 [tool.uv.sources]
 collabhub-shared = { workspace = true }
@@ -37,6 +37,7 @@ collabhub-canvas = { workspace = true }
 collabhub-asset = { workspace = true }
 collabhub-worker = { workspace = true }
 collabhub-testkit = { workspace = true }
+collabhub-delivery = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -52,6 +53,8 @@ dev = [
     # The test harness and its pytest plugin. A dev dependency, not one of the
     # root's `dependencies`: it is a workspace member, but nothing ships it.
     "collabhub-testkit",
+    # The delivery backends and their CLI — dev tooling, like testkit.
+    "collabhub-delivery",
 ]
 
 [tool.pytest.ini_options]
@@ -66,7 +69,7 @@ pythonpath = ["tests"]
 # `tests/bdd` is the Gherkin suite at the repo root; without it here the .feature
 # files are simply not collected. `tests/smoke` is left out on purpose: it needs
 # a running deploy's origin, and scripts/smoke.sh names it.
-testpaths = ["src/services", "tests/bdd"]
+testpaths = ["src/services", "tools", "tests/bdd"]
 # `unit` and `integration` are not declared here: testkit's plugin registers
 # them and sets them from the directory a test lives in (register D32).
 #
@@ -99,7 +102,7 @@ addopts = "--import-mode=importlib -p pytester"
 # backfill has measured one. The service packages only — not their tests, not
 # testkit, not Alembic revisions.
 [tool.coverage.run]
-source_pkgs = ["shared", "contracts", "auth", "messaging", "canvas", "asset", "worker"]
+source_pkgs = ["shared", "contracts", "auth", "messaging", "canvas", "asset", "worker", "delivery"]
 branch = true
 omit = ["*/alembic/*"]
 

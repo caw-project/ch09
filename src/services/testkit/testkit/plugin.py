@@ -3,7 +3,8 @@
 Registered through the `pytest11` entry point in testkit's pyproject, so every
 pytest run in the workspace loads it without a conftest import.
 
-Under `src/services/<service>/tests/`, a test in `unit/` is marked `unit` and
+Under `src/services/<service>/tests/` — and `tools/<tool>/tests/`, the dev
+tooling laid out the same way — a test in `unit/` is marked `unit` and
 one in `integration/` is marked `integration`. A test anywhere else there stops
 the run. Before this the layer was a `pytestmark` line, and a file that forgot
 it ran in the unit layer, reaching for containers it had no business with.
@@ -13,7 +14,7 @@ are refused — asyncio's self-pipe is an AF_UNIX socketpair, so an event loop
 still works — and `DOCKER_HOST` points at an address that cannot resolve,
 because the Docker SDK's default is a Unix socket the guard would let through.
 
-Paths outside `src/services` — the Gherkin suite in `tests/bdd` — are left alone
+Paths outside those — the Gherkin suite in `tests/bdd` — are left alone
 by those rules. A Gherkin scenario, wherever it lives, is labelled instead: its
 feature, name, line and tags go into its user properties, which `--junitxml`
 writes out for the test report (`testkit.report`).
@@ -57,19 +58,26 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def layer_of(path: Path, root: Path) -> str | None:
-    """`unit` or `integration` for a test in a service's tests, None outside them.
+    """`unit` or `integration` for a test in a package's tests, None outside them.
 
-    Raises `pytest.UsageError` for a test file in a service's `tests/` that is
-    in neither layer's directory.
+    A package is a service, `src/services/<name>/`, or dev tooling,
+    `tools/<name>/`. Raises `pytest.UsageError` for a test file in a package's
+    `tests/` that is in neither layer's directory.
     """
     try:
         parts = path.relative_to(root).parts
     except ValueError:
         return None
-    if len(parts) < 5 or parts[:2] != ("src", "services") or parts[3] != "tests":
+    if parts[:2] == ("src", "services"):
+        tests = 3
+    elif parts[:1] == ("tools",):
+        tests = 2
+    else:
         return None
-    if len(parts) > 5 and parts[4] in LAYERS:
-        return parts[4]
+    if len(parts) < tests + 2 or parts[tests] != "tests":
+        return None
+    if len(parts) > tests + 2 and parts[tests + 1] in LAYERS:
+        return parts[tests + 1]
     raise pytest.UsageError(
         f"{Path(*parts)} is not under tests/unit/ or tests/integration/"
         " — the directory decides a test's layer."

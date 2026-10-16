@@ -9,6 +9,7 @@ members = [
     "collabhub-auth",
     "collabhub-canvas",
     "collabhub-contracts",
+    "collabhub-delivery",
     "collabhub-messaging",
     "collabhub-shared",
     "collabhub-testkit",
@@ -263,6 +264,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "asyncpg" },
+    { name = "collabhub-delivery" },
     { name = "collabhub-testkit" },
     { name = "httpx" },
     { name = "pytest" },
@@ -288,6 +290,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "asyncpg", specifier = ">=0.30" },
+    { name = "collabhub-delivery", editable = "tools/delivery" },
     { name = "collabhub-testkit", editable = "src/services/testkit" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "pytest", specifier = ">=8.3" },
@@ -402,6 +405,11 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "pydantic", specifier = ">=2.9" }]
+
+[[package]]
+name = "collabhub-delivery"
+version = "0.1.0"
+source = { editable = "tools/delivery" }
 
 [[package]]
 name = "collabhub-messaging"
