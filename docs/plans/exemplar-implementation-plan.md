@@ -62,7 +62,8 @@ testcontainers · React 19, TanStack Query, Vitest + MSW · pytest-bdd + Playwri
 **Issue:** `docs/plans/issue-0/00-issue.md` — read it first. This plan argues from it and does not
 repeat it.
 
-**Worktree:** `../caw-issue-0`, branch `feature/issue-0`, from `main` at `2063966`.
+**Worktree:** `../caw-issue-0`, branch `feature/issue-0`, from `main` at `2063966` — as the context
+block's **Worktree:** line gives them; never built from the key.
 
 > **Why:** every ch07 plan opens this way (`02-message-reactions…:1-31`). The base commit makes
 > the baseline counts below checkable. The override note stops a skill's "commit" step being

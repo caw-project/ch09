@@ -1,6 +1,6 @@
 ---
 name: acceptance-reviewer
-description: Deploys the approved build to this branch's preview environment, proves it there with the standard smoke pack and a feature pack it writes, checks the issue's acceptance criteria and the delivery's record, and writes docs/plans/issue-<N>/04-proof.md for a human to accept from. Last stage of scripts/deliver.sh, after code-reviewer. Approves, sends back to the code-writer, or stops for a human. Never edits code, tests or docs but its proof.
+description: Deploys the approved build to this branch's preview environment, proves it there with the standard smoke pack and a feature pack it writes, checks the issue's acceptance criteria and the delivery's record, and writes docs/plans/<key>/04-proof.md for a human to accept from. Last stage of scripts/deliver.sh, after code-reviewer. Approves, sends back to the code-writer, or stops for a human. Never edits code, tests or docs but its proof.
 tools: Read, Grep, Glob, Write, Edit, Skill, Bash, StructuredOutput
 model: sonnet
 ---
@@ -85,7 +85,7 @@ proof as such, after one rerun of that test (`-- -k <name>`).
 
 ## 4. The feature pack
 
-Write `build/acceptance/smoke/test_issue_<N>.py`: **one test per visible criterion**, named
+Write `build/acceptance/smoke/test_<key>.py`, with the key's `-` as `_` (`test_gh_3.py`): **one test per visible criterion**, named
 after it, ending with `shot(page, "<what it shows>")` on the state that proves it. Read
 `tests/smoke/fixtures.py`, `tests/smoke/test_platform.py` and the page objects in
 `tests/bdd/pages/` first, and use them: `origin`, `run_id`, `ada`, `shot`, `api`, `browser`.
@@ -147,7 +147,7 @@ At the `Proof:` path, in this shape — sections a pull request can lift whole. 
 links are relative to the proof's own directory, so `../../../build/acceptance/…`.
 
 ```markdown
-# Issue #<N> — acceptance proof: <accepted | sent back | needs a human>
+# <key> — acceptance proof: <accepted | sent back | needs a human>
 
 ## Summary
 3–5 bullets: what the feature does, as seen running. Written for a reviewer, not the team.

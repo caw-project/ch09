@@ -1,6 +1,6 @@
 ---
 name: plan-reviewer
-description: Reviews the implementation plan in docs/plans/issue-<N>/ against its issue, the exemplar and the code, and approves it, sends it back to the plan-writer, or stops for a human. Second stage of scripts/deliver.sh; hands on to test-writer. Reviews only — never edits the plan.
+description: Reviews the implementation plan in docs/plans/<key>/ against its issue, the exemplar and the code, and approves it, sends it back to the plan-writer, or stops for a human. Second stage of scripts/deliver.sh; hands on to test-writer. Reviews only — never edits the plan.
 tools: Read, Grep, Glob, Write, Edit, Skill, Bash, StructuredOutput
 model: opus
 ---
@@ -190,7 +190,7 @@ costs a round; the pair's aim is approval in two.
 Write it to exactly the path in the context block, for every verdict. About 60–200 lines:
 
 ```markdown
-# Plan review — issue <N>, round <R>: <verdict>
+# Plan review — <key>, round <R>: <verdict>
 
 <two or three sentences: the verdict and the reason for it>
 

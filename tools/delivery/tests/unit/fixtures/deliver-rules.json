@@ -1,0 +1,5876 @@
+{
+ "_about": "Captured once from scripts/deliver.sh (bash) before the Python port; the Python rules must equal it. Plan dir docs/plans/issue-999. Changed on purpose since: the code-writer may not write .github/workflows/ (docs/plans/ch09/06-delivery-runner-plan.md).",
+ "plan_dir": "docs/plans/issue-999",
+ "situations": {
+  "first": "round 1 of 3, nothing open",
+  "review": "round 1, a writer with a review to address",
+  "round2": "the pair's round 2 of 3",
+  "final": "round 3 of 3",
+  "past-final": "round 4 of 3",
+  "moved-final": "round 3 of 4 \u2014 a send-back moved the final round out",
+  "other-sendback": "round 1, another stage's send-back open (code-reviewer's, or acceptance-reviewer's for the code-reviewer)",
+  "own-sendback": "round 1, this stage's own send-back open"
+ },
+ "envs": {
+  "none": {},
+  "max-turns": {
+   "DELIVER_MAX_TURNS": "77"
+  },
+  "turn-caps": {
+   "DELIVER_REWORK_MAX_TURNS": "40",
+   "DELIVER_FINAL_MAX_TURNS": "20"
+  },
+  "model": {
+   "DELIVER_MODEL": "haiku"
+  },
+  "stage-model": {
+   "DELIVER_MODEL": "haiku",
+   "DELIVER_MODEL_<STAGE>": "opus"
+  },
+  "rework-model": {
+   "DELIVER_MODEL": "haiku",
+   "DELIVER_REWORK_MODEL": "opus"
+  },
+  "effort": {
+   "DELIVER_EFFORT": "low"
+  },
+  "stage-effort": {
+   "DELIVER_EFFORT": "low",
+   "DELIVER_EFFORT_<STAGE>": "high"
+  },
+  "rework-effort": {
+   "DELIVER_REWORK_EFFORT": "high"
+  },
+  "final-effort": {
+   "DELIVER_FINAL_EFFORT": "low",
+   "DELIVER_REWORK_EFFORT": "high"
+  }
+ },
+ "stages": {
+  "plan-writer": {
+   "allowed_tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Write",
+    "Edit",
+    "Skill",
+    "Bash(git log *)",
+    "Bash(git show *)",
+    "Bash(git diff *)",
+    "Bash(git status *)",
+    "Bash(git worktree list*)",
+    "Bash(git branch *)",
+    "Bash(git merge-base *)",
+    "Bash(ls *)",
+    "Bash(wc *)"
+   ],
+   "write_scope": "^docs/plans/issue-999/",
+   "write_denied": null,
+   "writer_output": "docs/plans/issue-999/01-implementation-plan.md",
+   "earlier_pair": null
+  },
+  "plan-reviewer": {
+   "allowed_tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Write",
+    "Edit",
+    "Skill",
+    "Bash(git log *)",
+    "Bash(git show *)",
+    "Bash(git diff *)",
+    "Bash(git status *)",
+    "Bash(git worktree list*)",
+    "Bash(git branch *)",
+    "Bash(git merge-base *)",
+    "Bash(ls *)",
+    "Bash(wc *)"
+   ],
+   "write_scope": "^docs/plans/issue-999/reviews/",
+   "write_denied": null,
+   "writer_output": null,
+   "earlier_pair": null
+  },
+  "test-writer": {
+   "allowed_tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Write",
+    "Edit",
+    "Skill",
+    "Bash(npm --prefix src/frontend ci*)",
+    "Bash(uv run ruff *)",
+    "Bash(git log *)",
+    "Bash(git show *)",
+    "Bash(git diff *)",
+    "Bash(git status *)",
+    "Bash(git worktree list*)",
+    "Bash(git branch *)",
+    "Bash(git merge-base *)",
+    "Bash(ls *)",
+    "Bash(wc *)",
+    "Bash(npm --prefix src/frontend test*)",
+    "Bash(npm --prefix src/frontend run typecheck*)",
+    "Bash(npm --prefix src/frontend run lint*)",
+    "Bash(uv run pytest *)",
+    "Bash(uv sync*)",
+    "Bash(rm src/*)",
+    "Bash(rm tests/*)",
+    "Bash(rm docs/*)",
+    "Bash(rm charts/*)",
+    "Bash(rm docker/*)",
+    "Bash(rm scripts/*)"
+   ],
+   "write_scope": "^(src/frontend/src/.*\\.test\\.tsx?$|src/frontend/src/test/|src/services/[^/]+/tests/|src/services/testkit/|tests/bdd/|docs/plans/issue-999/02-red-tests.md$|docs/plans/issue-999/reviews/test-writer-sendback-)",
+   "write_denied": null,
+   "writer_output": "docs/plans/issue-999/02-red-tests.md",
+   "earlier_pair": "plan"
+  },
+  "test-reviewer": {
+   "allowed_tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Write",
+    "Edit",
+    "Skill",
+    "Bash(.claude/delivery/sketch.sh *)",
+    "Bash(git log *)",
+    "Bash(git show *)",
+    "Bash(git diff *)",
+    "Bash(git status *)",
+    "Bash(git worktree list*)",
+    "Bash(git branch *)",
+    "Bash(git merge-base *)",
+    "Bash(ls *)",
+    "Bash(wc *)",
+    "Bash(npm --prefix src/frontend test*)",
+    "Bash(npm --prefix src/frontend run typecheck*)",
+    "Bash(npm --prefix src/frontend run lint*)",
+    "Bash(uv run pytest *)",
+    "Bash(uv sync*)"
+   ],
+   "write_scope": "^docs/plans/issue-999/reviews/",
+   "write_denied": null,
+   "writer_output": null,
+   "earlier_pair": "plan"
+  },
+  "code-writer": {
+   "allowed_tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Write",
+    "Edit",
+    "Skill",
+    "Bash(npm --prefix src/frontend ci*)",
+    "Bash(npm --prefix src/frontend install *)",
+    "Bash(npm --prefix src/frontend run build*)",
+    "Bash(npm --prefix src/frontend run generate:api*)",
+    "Bash(uv run ruff *)",
+    "Bash(uv run alembic *)",
+    "Bash(uv run python -m *)",
+    "Bash(uv add *)",
+    "Bash(uv lock*)",
+    "Bash(scripts/test.sh *)",
+    "Bash(.claude/hooks/security.sh*)",
+    "Bash(git log *)",
+    "Bash(git show *)",
+    "Bash(git diff *)",
+    "Bash(git status *)",
+    "Bash(git worktree list*)",
+    "Bash(git branch *)",
+    "Bash(git merge-base *)",
+    "Bash(ls *)",
+    "Bash(wc *)",
+    "Bash(npm --prefix src/frontend test*)",
+    "Bash(npm --prefix src/frontend run typecheck*)",
+    "Bash(npm --prefix src/frontend run lint*)",
+    "Bash(uv run pytest *)",
+    "Bash(uv sync*)",
+    "Bash(uv run ruff check *)",
+    "Bash(uv run ruff format --check *)",
+    "Bash(helm lint *)",
+    "Bash(helm template *)",
+    "Bash(bash -n *)",
+    "Bash(python3 .claude/hooks/checks/conventions.py*)",
+    "Bash(rm src/*)",
+    "Bash(rm tests/*)",
+    "Bash(rm docs/*)",
+    "Bash(rm charts/*)",
+    "Bash(rm docker/*)",
+    "Bash(rm scripts/*)"
+   ],
+   "write_scope": "^(src/|docs/|charts/|docker/|scripts/|\\.github/|\\.env\\.example$|docker-compose|(pyproject\\.toml|uv\\.lock|ruff\\.toml|README\\.md)$)",
+   "write_denied": "^(src/frontend/src/.*\\.test\\.tsx?$|src/frontend/src/test/|src/services/[^/]+/tests/|src/services/testkit/|tests/|\\.github/workflows/|docs/plans/issue-999/02-red-tests.md$|docs/plans/issue-999/reviews/[a-z]+-reviewer-|docs/plans/issue-999/04-proof.md$)",
+   "writer_output": "docs/plans/issue-999/03-green-report.md",
+   "earlier_pair": "test"
+  },
+  "code-reviewer": {
+   "allowed_tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Write",
+    "Edit",
+    "Skill",
+    "Bash(.claude/delivery/sketch.sh *)",
+    "Bash(npm --prefix src/frontend run build*)",
+    "Bash(git log *)",
+    "Bash(git show *)",
+    "Bash(git diff *)",
+    "Bash(git status *)",
+    "Bash(git worktree list*)",
+    "Bash(git branch *)",
+    "Bash(git merge-base *)",
+    "Bash(ls *)",
+    "Bash(wc *)",
+    "Bash(npm --prefix src/frontend test*)",
+    "Bash(npm --prefix src/frontend run typecheck*)",
+    "Bash(npm --prefix src/frontend run lint*)",
+    "Bash(uv run pytest *)",
+    "Bash(uv sync*)",
+    "Bash(uv run ruff check *)",
+    "Bash(uv run ruff format --check *)",
+    "Bash(helm lint *)",
+    "Bash(helm template *)",
+    "Bash(bash -n *)",
+    "Bash(python3 .claude/hooks/checks/conventions.py*)"
+   ],
+   "write_scope": "^docs/plans/issue-999/reviews/",
+   "write_denied": null,
+   "writer_output": null,
+   "earlier_pair": "test"
+  },
+  "acceptance-reviewer": {
+   "allowed_tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Write",
+    "Edit",
+    "Skill",
+    "Bash(scripts/deploy.sh preview url)",
+    "Bash(scripts/smoke.sh *)",
+    "Bash(git log *)",
+    "Bash(git show *)",
+    "Bash(git diff *)",
+    "Bash(git status *)",
+    "Bash(git worktree list*)",
+    "Bash(git branch *)",
+    "Bash(git merge-base *)",
+    "Bash(ls *)",
+    "Bash(wc *)"
+   ],
+   "write_scope": "^docs/plans/issue-999/(04-proof\\.md$|reviews/acceptance-reviewer-sendback-)",
+   "write_denied": null,
+   "writer_output": null,
+   "earlier_pair": "code"
+  }
+ },
+ "passes": [
+  {
+   "stage": "plan-writer",
+   "situation": "first",
+   "env": "none",
+   "model": "",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "first",
+   "env": "max-turns",
+   "model": "",
+   "effort": "",
+   "turns": 77,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "first",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "first",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "first",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "first",
+   "env": "rework-model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "first",
+   "env": "effort",
+   "model": "",
+   "effort": "low",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "first",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "first",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "first",
+   "env": "final-effort",
+   "model": "",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "review",
+   "env": "none",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "review",
+   "env": "max-turns",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "review",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "review",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "review",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "review",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "review",
+   "env": "effort",
+   "model": "",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "review",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "review",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "review",
+   "env": "final-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "round2",
+   "env": "none",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "round2",
+   "env": "max-turns",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "round2",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "round2",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "round2",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "round2",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "round2",
+   "env": "effort",
+   "model": "",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "round2",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "round2",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "round2",
+   "env": "final-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "final",
+   "env": "none",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "final",
+   "env": "max-turns",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "final",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "medium",
+   "turns": 20,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "final",
+   "env": "model",
+   "model": "haiku",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "final",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "final",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "final",
+   "env": "effort",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "final",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "final",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "final",
+   "env": "final-effort",
+   "model": "",
+   "effort": "low",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "past-final",
+   "env": "none",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "past-final",
+   "env": "max-turns",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "past-final",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "medium",
+   "turns": 20,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "past-final",
+   "env": "model",
+   "model": "haiku",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "past-final",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "past-final",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "past-final",
+   "env": "effort",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "past-final",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "past-final",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "past-final",
+   "env": "final-effort",
+   "model": "",
+   "effort": "low",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "moved-final",
+   "env": "none",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "moved-final",
+   "env": "max-turns",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "moved-final",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "moved-final",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "moved-final",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "moved-final",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "moved-final",
+   "env": "effort",
+   "model": "",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "moved-final",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "moved-final",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "moved-final",
+   "env": "final-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "other-sendback",
+   "env": "none",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "other-sendback",
+   "env": "max-turns",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "other-sendback",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "other-sendback",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "other-sendback",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "other-sendback",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "other-sendback",
+   "env": "effort",
+   "model": "",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "other-sendback",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "other-sendback",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "other-sendback",
+   "env": "final-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "own-sendback",
+   "env": "none",
+   "model": "",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "own-sendback",
+   "env": "max-turns",
+   "model": "",
+   "effort": "",
+   "turns": 77,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "own-sendback",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "own-sendback",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "own-sendback",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "own-sendback",
+   "env": "rework-model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "own-sendback",
+   "env": "effort",
+   "model": "",
+   "effort": "low",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "own-sendback",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "own-sendback",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-writer",
+   "situation": "own-sendback",
+   "env": "final-effort",
+   "model": "",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "first",
+   "env": "none",
+   "model": "",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "first",
+   "env": "max-turns",
+   "model": "",
+   "effort": "",
+   "turns": 77,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "first",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "first",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "first",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "first",
+   "env": "rework-model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "first",
+   "env": "effort",
+   "model": "",
+   "effort": "low",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "first",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "first",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "first",
+   "env": "final-effort",
+   "model": "",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "review",
+   "env": "none",
+   "model": "",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "review",
+   "env": "max-turns",
+   "model": "",
+   "effort": "",
+   "turns": 77,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "review",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "review",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "review",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "review",
+   "env": "rework-model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "review",
+   "env": "effort",
+   "model": "",
+   "effort": "low",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "review",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "review",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "review",
+   "env": "final-effort",
+   "model": "",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "round2",
+   "env": "none",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "round2",
+   "env": "max-turns",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "round2",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "round2",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "round2",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "round2",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "round2",
+   "env": "effort",
+   "model": "",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "round2",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "round2",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "round2",
+   "env": "final-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "final",
+   "env": "none",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "final",
+   "env": "max-turns",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "final",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "medium",
+   "turns": 20,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "final",
+   "env": "model",
+   "model": "haiku",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "final",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "final",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "final",
+   "env": "effort",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "final",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "final",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "final",
+   "env": "final-effort",
+   "model": "",
+   "effort": "low",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "past-final",
+   "env": "none",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "past-final",
+   "env": "max-turns",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "past-final",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "medium",
+   "turns": 20,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "past-final",
+   "env": "model",
+   "model": "haiku",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "past-final",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "past-final",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "past-final",
+   "env": "effort",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "past-final",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "past-final",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "past-final",
+   "env": "final-effort",
+   "model": "",
+   "effort": "low",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "moved-final",
+   "env": "none",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "moved-final",
+   "env": "max-turns",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "moved-final",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "moved-final",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "moved-final",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "moved-final",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "moved-final",
+   "env": "effort",
+   "model": "",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "moved-final",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "moved-final",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "moved-final",
+   "env": "final-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "other-sendback",
+   "env": "none",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "other-sendback",
+   "env": "max-turns",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "other-sendback",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "other-sendback",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "other-sendback",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "other-sendback",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "other-sendback",
+   "env": "effort",
+   "model": "",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "other-sendback",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "other-sendback",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "other-sendback",
+   "env": "final-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "own-sendback",
+   "env": "none",
+   "model": "",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "own-sendback",
+   "env": "max-turns",
+   "model": "",
+   "effort": "",
+   "turns": 77,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "own-sendback",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "own-sendback",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "own-sendback",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "own-sendback",
+   "env": "rework-model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "own-sendback",
+   "env": "effort",
+   "model": "",
+   "effort": "low",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "own-sendback",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "own-sendback",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "plan-reviewer",
+   "situation": "own-sendback",
+   "env": "final-effort",
+   "model": "",
+   "effort": "",
+   "turns": 150,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "first",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "first",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 77,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "first",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "first",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "first",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "first",
+   "env": "rework-model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "first",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "first",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "first",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "first",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "review",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "review",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "review",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "review",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "review",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "review",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "review",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "review",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "review",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "review",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "round2",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "round2",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "round2",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "round2",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "round2",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "round2",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "round2",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "round2",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "round2",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "round2",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "final",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-writer",
+   "situation": "final",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-writer",
+   "situation": "final",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 20,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-writer",
+   "situation": "final",
+   "env": "model",
+   "model": "haiku",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-writer",
+   "situation": "final",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-writer",
+   "situation": "final",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-writer",
+   "situation": "final",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-writer",
+   "situation": "final",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-writer",
+   "situation": "final",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-writer",
+   "situation": "final",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-writer",
+   "situation": "past-final",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-writer",
+   "situation": "past-final",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-writer",
+   "situation": "past-final",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 20,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-writer",
+   "situation": "past-final",
+   "env": "model",
+   "model": "haiku",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-writer",
+   "situation": "past-final",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-writer",
+   "situation": "past-final",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-writer",
+   "situation": "past-final",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-writer",
+   "situation": "past-final",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-writer",
+   "situation": "past-final",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-writer",
+   "situation": "past-final",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-writer",
+   "situation": "moved-final",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "moved-final",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "moved-final",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "moved-final",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "moved-final",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "moved-final",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "moved-final",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "moved-final",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "moved-final",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "moved-final",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "other-sendback",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "other-sendback",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "other-sendback",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "other-sendback",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "other-sendback",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "other-sendback",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "other-sendback",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "other-sendback",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "other-sendback",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "other-sendback",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "own-sendback",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "own-sendback",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 77,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "own-sendback",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "own-sendback",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "own-sendback",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "own-sendback",
+   "env": "rework-model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "own-sendback",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "own-sendback",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "own-sendback",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-writer",
+   "situation": "own-sendback",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "first",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "first",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 77,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "first",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "first",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "first",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "first",
+   "env": "rework-model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "first",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "first",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "first",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "first",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "review",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "review",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 77,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "review",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "review",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "review",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "review",
+   "env": "rework-model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "review",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "review",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "review",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "review",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "round2",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "round2",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "round2",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "round2",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "round2",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "round2",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "round2",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "round2",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "round2",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "round2",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "final",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "final",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "final",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 20,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "final",
+   "env": "model",
+   "model": "haiku",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "final",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "final",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "final",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "final",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "final",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "final",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "past-final",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "past-final",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "past-final",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 20,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "past-final",
+   "env": "model",
+   "model": "haiku",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "past-final",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "past-final",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "past-final",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "past-final",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "past-final",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "past-final",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "moved-final",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "moved-final",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "moved-final",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "moved-final",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "moved-final",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "moved-final",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "moved-final",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "moved-final",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "moved-final",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "moved-final",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "other-sendback",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "other-sendback",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "other-sendback",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "other-sendback",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "other-sendback",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "other-sendback",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "other-sendback",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "other-sendback",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "other-sendback",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "other-sendback",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "own-sendback",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "own-sendback",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "own-sendback",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "own-sendback",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "own-sendback",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "own-sendback",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "own-sendback",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "own-sendback",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "own-sendback",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "test-reviewer",
+   "situation": "own-sendback",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "first",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "first",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 77,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "first",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "first",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "first",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "first",
+   "env": "rework-model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "first",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "first",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "first",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "first",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "review",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "review",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "review",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "review",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "review",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "review",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "review",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "review",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "review",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "review",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "round2",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "round2",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "round2",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "round2",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "round2",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "round2",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "round2",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "round2",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "round2",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "round2",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "final",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-writer",
+   "situation": "final",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-writer",
+   "situation": "final",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 20,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-writer",
+   "situation": "final",
+   "env": "model",
+   "model": "haiku",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-writer",
+   "situation": "final",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-writer",
+   "situation": "final",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-writer",
+   "situation": "final",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-writer",
+   "situation": "final",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-writer",
+   "situation": "final",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-writer",
+   "situation": "final",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-writer",
+   "situation": "past-final",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-writer",
+   "situation": "past-final",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-writer",
+   "situation": "past-final",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 20,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-writer",
+   "situation": "past-final",
+   "env": "model",
+   "model": "haiku",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-writer",
+   "situation": "past-final",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-writer",
+   "situation": "past-final",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-writer",
+   "situation": "past-final",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-writer",
+   "situation": "past-final",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-writer",
+   "situation": "past-final",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-writer",
+   "situation": "past-final",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-writer",
+   "situation": "moved-final",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "moved-final",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "moved-final",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "moved-final",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "moved-final",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "moved-final",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "moved-final",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "moved-final",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "moved-final",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "moved-final",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "other-sendback",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "other-sendback",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "other-sendback",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "other-sendback",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "other-sendback",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "other-sendback",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "other-sendback",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "other-sendback",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "other-sendback",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "other-sendback",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "own-sendback",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "own-sendback",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 77,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "own-sendback",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "own-sendback",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "own-sendback",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "own-sendback",
+   "env": "rework-model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "own-sendback",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "own-sendback",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "own-sendback",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-writer",
+   "situation": "own-sendback",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "first",
+   "env": "none",
+   "model": "",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "first",
+   "env": "max-turns",
+   "model": "",
+   "effort": "",
+   "turns": 77,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "first",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "first",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "first",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "first",
+   "env": "rework-model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "first",
+   "env": "effort",
+   "model": "",
+   "effort": "low",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "first",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "first",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "first",
+   "env": "final-effort",
+   "model": "",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "review",
+   "env": "none",
+   "model": "",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "review",
+   "env": "max-turns",
+   "model": "",
+   "effort": "",
+   "turns": 77,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "review",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "review",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "review",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "review",
+   "env": "rework-model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "review",
+   "env": "effort",
+   "model": "",
+   "effort": "low",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "review",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "review",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "review",
+   "env": "final-effort",
+   "model": "",
+   "effort": "",
+   "turns": 250,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "round2",
+   "env": "none",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "round2",
+   "env": "max-turns",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "round2",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "round2",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "round2",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "round2",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "round2",
+   "env": "effort",
+   "model": "",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "round2",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "round2",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "round2",
+   "env": "final-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "final",
+   "env": "none",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "final",
+   "env": "max-turns",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "final",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "medium",
+   "turns": 20,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "final",
+   "env": "model",
+   "model": "haiku",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "final",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "final",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "final",
+   "env": "effort",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "final",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "final",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "final",
+   "env": "final-effort",
+   "model": "",
+   "effort": "low",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "past-final",
+   "env": "none",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "past-final",
+   "env": "max-turns",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "past-final",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "medium",
+   "turns": 20,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "past-final",
+   "env": "model",
+   "model": "haiku",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "past-final",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "past-final",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "past-final",
+   "env": "effort",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "past-final",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "past-final",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "past-final",
+   "env": "final-effort",
+   "model": "",
+   "effort": "low",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "moved-final",
+   "env": "none",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "moved-final",
+   "env": "max-turns",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "moved-final",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "moved-final",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "moved-final",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "moved-final",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "moved-final",
+   "env": "effort",
+   "model": "",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "moved-final",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "moved-final",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "moved-final",
+   "env": "final-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "other-sendback",
+   "env": "none",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "other-sendback",
+   "env": "max-turns",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "other-sendback",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "other-sendback",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "other-sendback",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "other-sendback",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "other-sendback",
+   "env": "effort",
+   "model": "",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "other-sendback",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "other-sendback",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "other-sendback",
+   "env": "final-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "own-sendback",
+   "env": "none",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "own-sendback",
+   "env": "max-turns",
+   "model": "",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "own-sendback",
+   "env": "turn-caps",
+   "model": "",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "own-sendback",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "own-sendback",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "own-sendback",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "own-sendback",
+   "env": "effort",
+   "model": "",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "own-sendback",
+   "env": "stage-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "own-sendback",
+   "env": "rework-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "code-reviewer",
+   "situation": "own-sendback",
+   "env": "final-effort",
+   "model": "",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "first",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "first",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 77,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "first",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "first",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "first",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "first",
+   "env": "rework-model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "first",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "first",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "first",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "first",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "review",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "review",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 77,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "review",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "review",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "review",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "review",
+   "env": "rework-model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "review",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "review",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "review",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "review",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 200,
+   "rework": false,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "round2",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "round2",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "round2",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "round2",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "round2",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "round2",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "round2",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "round2",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "round2",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "round2",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "final",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "final",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "final",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 20,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "final",
+   "env": "model",
+   "model": "haiku",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "final",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "final",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "final",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "final",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "final",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "final",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "past-final",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "past-final",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "past-final",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 20,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "past-final",
+   "env": "model",
+   "model": "haiku",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "past-final",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "past-final",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "past-final",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "past-final",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "past-final",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "medium",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "past-final",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 60,
+   "rework": true,
+   "final": true
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "moved-final",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "moved-final",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "moved-final",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "moved-final",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "moved-final",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "moved-final",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "moved-final",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "moved-final",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "moved-final",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "moved-final",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "other-sendback",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "other-sendback",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "other-sendback",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "other-sendback",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "other-sendback",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "other-sendback",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "other-sendback",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "other-sendback",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "other-sendback",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "other-sendback",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "own-sendback",
+   "env": "none",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "own-sendback",
+   "env": "max-turns",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "own-sendback",
+   "env": "turn-caps",
+   "model": "sonnet",
+   "effort": "",
+   "turns": 40,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "own-sendback",
+   "env": "model",
+   "model": "haiku",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "own-sendback",
+   "env": "stage-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "own-sendback",
+   "env": "rework-model",
+   "model": "opus",
+   "effort": "",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "own-sendback",
+   "env": "effort",
+   "model": "sonnet",
+   "effort": "low",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "own-sendback",
+   "env": "stage-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "own-sendback",
+   "env": "rework-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  },
+  {
+   "stage": "acceptance-reviewer",
+   "situation": "own-sendback",
+   "env": "final-effort",
+   "model": "sonnet",
+   "effort": "high",
+   "turns": 100,
+   "rework": true,
+   "final": false
+  }
+ ]
+}

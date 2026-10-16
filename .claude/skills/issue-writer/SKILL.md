@@ -172,7 +172,8 @@ it is what the agents will get.
 
 Then stop — starting the delivery is theirs. Give the user:
 
-- **local:** the path and the command that starts delivery, `scripts/deliver.sh
-  docs/issues/<NNN>.md`;
-- **remote:** the issue's URL and key, and that delivering from it arrives with the GitHub
-  Actions workflow — `scripts/deliver.sh` takes only a local issue file today.
+- **local:** the path, the key, and the command that starts delivery, `scripts/deliver.sh
+  issue-<N>`;
+- **remote:** the issue's URL, the key, and the command that delivers it from this machine,
+  `scripts/deliver.sh --backend github --url <repo URL> gh-<N>` — starting it from the issue
+  itself, with a label, arrives with the GitHub Actions workflow.

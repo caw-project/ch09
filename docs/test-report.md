@@ -1,13 +1,13 @@
 # Test report
 
-Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `f88ba89b6fc8-dirty`.
+Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `ead328bd9036-dirty`.
 
 ## Layers
 
 | Layer | Result | Passed | Failed | Skipped | Revision |
 |---|---|--:|--:|--:|---|
-| Lint | ✅ passed | | | | `f88ba89b6fc8-dirty` |
-| Unit | ✅ passed | 1050 | 0 | 0 | `f88ba89b6fc8-dirty` |
+| Lint | ✅ passed | | | | `ead328bd9036-dirty` |
+| Unit | ✅ passed | 1722 | 0 | 0 | `ead328bd9036-dirty` |
 | Integration | ⚪ not run | | | | |
 | End-to-end | ⚪ not run | | | | |
 
@@ -27,7 +27,7 @@ No journeys recorded.
 | auth | ✅ 59 passed | — |
 | canvas | ✅ 2 passed | — |
 | messaging | ✅ 136 passed | — |
-| other | ✅ 79 passed | — |
+| other | ✅ 751 passed | — |
 | shared | ✅ 94 passed | — |
 | testkit | ✅ 119 passed | — |
 | worker | ✅ 19 passed | — |

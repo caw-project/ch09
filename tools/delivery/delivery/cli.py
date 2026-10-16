@@ -6,10 +6,13 @@
     delivery [...] issue edit KEY --title T --body-file F
     delivery [...] issue verify KEY --title T --body-file F
     delivery [...] ensure-label NAME [--description D] [--color C]
+    delivery [...] deliver KEY [--restart]
 
-The backend is `--backend`/`--url`, else DELIVERY_BACKEND/DELIVERY_URL, else
+`deliver` runs the delivery team on one issue — `scripts/deliver.sh` is its
+wrapper, and `delivery.run`'s docstring is its reference. The backend is `--backend`/`--url`, else DELIVERY_BACKEND/DELIVERY_URL, else
 local. Issues print as JSON. Exit 0 ok · 1 the backend failed, or verify found
-differences · 2 bad configuration or usage.
+differences · 2 bad configuration or usage. `deliver` adds 2 for a stop for a
+human, and 3 for a stage with no agent yet.
 """
 
 from __future__ import annotations
@@ -44,6 +47,10 @@ def parser() -> argparse.ArgumentParser:
     label.add_argument("name")
     label.add_argument("--description", default=LABEL_DESCRIPTION)
     label.add_argument("--color", default=LABEL_COLOR)
+
+    run = commands.add_parser("deliver", help="run the delivery team on one issue, by its key")
+    run.add_argument("key", help="issue-N for a local issue, gh-N for a GitHub one")
+    run.add_argument("--restart", action="store_true", help="forget progress, start at plan-writer")
 
     issue = commands.add_parser("issue").add_subparsers(dest="action", required=True)
     create = issue.add_parser("create", help="create an issue; print it as the backend holds it")
@@ -83,6 +90,18 @@ def main(
     try:
         config = resolve(args.backend, args.url, os.environ if env is None else env)
         backend = open_backend(config, root or Path.cwd(), run)
+        if args.command == "deliver":
+            # Imported here: the runner is the CLI's largest command and the skill never needs it.
+            from delivery.run import deliver
+
+            return deliver(
+                args.key,
+                restart=args.restart,
+                config=config,
+                backend=backend,
+                root=root or Path.cwd(),
+                env=os.environ if env is None else env,
+            )
         return dispatch(args, config, backend)
     except ConfigError as e:
         print(f"delivery: {e}", file=sys.stderr)  # noqa: T201
