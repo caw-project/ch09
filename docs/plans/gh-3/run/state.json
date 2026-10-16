@@ -1,8 +1,8 @@
 {
-  "stage": "code-writer",
+  "stage": "code-reviewer",
   "status": "running",
-  "step": 12,
-  "review": "docs/plans/gh-3/reviews/code-reviewer-1.md",
+  "step": 13,
+  "review": "",
   "rounds": {
     "plan": 2,
     "test": 3,

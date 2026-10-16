@@ -32,20 +32,32 @@ def _dedupe(bind: sa.engine.Connection) -> None:
     rows = bind.execute(sa.text("SELECT id, display_name FROM users ORDER BY created_at, id")).all()
     cleaned = [(row.id, row.display_name, names.provisional_name(row.display_name)) for row in rows]
 
+    # Names are compared the way the index folds them: Postgres `lower()`, not
+    # Python's `str.lower()`. They differ (U+0130 is `i` in one and `i` + U+0307
+    # in the other), and a pair only Postgres sees as equal would abort the index.
+    folded: dict[str, str] = {}
+
+    def fold(name: str) -> str:
+        if name not in folded:
+            folded[name] = bind.execute(
+                sa.text("SELECT lower(CAST(:name AS varchar))"), {"name": name}
+            ).scalar_one()
+        return folded[name]
+
     # Every stored name is reserved first, so a suffix never takes a name an
     # account already holds and no one without a duplicate is renamed.
-    reserved = {name.lower() for _, _, name in cleaned}
+    reserved = {fold(name) for _, _, name in cleaned}
     assigned: set[str] = set()
 
     for user_id, stored, name in cleaned:
         final = name
-        if name.lower() in assigned:
+        if fold(name) in assigned:
             final = next(
                 candidate
                 for candidate in names.candidates(name)
-                if candidate.lower() not in reserved and candidate.lower() not in assigned
+                if fold(candidate) not in reserved and fold(candidate) not in assigned
             )
-        assigned.add(final.lower())
+        assigned.add(fold(final))
         if final != stored:
             bind.execute(
                 sa.text("UPDATE users SET display_name = :name WHERE id = :id"),

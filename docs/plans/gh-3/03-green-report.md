@@ -48,3 +48,13 @@ Not taken as a separate run: I went straight from reading to building, so the re
 - `security.sh` printed `mktemp` errors for its gitleaks and semgrep steps; run it where those work.
 - `main` was not merged.
 - **`CLAUDE.md` was edited by the first run** (D28 paragraph, D46 tenancy exception) and is committed. A code-writer may not write it, so a person should read that 3-line diff and keep or revert it.
+
+## Review responses (round 2)
+- **Finding 1 (critical): fixed.** `_dedupe` in migration `0002` now folds every cleaned name and every candidate with Postgres `lower()` (`SELECT lower(CAST(:name AS varchar))`, cached per name), the same function the index uses, so `İvan`/`ivan` becomes `İvan`/`ivan 2`. The new `test_duplicates_are_found_the_way_the_index_folds_case` passes. No `İ` special case.
+- **Finding 2 (minor): test-file edits, not mine.** The test pair made them (`test_schema.py`, `test_name_migration.py`); both pass against the unchanged code.
+- Unpinned items (burst baseline, `pathname + search`, etc.): left for a later stage; no code change.
+
+### What ran (round 2)
+- `uv run pytest src/services/auth/tests/unit` plus `test_name_migration.py` and `test_schema.py`: 89 passed. `…/auth/tests/integration`: 162 passed.
+- `ruff check src/services/auth`: clean. `conventions.py` over the migration: clean.
+- Not rerun: Vitest, build, `scripts/test.sh` layers and e2e. Only the migration changed, which no SPA code or journey reaches differently, so the earlier results (Vitest 569, e2e 25) stand and `docs/test-report.md` is as the previous run left it.
