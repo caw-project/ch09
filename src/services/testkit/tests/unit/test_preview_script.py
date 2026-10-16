@@ -392,6 +392,35 @@ def test_the_state_directory_is_under_the_root_or_the_git_common_dir(sb: Sandbox
     assert os.path.basename(got) == "preview-x"
 
 
+# --- the image tag a preview deploys ----------------------------------------
+#
+# Every worktree branched from one commit is dirty at that commit, so every one
+# tags `<sha>-dirty`. Previews left up side by side would share images: a pod
+# restarted in one would pull the branch pushed last.
+
+
+def test_a_dirty_tag_is_kept_apart_by_namespace(sb: Sandbox) -> None:
+    seven = sb.fn("preview_image_tag abc123def456-dirty preview-feature-issue-7")
+    eight = sb.fn("preview_image_tag abc123def456-dirty preview-feature-issue-8")
+
+    assert seven.stdout == "abc123def456-preview-feature-issue-7-dirty"
+    assert eight.stdout == "abc123def456-preview-feature-issue-8-dirty"
+
+
+def test_a_dirty_tag_still_ends_dirty(sb: Sandbox) -> None:
+    """`cmd_app` restarts the pods of a `*-dirty` tag, or a rebuild would never roll out."""
+    done = sb.fn("preview_image_tag abc123def456-dirty preview-x")
+
+    assert done.stdout.endswith("-dirty")
+
+
+def test_a_clean_tag_is_shared(sb: Sandbox) -> None:
+    """One commit is one build of the code: two previews of it may share the images."""
+    done = sb.fn("preview_image_tag abc123def456 preview-feature-issue-7")
+
+    assert done.stdout == "abc123def456"
+
+
 # --- R4: the object store's endpoint ---------------------------------------
 
 

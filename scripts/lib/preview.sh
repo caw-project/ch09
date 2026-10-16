@@ -43,6 +43,18 @@ preview_namespace() {
     printf '%s' "$name"
 }
 
+# The tag a preview's images are pushed at. A dirty tag names only the commit, and
+# every worktree branched from one commit shares it — so previews left up side by
+# side would pull each other's images on a restart. The namespace goes in before
+# `-dirty`, which stays last: cmd_app restarts a dirty tag's pods on an upgrade. A
+# clean tag is one build of one commit, and is shared.
+preview_image_tag() {
+    case "$1" in
+        *-dirty) printf '%s-%s-dirty' "${1%-dirty}" "$2" ;;
+        *) printf '%s' "$1" ;;
+    esac
+}
+
 # $BRANCH, else the branch checked out in $1 (default: the repo this script is in).
 preview_branch() {
     local dir="${1:-$REPO_ROOT}" branch

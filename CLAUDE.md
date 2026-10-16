@@ -16,12 +16,13 @@ This supersedes the layout section of `docs/design/00-platform-conventions.md`, 
 src/services/{shared,contracts,testkit,auth,messaging,canvas,asset,worker}
 src/frontend            # React + TypeScript + Vite SPA
 tests/bdd/              # Gherkin acceptance suite — features, steps, page objects
+tests/smoke/            # smoke packs against a running deploy's origin — scripts/smoke.sh
 docker/                 # one folder per component, holding its Dockerfile and any files it needs
 docker-compose.yml      # repo root — Postgres, 3x Redis, Garage, Elasticsearch, OTel collector
 docker-compose.test.yml # override: a second, throwaway stack for tests/bdd
 charts/collabhub/       # a single Helm chart for the whole app
 charts/collabhub-deps/  # data stores, Dex, Secrets, Dex's Ingress — any environment; credentials required (D41)
-scripts/                # build.sh, test.sh, deploy.sh — developers and CI call the same ones
+scripts/                # build.sh, test.sh, deploy.sh, smoke.sh — developers and CI call the same ones
 docs/
 ```
 
@@ -70,7 +71,7 @@ Service names drop the `collabhub-` prefix used in the design docs (`src/service
 
 ## Delivery workflow
 
-`scripts/deliver.sh <issue-file>` takes one issue to a tested feature ready for review, headless, through six agents in `.claude/agents/`: plan-writer → plan-reviewer → test-writer → test-reviewer → code-writer → code-reviewer. A reviewer can send work back to its writer, and a later stage can send it back to the pair before its own — code to the test-writer, tests to the plan-writer — with its reasons in a send-back file under `reviews/`; any agent can stop the run with `needs_human`, and its questions go into `docs/plans/issue-<N>/needs-human.md` for a person to answer before rerunning — a last resort: a run is meant to finish without a person, so an agent settles what the issue leaves open by the best-fitting reading and records it as an **assumed** decision for the human to read at the end. It works in `../caw-issue-<N>` on `feature/issue-<N>` and, like every other session, commits nothing. The plan pair and the code-reviewer run on Opus, the test pair and the code-writer on Sonnet — hard-coded in the script's `default_model` and each agent's `model:` line, which change together; `docs/plans/ch08/05-model-effort-handoff.md` has the runs behind it. The script's header is the reference; `.claude/delivery/loop-test.sh` proves its state machine with a fake `claude`, and is run after any change to it.
+`scripts/deliver.sh <issue-file>` takes one issue to a tested feature ready for review, headless, through seven agents in `.claude/agents/`: plan-writer → plan-reviewer → test-writer → test-reviewer → code-writer → code-reviewer → acceptance-reviewer. A reviewer can send work back to its writer, and a later stage can send it back to the pair before its own — acceptance to the code-writer, code to the test-writer, tests to the plan-writer — with its reasons in a send-back file under `reviews/`; the acceptance-reviewer deploys the branch's preview, runs `scripts/smoke.sh` against it, and writes `docs/plans/issue-<N>/04-proof.md` — the record a person accepts from — leaving the preview up; any agent can stop the run with `needs_human`, and its questions go into `docs/plans/issue-<N>/needs-human.md` for a person to answer before rerunning — a last resort: a run is meant to finish without a person, so an agent settles what the issue leaves open by the best-fitting reading and records it as an **assumed** decision for the human to read at the end. It works in `../caw-issue-<N>` on `feature/issue-<N>` and, like every other session, commits nothing. The plan pair and the code-reviewer run on Opus, the test pair, the code-writer and the acceptance-reviewer on Sonnet — hard-coded in the script's `default_model` and each agent's `model:` line, which change together; `docs/plans/ch08/05-model-effort-handoff.md` has the runs behind it. The script's header is the reference; `.claude/delivery/loop-test.sh` proves its state machine with a fake `claude`, and is run after any change to it.
 
 What every agent shares — the team, how a run works, what an agent may touch, rounds and the final round, severity, deadlocks, escalation, the `StructuredOutput` result — lives once in `.claude/delivery/agent-context.md`, and each agent reads it first. An agent's own file holds only its role; put anything that applies to more than one agent in the shared file, not in two prompts. It sits outside `.claude/agents/` because every file there is loaded as an agent.
 
@@ -193,6 +194,8 @@ scripts/test.sh integration -- src/services/messaging   # starts its own contain
 scripts/test.sh e2e              # tests/bdd: brings the test stack up, runs, tears down
 scripts/test.sh e2e -- --headed -k channels
 scripts/test.sh all              # all four layers — what CI runs
+scripts/smoke.sh --origin http://localhost:8080   # smoke packs against a running deploy
+scripts/smoke.sh                 # …against this branch's preview
 (cd src/frontend && npm test)    # Vitest only; `npm run test:watch` while working
 ```
 
@@ -236,3 +239,8 @@ spending the rotating refresh token twice and signing the user out.
 
 Selectors in that suite are `data-testid` only and live in page objects; a step
 definition never contains one.
+
+**`tests/smoke` is not a test layer.** It proves a deploy, not a rule: non-destructive,
+through the origin only, and never collected by `scripts/test.sh` or a plain
+`uv run pytest`. A feature's own pack is written by the acceptance-reviewer under
+`build/acceptance/` and thrown away.

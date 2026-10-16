@@ -63,9 +63,10 @@ asyncio_mode = "auto"
 # `tests/` and naming this package `bdd` still avoids colliding with any of
 # them.
 pythonpath = ["tests"]
-# `tests` is the Gherkin suite at the repo root; without it here the .feature
-# files are simply not collected.
-testpaths = ["src/services", "tests"]
+# `tests/bdd` is the Gherkin suite at the repo root; without it here the .feature
+# files are simply not collected. `tests/smoke` is left out on purpose: it needs
+# a running deploy's origin, and scripts/smoke.sh names it.
+testpaths = ["src/services", "tests/bdd"]
 # `unit` and `integration` are not declared here: testkit's plugin registers
 # them and sets them from the directory a test lives in (register D32).
 #
