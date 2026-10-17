@@ -159,10 +159,13 @@ TOOLS: dict[str, tuple[str, ...]] = {
     "plan-reviewer": (*BASE, *READ_ONLY_BASH),
     # The first stage that runs anything, so the first that installs: a worktree has no
     # node_modules/ or .venv/ until it does (both ignored, so the write check never sees
-    # them). `npm ci`, never `npm install`, which rewrites the lockfile.
+    # them). `npm ci`, never `npm install`, which rewrites the lockfile. The sketch is a
+    # throwaway build under the ignored build/sketch/, to prove each test can go green and
+    # catches a wrong build; the workflow removes it when the stage ends.
     "test-writer": (
         *BASE,
         "Bash(npm --prefix src/frontend ci*)",
+        "Bash(.claude/delivery/sketch.sh *)",
         "Bash(uv run ruff *)",
         *READ_ONLY_BASH,
         *TEST_BASH,
@@ -262,11 +265,11 @@ def write_scope(stage: str, paths: Paths) -> str | None:
         # Its proof and a send-back on the branch; everything else under build/.
         return f"^{plans}/(04-proof\\.md$|reviews/acceptance-reviewer-sendback-)"
     if stage == "code-writer":
-        # Production code, config and docs anywhere, CLAUDE.md included for a decision the
-        # slice records there — then write_denied takes the tests back out.
+        # Production code, config and docs anywhere — then write_denied takes the tests
+        # back out. Not CLAUDE.md: it records no decision, and is a person's, like .claude/.
         return (
             r"^(src/|docs/|charts/|docker/|scripts/|\.github/|\.env\.example$|docker-compose|"
-            r"(pyproject\.toml|uv\.lock|ruff\.toml|README\.md|CLAUDE\.md)$)"
+            r"(pyproject\.toml|uv\.lock|ruff\.toml|README\.md)$)"
         )
     return None
 

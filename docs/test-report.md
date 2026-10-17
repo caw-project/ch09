@@ -1,15 +1,19 @@
 # Test report
 
-Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `3daf13ab38e2-dirty`.
+Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `4422c67c193c-dirty`.
 
 ## Layers
 
 | Layer | Result | Passed | Failed | Skipped | Revision |
 |---|---|--:|--:|--:|---|
-| Lint | ✅ passed | | | | `3daf13ab38e2-dirty` |
-| Unit | ✅ passed | 1751 | 0 | 0 | `3daf13ab38e2-dirty` |
-| Integration | ✅ passed | 26 | 0 | 0 | `3daf13ab38e2-dirty` |
+| Lint | ✅ passed | | | | `4422c67c193c-dirty` |
+| Unit | ✅ passed | 1751 | 0 | 0 | ⚠️ `3daf13ab38e2-dirty` |
+| Integration | ✅ passed | 26 | 0 | 0 | ⚠️ `3daf13ab38e2-dirty` |
 | End-to-end | ⚪ not run | | | | |
+
+> ⚠️ Unit was recorded at another revision.
+
+> ⚠️ Integration was recorded at another revision.
 
 > Integration ran with `tools/delivery`, so it is not the whole layer.
 

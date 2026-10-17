@@ -103,7 +103,8 @@ deploys() { ! $RAN || [ "$(cat "$FAKE_LOG.deploys" 2>/dev/null | wc -l | tr -d '
 history_has() { ! $RAN || grep -qE -- "$1" "$WORKTREE/docs/plans/issue-999/run/history.log" || fail "history.log has no '$1'"; }
 # committed <subject> — the runner committed it on the branch; commits <n> — its commit count.
 subjects() { git -C "$WORKTREE" log --format=%s "$BASE_SHA..HEAD" 2>/dev/null; }
-committed() { ! $RAN || subjects | grep -qxF -- "$1" || fail "no commit '$1': $(subjects | tr '\n' '|')"; }
+# grep -q exits at its first match, and pipefail would then report git's SIGPIPE as a miss.
+committed() { ! $RAN || subjects | grep -xF -- "$1" >/dev/null || fail "no commit '$1': $(subjects | tr '\n' '|')"; }
 commits() { ! $RAN || [ "$(subjects | wc -l | tr -d ' ')" = "$1" ] || fail "$(subjects | wc -l | tr -d ' ') commits, expected $1"; }
 
 FILTER="${1:-}"

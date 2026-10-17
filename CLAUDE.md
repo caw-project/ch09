@@ -56,13 +56,13 @@ Service names drop the `collabhub-` prefix used in the design docs (`src/service
 
 `.env.example` at the root is the full env var contract for local runs — add any new variable there when you introduce one.
 
-## Stack decisions not recorded in the docs
+## Stack choices
 
 - **uv** is the package manager (the docs and ADR say "uv or Poetry" — it's uv). One workspace; each service has its own `pyproject.toml`; `shared` and `contracts` are workspace dependencies.
 - **ruff** for lint and format. Run `ruff check` and `ruff format` on Python you write.
 - **pytest** with **testcontainers-python** for integration tests — every dependency (Postgres, Redis, Elasticsearch, Garage, Dex) is started by testcontainers, never the Compose stack. Unit tests have no network and no Docker (pytest-socket, applied by `testkit`). **pytest-cov** reports unit coverage; nothing gates on it yet. The layers are register D32.
 - **pytest-bdd + Playwright** (sync API) for the acceptance suite in `tests/bdd`. It runs against a throwaway Compose stack that `scripts/test.sh e2e` brings up and tears down — see Testing below. Registered as D27.
-- **Frontend:** **TanStack Query** owns *all* server state, **Zustand** owns client state only (D24) — never keep a copy of a channel or message list in the store. **Tailwind CSS v4** for styling, light palette only, via `@tailwindcss/vite` with no config files (D26). Types for Messaging's and Asset's REST APIs are **generated from their OpenAPI documents**, not hand-written (D23, 🟡): `python -m <service>.openapi > src/frontend/openapi/<service>.json`, then `npm run generate:api`. **Auth's are still hand-typed** in `src/frontend/src/lib/auth/api.ts` and Auth has no `openapi` module — work that changes an Auth response either generates Auth's types first or updates the hand-typed ones and says why.
+- **Frontend:** **TanStack Query** owns *all* server state, **Zustand** owns client state only (D24) — never keep a copy of a channel or message list in the store. **Tailwind CSS v4** via `@tailwindcss/vite` with no config files (D26). A service's REST types are **generated from its OpenAPI document** where it has an `openapi` module (D23): `python -m <service>.openapi > src/frontend/openapi/<service>.json`, then `npm run generate:api`. A service without one is hand-typed under `src/frontend/src/lib/` (doc 06 §2 says which) — work that changes its responses either generates its types first or updates the hand-typed ones and says why.
 
 ## Working in this repo
 
@@ -87,7 +87,7 @@ The plan-writer models its plans on `docs/plans/exemplar-implementation-plan.md`
 
 ## Platform versions
 
-`docs/platform/versions.md` is the source of truth for base images and major versions, and wins over the design docs if they ever drift again. Object storage is **Garage** and telemetry is the **Grafana LGTM** stack (Tempo/Loki/Mimir) — the design docs originally said MinIO and Jaeger/Prometheus and were corrected on 2026-07-27.
+`docs/platform/versions.md` is the source of truth for base images, major versions and which product fills each role (object storage, telemetry), and wins over the design docs if they ever drift.
 
 Library versions (FastAPI, SQLAlchemy, React) are out of that file's scope — pin those per service.
 
@@ -106,24 +106,20 @@ Library versions (FastAPI, SQLAlchemy, React) are out of that file's scope — p
 - **Socket.IO event naming:** client→server are verbs (`send_message`); server→client are past-tense facts (`message_received`). Canvas is the documented exception — it follows the Yjs sync protocol names.
 - **Jobs are fire-and-forget onto Redis Streams and handlers must be idempotent** (`jobId` is the idempotency key). Producers never block on the Worker; the Worker never writes to another service's tables.
 - **All config comes from environment variables**, loaded with pydantic-settings. Nothing baked into images. `SCREAMING_SNAKE_CASE`.
-- **Timestamps are always UTC `timestamptz`.** Soft delete via `deleted_at`; queries filter `deleted_at IS NULL`. **Check the table first.** Two exceptions, both in Messaging and both in Conventions §3: `channels` has no `deleted_at` and archives through `archived_at`, so its reads filter that instead (doc 02 §4) — and `messages` has `deleted_at` and its read path filters **neither**, because history returns deleted rows as tombstones with `body` redacted server-side (doc 02 §3.1.4). So the rule is "filter the soft-delete column *unless the doc says otherwise*", and `ix_messages_channel_time` carries no `WHERE deleted_at IS NULL` for exactly that reason.
+- **Timestamps are always UTC `timestamptz`.** Soft delete via `deleted_at`; queries filter the soft-delete column **unless the design doc says otherwise. Check the table first** — not every table has `deleted_at`, and not every read path filters it (Conventions §3 lists the exceptions).
 - **A resource the caller may not see is a 404, not a 403.** 403 confirms the thing exists and leaks its name to someone with no access. Applies to another workspace's rows and to private resources you are not a member of.
 - **No cloud-specific SDKs where an agnostic alternative exists.** Object storage sits behind an `ObjectStore` protocol so Garage ↔ Azure Blob is a config swap.
 - Structured JSON logs via structlog, always carrying `traceId`, `userId`, `service`, `env`. No PII beyond user IDs.
+
+A decision can make a deliberate exception to one of these. It is recorded in the register, the conventions doc and the design doc it touches — never here — and code that follows a recorded exception is right, not a finding. Look before you call one a breach.
 
 ## Open decisions
 
 `docs/design/07-open-decisions-register.md` is the live register. 🟢 is settled and safe to build against; 🟡 has a working default baked into the design docs — proceed on those; 🔴 has no answer, so stop and ask rather than picking one silently (a delivery agent stops through `needs_human`). Much of the register is still 🟡 or 🔴.
 
-**Read a decision's status in the register, never from memory or from this file.** This file used to keep a list of settled decisions; it fell ten behind the register and was dropped. What follows is only what the register's one-line status doesn't make plain.
+**Read a decision's status in the register, never from memory or from this file.** This file states how to work, not what has been decided: it names no decision's status and restates none of its consequences, because every copy of a decision falls behind the register. Read the entries a change touches, including what each says has been *built against it* — a 🔴 can already have code leaning on it.
 
-D8d settles the *semantics* only. **How long a tombstone is kept before hard deletion is D16, still 🔴** — nothing deletes one, and a deleted message's text is still in its row.
-
-**Attachments are built on D13, still 🔴.** They use the one bucket `collabhub-assets`; nothing decides where avatars or exports go, so work on either needs D13 decided first.
-
-**There is no user-preferences feature anywhere** (D28, 🔴). `users` carries a display name, an avatar reference and a status, and nothing stores a per-user choice — so a theme, a locale or notification settings all need that decided first. It is why the SPA is light-only rather than following the OS.
-
-When a decision gets made: update the register's status, reflect it back into the source design doc, and write an ADR in `docs/adr/` with the `adr-writer` skill if it's significant. Record it **in the slice that makes it**, not in a docs sweep at the end — a register that says 🔴 for something already built on is worse than no register.
+When a decision gets made: update the register's status, reflect it back into the source design doc, and write an ADR in `docs/adr/` with the `adr-writer` skill if it's significant. Record it **in the slice that makes it**, not in a docs sweep at the end — a register that says 🔴 for something already built on is worse than no register. A slice never edits this file to record a decision; if this file contradicts the register, the register wins and the contradiction is a person's to fix.
 
 ## Code quality
 

@@ -157,6 +157,14 @@ Settled to run on to green without a stop, at the user's word. What each failed 
   gitleaks 8.30.1.
 - **The empty secret is never exported:** the workflow passes only the Claude secret that is
   set.
+- **The test-writer sketches its own tests.** Mining the send-backs of eight deliveries put
+  about twenty findings down to tests a correct build couldn't pass or a wrong one passed —
+  every one found by a sketch, a round late. The test-writer now gets `sketch.sh` (fixture and
+  rule together) and proves each new test green against a correct sketch and red against a
+  named wrong build, reported under *Sketch runs*; the test-reviewer treats those as the
+  writer's claim and sketches from the plan itself. The runner removes `build/sketch/` when
+  every stage ends, test first, so the code-writer never builds from the test pair's probe
+  and a stage that forgot `sketch.sh clean` leaves nothing for the next.
 
 ## Verified
 
@@ -188,7 +196,22 @@ Settled to run on to green without a stop, at the user's word. What each failed 
 - The first real run, gh-3 (38948278868), took the plan and test pairs to approval in two rounds
   each (48 minutes, $15.35), then failed at the code-writer after 18.6 minutes: it wrote
   `CLAUDE.md`, as the issue's record section asks, and the code-writer's write scope had no
-  room for it. Fixed test first: the scope takes the root `CLAUDE.md` (never `.claude/`), the
-  fixture changed with it. The runner is `main`'s, not the branch's, so the fix reaches the
-  run without touching `feature/gh-3`; a rerun resumes at the code-writer, its first pass's
-  work already on the branch in the failure commit.
+  room for it. The first fix let the scope take the root `CLAUDE.md` (`4422c67`), so the run
+  could resume — the runner is `main`'s, not the branch's, so a rules fix reaches a run without
+  touching its branch. **Reversed after review:** the real fault was that `CLAUDE.md` restated
+  decisions (D13, D16, D28, the Auth types, the soft-delete exceptions), and the issue-writer
+  told issues to list it under *Record in this slice* for that reason. `CLAUDE.md` now states no
+  decision — each was already in the register or a design doc — and says a decision's
+  exception to a convention is recorded in the conventions doc; the issue-writer never puts
+  `CLAUDE.md` or `.claude/` in an issue's record; and the code-writer's scope is back without it.
+- The failure commit kept the write the check had refused (`f45e31d` holds the code-writer's
+  `CLAUDE.md` edit), and the resumed pass built on it. Fixed test first: a refused write is set
+  aside into `build/delivery/refused/<NN-stage>/` and its path put back as the last checkpoint
+  had it — deleted if new — before the failure is committed.
+- The resume (38957055605) started at the code-writer and went green in 30m40s: the
+  code-reviewer sent one critical back (migration 0002's `str.lower()` against the index's
+  Postgres `lower()`), the test pair added its red test, and the second code round and the
+  acceptance-reviewer approved — the e2e suite ran on the runner (25 passed), the preview came
+  up on its first try, and `feature/gh-3` ends at `accepted`. Fifteen recorded stages: 73 minutes
+  of agent time, $22.44, plus the failed first code-writer pass, which `history.log` doesn't
+  record.

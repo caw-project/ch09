@@ -27,7 +27,10 @@ uncommitted changes while the remote is ahead, stops the run before any stage: n
 ever merged or forced. After every stage the runner commits everything outside build/ —
 `delivery(<key>): <stage> <result>, round <R>` — and pushes it; a stop for a human commits
 `needs a human at <stage>, round <R>`, a failure `failed at <stage>, round <R>` with the
-error, and the approval `accepted`. A push the remote rejects stops the run with exit 1,
+error, and the approval `accepted`. A write the rules refuse is set aside first, into
+build/delivery/refused/, and the path put back as the last checkpoint had it, so the
+failure commit never keeps it. A sketch in build/sketch/ is removed when its stage ends:
+no stage builds from another's probe. A push the remote rejects stops the run with exit 1,
 naming both commits. DELIVER_PUSH=0 commits without fetching or pushing.
 
 A run can have a deadline, DELIVER_DEADLINE: no stage starts with less than
@@ -154,6 +157,7 @@ from delivery.run.commit import (
     commit_all,
     failed_message,
     push,
+    set_aside,
     stop_message,
 )
 from delivery.run.context import context_block
@@ -571,6 +575,9 @@ class Delivery:
             retry_wait=self.settings.retry_wait,
             log=log,
         )
+        # A sketch proves one stage's tests, and the next builds from the plan, never from
+        # someone else's probe — gone whatever the stage returned, and if it forgot to clean.
+        shutil.rmtree(self.worktree / "build" / "sketch", ignore_errors=True)
         # The rules no agent may break, checked rather than trusted — before anything else,
         # because a stage stopped mid-way may still have broken one.
         if git("-C", str(self.worktree), "rev-parse", "HEAD") != head:
@@ -578,14 +585,23 @@ class Delivery:
                 f"{stage} committed — the workflow never commits. Inspect {self.branch} before rerunning"
             )
         outside, refused = strays(stage, self.paths, touched_between(before, self.snapshot()))
-        if outside:
-            raise RunError(
-                f"{stage} wrote outside {write_scope(stage, self.paths)}:\n" + "\n".join(outside)
+        if outside or refused:
+            # Out of the branch before the failure is committed, kept beside the transcript.
+            kept = self.transcripts / "refused" / base.name
+            set_aside(self.worktree, [*outside, *refused], kept)
+            aside = (
+                f"\nSet aside in {kept.relative_to(self.worktree)}; the branch has it as it was."
             )
-        if refused:
+            if outside:
+                raise RunError(
+                    f"{stage} wrote outside {write_scope(stage, self.paths)}:\n"
+                    + "\n".join(outside)
+                    + aside
+                )
             raise RunError(
                 f"{stage} wrote where it may not, {write_denied(stage, self.paths)}:\n"
                 + "\n".join(refused)
+                + aside
             )
         return result_of(ran, stage=stage, turns=turns, round_=round_, transcript=transcript)
 

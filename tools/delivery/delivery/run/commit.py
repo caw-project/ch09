@@ -5,7 +5,9 @@ forced: a rejected one stops the run."""
 
 from __future__ import annotations
 
+import shutil
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
 
 from delivery.errors import RunError
@@ -61,6 +63,24 @@ def commit_all(worktree: Path, text: str) -> bool:
         git(worktree, "commit", "-q", "--no-verify", "-F", "-", stdin=text)
         return True
     return False
+
+
+def set_aside(worktree: Path, paths: Iterable[str], keep: Path) -> None:
+    """Moves what a stage wrote where it may not out of the branch, into `keep`, and puts
+    each path back as HEAD — the last checkpoint — holds it, so the commit for the failure
+    can't keep a refused write and a rerun doesn't build on one."""
+    for path in paths:
+        here = worktree / path
+        if here.is_file() or here.is_symlink():
+            (keep / path).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(here, keep / path, follow_symlinks=False)
+        try:
+            git(worktree, "cat-file", "-e", f"HEAD:{path}")
+        except RunError:
+            git(worktree, "rm", "-q", "--cached", "--ignore-unmatch", "--", path)
+            here.unlink(missing_ok=True)
+        else:
+            git(worktree, "checkout", "-q", "HEAD", "--", path)
 
 
 def push(worktree: Path, remote: str, branch: str) -> None:

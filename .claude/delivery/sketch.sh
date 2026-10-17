@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# A throwaway copy of the code, for the reviewers. The test-reviewer runs the
-# failing tests against a sketch of the plan's interfaces: a correct one, to
-# prove each test can go green, and a wrong one, to prove the test catches it.
+# A throwaway copy of the code, for the test pair and the code-reviewer. The
+# test-writer and the test-reviewer run the failing tests against a sketch of the
+# plan's interfaces: a correct one, to prove each test can go green, and a wrong
+# one, to prove the test catches it.
 # The code-reviewer does it the other way round: it breaks the writer's real
 # code in the copy, to see which mistakes the green tests would catch.
 #
@@ -15,7 +16,8 @@
 #   .claude/delivery/sketch.sh clean             remove it — nothing built from this reaches the branch
 #
 # The copies live in build/sketch/, which git ignores and scripts/deliver.sh's
-# write check skips, so a sketch never reaches the branch. Edit them with the
+# write check skips, so a sketch never reaches the branch; the workflow removes
+# it when each stage ends, so no stage reads another's. Edit them with the
 # Write and Edit tools under build/sketch/frontend/src/ and
 # build/sketch/services/<name>/. `frontend` or `service <name>` again starts
 # that copy over. node_modules is the worktree's own, linked, never copied.
@@ -120,7 +122,7 @@ case "${1:-}" in
         rm -rf build/sketch
         ;;
     *)
-        sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'
         exit 1
         ;;
 esac

@@ -187,8 +187,9 @@ Expected counts below are "N or more", because a sibling branch may land first.
 | `messaging/messaging/realtime.py` | modify | `publish_pins_changed` | 5 |
 | `src/frontend/openapi/messaging.json` · generated types | regenerate | the contract | 5 |
 | `features/channels/PinnedList.test.tsx` · `usePins.test.ts` | create | the SPA's red | 3 |
+| `lib/realtime/useChannelSocket.test.ts` | modify | its fake socket expects `pins_changed` — an existing test the change breaks | 3 |
 | `features/channels/PinnedList.tsx` · `usePins.ts` · `ChannelHeader.tsx` · `MessageItem.tsx` | create · create · modify · modify | list, cache, menu item | 6 |
-| `lib/realtime/useChannelSocket.ts` | modify | route `pins_changed` into the cache — **its existing tests change too** | 6 |
+| `lib/realtime/useChannelSocket.ts` | modify | route `pins_changed` into the cache | 6 |
 | `docs/design/02-messaging-service.md` · `07-open-decisions-register.md` · `docs/adr/…-pinned-messages.md` | modify · modify · create | the record | 7 |
 
 Deliberately unchanged: `tests/bdd/conftest.py`, because its `TRUNCATE … CASCADE` on `messages`
@@ -278,7 +279,7 @@ pins_changed → { channelId, items: [...same...] }                       ← to
 ## Task 3: The journey and the SPA's red (RED)
 
 **Files:** `tests/bdd/features/pins.feature`, `steps/test_pin_steps.py`, `pages/chat_page.py`,
-`PinnedList.test.tsx`, `usePins.test.ts`
+`PinnedList.test.tsx`, `usePins.test.ts`, and `useChannelSocket.test.ts`'s fake socket expectations
 
 ```gherkin
 @bdd
@@ -344,8 +345,7 @@ op.create_table(
 
 - [ ] `usePins` (TanStack Query; never a copy in Zustand, D24), `PinnedList` in `ChannelHeader`,
   and a pin toggle in `MessageItem`'s menu.
-- [ ] `useChannelSocket` routes `pins_changed` into the cache. Update its existing tests' fake
-  socket expectations.
+- [ ] `useChannelSocket` routes `pins_changed` into the cache.
 - [ ] Task 3's Vitest passes, and `tsc` is clean. The journey runs in Task 8.
 - [ ] Leave uncommitted.
 
@@ -410,5 +410,5 @@ found, each with the test that now pins it down. Empty until then.*
   list → Tasks 2, 3, 5, 6.
 - **Names:** `pins_changed` everywhere, never `pin_changed`. `PinsResponse.items` matches the
   event's `items`.
-- **Known ripple:** `useChannelSocket`'s existing tests (Task 6). The code-writer should budget for
-  it.
+- **Known ripple:** `useChannelSocket`'s existing tests, changed in Task 3: no GREEN task may
+  write a test, so a test the change breaks or weakens is RED work (issue-4, issue-5, gh-3).

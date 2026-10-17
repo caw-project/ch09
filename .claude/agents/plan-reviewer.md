@@ -129,8 +129,10 @@ Then work through these. They are what plans for this repo have got wrong before
 11. **The workflow's rules.** The exemplar's sections and header, 250–600 lines, every RED
     task before any GREEN one with the test-reviewer as the gate, *Found while building*
     left empty, no task that commits, nothing built on a 🔴 register entry, the record
-    task for the design doc, register and ADR the issue asks for, and a verification task
-    that names the `scripts/test.sh` layers the change can reach.
+    task for the design doc, register and ADR the issue asks for, a verification task
+    that names the `scripts/test.sh` layers the change can reach, and every file-map row
+    and command in the write and run scope of the stage its task belongs to (the shared
+    context's table). The line count leaves out *Review responses*.
 12. **The plan against itself.** Every function, hook and event in *Interfaces* has a
     named test. Each planned test's fixture, as the plan describes it, holds to the shared
     context's *Tests that prove something* — a fixture the plan dictates is the one the

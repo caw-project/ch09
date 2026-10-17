@@ -466,6 +466,56 @@ def test_a_stage_that_breaks_a_rule_is_committed_as_a_failure(repo, remote, issu
     )
 
 
+def test_a_refused_write_is_set_aside_not_committed(repo, remote, issue_3, capsys):
+    # The check stops the run; the commit after it must not keep what it refused, or the
+    # rerun builds on it. The stage's own work is kept, and the refused file is kept aside.
+    code = run(repo, issue_3, FakeAgent(stray=True))
+    worktree = repo.parent / "caw-gh-3"
+
+    assert code == 1
+    assert "docs/plans/gh-3/01-implementation-plan.md" in git(
+        remote, "show", "--name-only", "--format=", "feature/gh-3"
+    )
+    assert "src/stray.py" not in git(remote, "ls-tree", "-r", "--name-only", "feature/gh-3")
+    assert not (worktree / "src" / "stray.py").exists()
+    kept = worktree / "build" / "delivery" / "refused" / "01-plan-writer" / "src" / "stray.py"
+    assert kept.read_text() == "x = 1\n"
+    assert "build/delivery/refused/01-plan-writer" in capsys.readouterr().err
+
+
+def test_a_sketch_never_outlives_its_stage(repo, issue_3):
+    # A sketch proves the tests, written by the test pair and broken on purpose by the
+    # code-reviewer. The next stage builds from the plan, never from someone else's probe.
+    seen: dict[str, bool] = {}
+
+    def sketches(stage: str, cwd: Path) -> None:
+        seen[stage] = (cwd / "build" / "sketch").exists()
+        if stage == "plan-writer":
+            (cwd / "build" / "sketch" / "frontend" / "src").mkdir(parents=True)
+            (cwd / "build" / "sketch" / "frontend" / "src" / "probe.ts").write_text("x\n")
+
+    run(repo, issue_3, FakeAgent(during=sketches))
+
+    assert seen == {"plan-writer": False, "plan-reviewer": False}
+    assert not (repo.parent / "caw-gh-3" / "build" / "sketch").exists()
+
+
+def test_a_refused_edit_to_a_tracked_file_is_put_back(repo, remote, issue_3):
+    def edits_gitignore(stage: str, cwd: Path) -> None:
+        if stage == "plan-writer":
+            with (cwd / ".gitignore").open("a") as f:
+                f.write("everything\n")
+
+    code = run(repo, issue_3, FakeAgent(during=edits_gitignore))
+    worktree = repo.parent / "caw-gh-3"
+
+    assert code == 1
+    assert git(remote, "show", "feature/gh-3:.gitignore") == git(repo, "show", "main:.gitignore")
+    assert "everything" not in (worktree / ".gitignore").read_text()
+    kept = worktree / "build" / "delivery" / "refused" / "01-plan-writer" / ".gitignore"
+    assert kept.read_text().endswith("everything\n")
+
+
 def test_an_agent_that_commits_still_stops_the_run(repo, issue_3, capsys):
     def commits(stage: str, cwd: Path) -> None:
         (cwd / "sneaky.md").write_text("x\n")
