@@ -17,7 +17,14 @@
 import { http, HttpResponse, type DefaultBodyType } from 'msw'
 import { setupServer } from 'msw/node'
 
-import type { Profile, TokenPair, Workspace, WorkspaceMember } from '../lib/auth/api'
+import type {
+  Preferences,
+  PreferencesPatch,
+  Profile,
+  TokenPair,
+  Workspace,
+  WorkspaceMember,
+} from '../lib/auth/api'
 import { ASSET_URL, AUTH_URL, MESSAGING_URL } from '../lib/config'
 import type { components as AssetComponents } from '../types/asset'
 import type { paths } from '../types/messaging'
@@ -309,7 +316,58 @@ function authJson<T extends DefaultBodyType>(method: Method, path: string, reply
   )
 }
 
+/**
+ * A refusal a scripted reply can return in place of a value, so one call of a
+ * held PATCH can fail while the next succeeds: `auth.refuse(500, {…})`.
+ */
+export class Refusal {
+  constructor(
+    readonly status: number,
+    readonly body: ProblemBody,
+  ) {}
+}
+
+type Scripted<Body, Out> = Out | ((body: Body) => Out | Refusal | Promise<Out | Refusal>)
+
+/** A PATCH answered from a value or a function; the request is recorded on arrival. */
+function authPatch<Body, Out extends DefaultBodyType>(path: string, reply: Scripted<Body, Out>) {
+  server.use(
+    http.patch(AUTH_URL + path, async ({ request }) => {
+      const body = (await record(request)) as Body
+      const answer = typeof reply === 'function' ? await (reply as (b: Body) => Out | Refusal)(body) : reply
+      if (answer instanceof Refusal) return problemResponse(answer.status, answer.body)
+      return HttpResponse.json(answer)
+    }),
+  )
+}
+
 export const auth = {
+  /** `GET /users/me/preferences`: the signed-in user's stored keys. */
+  preferences: (prefs: Preferences) => authJson('get', '/api/v1/users/me/preferences', { ...prefs }),
+  /**
+   * `PATCH /users/me/preferences`. `reply` is the stored keys, or a function of the
+   * body; a promise is how a test holds the request, and `auth.refuse` fails it.
+   */
+  patchPreferences: (reply: Scripted<PreferencesPatch, Preferences>) =>
+    authPatch<PreferencesPatch, Preferences>('/api/v1/users/me/preferences', reply),
+  /** `PATCH /users/me`: the renamed profile, scripted the same way. */
+  patchMe: (reply: Scripted<{ displayName: string }, Profile>) =>
+    authPatch<{ displayName: string }, Profile>('/api/v1/users/me', reply),
+  refuse: (status: number, body: ProblemBody) => new Refusal(status, body),
+  /**
+   * `GET /users/me`, answered per call, numbered from 1 like `membersBy`; a promise
+   * holds the call in flight.
+   */
+  meBy(reply: (call: number) => Profile | Promise<Profile>): void {
+    let calls = 0
+    server.use(
+      http.get(AUTH_URL + '/api/v1/users/me', async ({ request }) => {
+        await record(request)
+        calls += 1
+        return HttpResponse.json(await reply(calls))
+      }),
+    )
+  },
   /** The workspace directory `useWorkspaceMembers` reads, as one page. */
   members(members: WorkspaceMember[]): void {
     authJson('get', '/api/v1/workspaces/:workspaceId/members', { items: members, nextCursor: null })

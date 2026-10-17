@@ -70,6 +70,8 @@ beforeEach(async () => {
   auth.refresh(pair(HOME))
   await session.restore()
   auth.switchWorkspace(pair(AWAY))
+  // The shell reads the user's preferences (the clock) as soon as it mounts.
+  auth.preferences({})
 })
 
 describe('ChatLayout — switching workspace', () => {

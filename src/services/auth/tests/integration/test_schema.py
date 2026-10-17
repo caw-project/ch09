@@ -18,8 +18,8 @@ from auth.models import User, Workspace, WorkspaceMember
 from shared import uuid7
 
 
-def a_user(email: str = "ada@example.com") -> User:
-    return User(id=uuid7(), email=email, display_name="Ada Lovelace")
+def a_user(email: str = "ada@example.com", name: str = "Ada Lovelace") -> User:
+    return User(id=uuid7(), email=email, display_name=name)
 
 
 async def test_a_user_round_trips(sessions) -> None:
@@ -41,11 +41,26 @@ async def test_a_user_round_trips(sessions) -> None:
 async def test_email_uniqueness_ignores_case(sessions) -> None:
     """`citext`: signing in as ADA@ is the same account as ada@."""
     async with sessions.begin() as session:
-        session.add(a_user("ada@example.com"))
+        session.add(a_user("ada@example.com", "Ada One"))
 
-    with pytest.raises(IntegrityError):
+    # Distinct names: with display names unique too, the same name would be
+    # refused by the name index and this test would pass without citext.
+    with pytest.raises(IntegrityError, match="users_email_key"):
         async with sessions.begin() as session:
-            session.add(a_user("ADA@EXAMPLE.COM"))
+            session.add(a_user("ADA@EXAMPLE.COM", "Ada Two"))
+
+
+async def test_a_display_name_differing_only_in_case_is_refused(sessions) -> None:
+    """The unique index is on the stored key, so "Sam" and "sam" are one name (D46)."""
+    async with sessions.begin() as session:
+        session.add(a_user("one@example.com", "Sam"))
+
+    with pytest.raises(IntegrityError, match="ux_users_display_name_key"):
+        async with sessions.begin() as session:
+            session.add(a_user("two@example.com", "sam"))
+
+    async with sessions.begin() as session:
+        session.add(a_user("three@example.com", "Sam 2"))
 
 
 async def test_a_user_joins_a_workspace_once(sessions) -> None:

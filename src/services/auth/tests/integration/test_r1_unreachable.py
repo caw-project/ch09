@@ -110,6 +110,30 @@ async def test_signing_out_still_ends_the_session_when_r1_is_unreachable(
 
 
 # --------------------------------------------------------------------------
+# Profile and preference writes fail open (gh-3; Conventions §5.2)
+# --------------------------------------------------------------------------
+
+
+async def test_a_rename_and_a_preference_fail_open(
+    reachable: httpx.AsyncClient, r1_down: httpx.AsyncClient
+) -> None:
+    """Neither is in the sensitive set: with the denylist unreachable they still work."""
+    tokens = await sign_in(reachable, ADA)
+
+    renamed = await r1_down.patch(
+        "/api/v1/users/me", headers=bearer(tokens), json={"displayName": "Ada L"}
+    )
+    chosen = await r1_down.patch(
+        "/api/v1/users/me/preferences", headers=bearer(tokens), json={"clock": "24h"}
+    )
+
+    assert renamed.status_code == 200
+    assert renamed.json()["displayName"] == "Ada L"
+    assert chosen.status_code == 200
+    assert chosen.json() == {"clock": "24h"}
+
+
+# --------------------------------------------------------------------------
 # Member writes fail closed (Conventions §5.2, doc 01 §3)
 # --------------------------------------------------------------------------
 

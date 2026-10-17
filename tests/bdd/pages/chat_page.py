@@ -263,6 +263,28 @@ class ChatPage:
         author = self._item_for(text).get_by_test_id("message-author")
         return _holds(lambda: expect(author).to_have_text(name))
 
+    def open_settings(self) -> None:
+        """Click the sidebar's name and wait for the Settings form."""
+        self.page.get_by_test_id("current-user").click()
+        expect(self.page.get_by_test_id("settings-display-name")).to_be_visible()
+
+    def change_display_name(self, name: str) -> None:
+        """Type `name` into the Settings form and save it, waiting for "Saved".
+
+        When Save is disabled the field already holds `name` — a rerun against a
+        kept stack, where the rename happened last time — and nothing is sent.
+        """
+        field = self.page.get_by_test_id("settings-display-name")
+        field.fill(name)
+        save = self.page.get_by_test_id("settings-save")
+        if save.is_enabled():
+            save.click()
+            expect(self.page.get_by_test_id("settings-saved")).to_be_visible()
+
+    def shows_current_user(self, name: str) -> bool:
+        """Whether the sidebar names the signed-in user `name`, waiting for it."""
+        return _holds(lambda: expect(self.page.get_by_test_id("current-user")).to_have_text(name))
+
     def edit_message(self, old: str, new: str) -> None:
         """Rewrite a message and wait until the new text is on screen.
 

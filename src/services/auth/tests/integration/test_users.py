@@ -14,8 +14,11 @@ import uuid
 from typing import Any
 
 import httpx
+import pytest
+from sqlalchemy import select, text
 
 from auth.main import create_app
+from auth.models import User
 from testkit import dexflow
 from testkit.auth import A_SIGNING_KEY, build_settings
 from testkit.dex import ADA, ALAN, DEX_PASSWORD, GRACE
@@ -209,3 +212,177 @@ async def test_a_public_profile_needs_a_token(client: httpx.AsyncClient) -> None
     resp = await client.get(f"/api/v1/users/{uuid.uuid4()}")
 
     assert resp.status_code == 401
+
+
+# --------------------------------------------------------------------------
+# Names: trimmed, normalised, refused when invisible, unique (gh-3, D46)
+# --------------------------------------------------------------------------
+
+TAKEN = "That name is already taken."
+# Characters are built with chr(): a literal invisible character in this file
+# would be invisible to its readers too.
+NFD_JOSE = "Jose" + chr(0x301)
+NFC_JOSE = "Jos" + chr(0xE9)
+ZERO_WIDTH_SPACE = chr(0x200B)
+
+
+async def version_of(sessions, email: str) -> tuple[int, object]:
+    """`users.version` and `updated_at`: neither is in the response model."""
+    async with sessions() as session:
+        row = (
+            await session.execute(
+                text("SELECT version, updated_at FROM users WHERE email = :e"), {"e": email}
+            )
+        ).one()
+    return row[0], row[1]
+
+
+async def patch_name(client: httpx.AsyncClient, tokens: dict[str, Any], name: str):
+    return await client.patch(
+        "/api/v1/users/me", headers=bearer(tokens), json={"displayName": name}
+    )
+
+
+async def test_a_name_is_stored_trimmed_and_in_nfc(client: httpx.AsyncClient) -> None:
+    """The stored form is what every comparison runs on, so it is tidied on the way in."""
+    tokens = await sign_in(client)
+
+    resp = await patch_name(client, tokens, f"  {NFD_JOSE}  ")
+
+    assert resp.status_code == 200
+    assert resp.json()["displayName"] == NFC_JOSE
+    assert (await me(client, tokens))["displayName"] == NFC_JOSE
+
+
+@pytest.mark.parametrize(
+    "refused",
+    [
+        "Grace" + ZERO_WIDTH_SPACE,
+        "Grace" + chr(0x3164),
+        "Gr" + chr(0x34F) + "ace",
+        "Grace\x07",
+        " ",
+    ],
+    ids=["zero-width-space", "hangul-filler", "grapheme-joiner", "bell", "blank"],
+)
+async def test_an_invalid_name_is_refused(client: httpx.AsyncClient, refused: str) -> None:
+    """An invisible or empty name is a 400 on the field, and the old name stays."""
+    tokens = await sign_in(client)
+
+    resp = await patch_name(client, tokens, refused)
+
+    assert resp.status_code == 400
+    assert resp.json()["errors"]["displayName"]
+    assert (await me(client, tokens))["displayName"] == "ada"
+
+
+async def test_saving_the_name_you_have_changes_nothing(
+    client: httpx.AsyncClient, sessions
+) -> None:
+    """Saving the stored name — even padded — writes no row; a real change does."""
+    tokens = await sign_in(client)
+    before = await version_of(sessions, ADA)
+
+    same = await patch_name(client, tokens, " ada ")
+
+    assert same.status_code == 200
+    assert same.json()["displayName"] == "ada"
+    assert await version_of(sessions, ADA) == before
+
+    changed = await patch_name(client, tokens, "Ada L")
+    assert changed.status_code == 200
+    assert (await version_of(sessions, ADA))[0] == before[0] + 1
+
+
+async def test_a_taken_name_is_409_naming_nobody(client: httpx.AsyncClient) -> None:
+    """Another account holds the name, whatever the case: 409, and the body names no one."""
+    ada = await sign_in(client, ADA)
+    grace = await sign_in(client, GRACE)
+    graces_id = (await me(client, grace))["id"]
+
+    resp = await patch_name(client, ada, "GRACE")
+
+    assert resp.status_code == 409
+    body = resp.json()
+    assert body["status"] == 409
+    assert body["detail"] == TAKEN
+    assert body["errors"] == {"displayName": [TAKEN]}
+    assert graces_id not in resp.text
+    assert GRACE not in resp.text
+    assert "workspace" not in resp.text.lower()
+    assert "grace" not in resp.text.lower()
+    assert (await me(client, ada))["displayName"] == "ada"
+
+    free = await patch_name(client, ada, "Grace Hopper")
+    assert free.status_code == 200
+    assert free.json()["displayName"] == "Grace Hopper"
+
+
+async def test_names_colliding_only_after_nfc_are_taken(client: httpx.AsyncClient) -> None:
+    """ "José" typed either way, in either case, is one name."""
+    ada = await sign_in(client, ADA)
+    grace = await sign_in(client, GRACE)
+    assert (await patch_name(client, grace, NFD_JOSE)).status_code == 200
+
+    lower_precomposed = await patch_name(client, ada, "jos" + chr(0xE9))
+    upper_decomposed = await patch_name(client, ada, "JOSE" + chr(0x301))
+
+    assert lower_precomposed.status_code == 409
+    assert upper_decomposed.status_code == 409
+
+
+async def test_changing_only_your_own_capitals_is_allowed(client: httpx.AsyncClient) -> None:
+    """The index never refuses the caller's own row — and the key follows the rename.
+
+    The second half is the guard's positive: after "ada" becomes "ADA" the name
+    is still held, so Grace asking for "ada" is refused. A build that left the
+    old key behind would let her take it.
+    """
+    ada = await sign_in(client, ADA)
+    grace = await sign_in(client, GRACE)
+
+    own = await patch_name(client, ada, "ADA")
+
+    assert own.status_code == 200
+    assert own.json()["displayName"] == "ADA"
+    assert (await patch_name(client, grace, "ada")).status_code == 409
+    assert (await patch_name(client, grace, "Ada")).status_code == 409
+
+
+async def test_a_legacy_name_can_be_saved_unchanged(client: httpx.AsyncClient, sessions) -> None:
+    """A name the migration kept with a refused character can be saved as it is.
+
+    Nothing is written, so the character rules do not apply — but any other
+    name is still validated.
+    """
+    tokens = await sign_in(client)
+    legacy = "Ada" + ZERO_WIDTH_SPACE
+    async with sessions() as session:
+        user = (await session.execute(select(User).where(User.email == ADA))).scalar_one()
+        user.display_name = legacy
+        await session.commit()
+    before = await version_of(sessions, ADA)
+
+    same = await patch_name(client, tokens, f" {legacy} ")
+    other = await patch_name(client, tokens, "Ada" + ZERO_WIDTH_SPACE + "x")
+
+    assert same.status_code == 200
+    assert await version_of(sessions, ADA) == before
+    assert other.status_code == 400
+    assert other.json()["errors"]["displayName"]
+
+
+async def test_a_deleted_accounts_name_stays_taken(client: httpx.AsyncClient, sessions) -> None:
+    """Deleting an account does not free its name (D46) — nobody can take it over."""
+    ada = await sign_in(client, ADA)
+    await sign_in(client, GRACE)
+    async with sessions() as session:
+        await session.execute(
+            text("UPDATE users SET deleted_at = now() WHERE email = :e"), {"e": GRACE}
+        )
+        await session.commit()
+
+    resp = await patch_name(client, ada, "grace")
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == TAKEN

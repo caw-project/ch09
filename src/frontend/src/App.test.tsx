@@ -43,6 +43,8 @@ function aReturningUser() {
   auth.refresh(PAIR)
   auth.me(PROFILE)
   auth.workspaces(WORKSPACES)
+  // The shell reads the user's preferences (the clock) as soon as it mounts.
+  auth.preferences({})
   messaging.get('/api/v1/channels', { items: [], nextCursor: null })
 }
 
@@ -130,6 +132,47 @@ describe('App routes', () => {
     expect(text).not.toMatch(/password/i)
     // The demo password; the heading's "CollabHub" is capitalised and doesn't match.
     expect(text).not.toMatch(/\bcollabhub\b/)
+  })
+
+  it('renders the settings page on a direct load', async () => {
+    aReturningUser()
+    auth.members([aWorkspaceMember({ id: PROFILE.id, displayName: 'Ada Lovelace' })])
+
+    renderWithProviders(<App />, { route: '/settings' })
+
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
+    // Inside the shell, so the sidebar's name is on screen beside it.
+    expect(screen.getByRole('link', { name: 'Ada Lovelace' })).toBeInTheDocument()
+  })
+
+  it('brings a signed-out visitor to /settings back there after signing in', async () => {
+    const assign = vi.fn()
+    vi.stubGlobal('location', { ...window.location, assign })
+    try {
+      aFirstVisit()
+      const first = renderWithProviders(<App />, { route: '/settings' })
+      const signIn = await screen.findByRole('button', { name: 'Sign in' })
+      expect(first.location().pathname).toBe('/sign-in')
+
+      await first.user.click(signIn)
+      await vi.waitFor(() => expect(assign).toHaveBeenCalled())
+      first.unmount()
+
+      // The browser comes back from the identity provider with a code, in the same
+      // tab: the verifier and the remembered path are in this tab’s sessionStorage.
+      auth.exchange(PAIR)
+      auth.me(PROFILE)
+      auth.workspaces(WORKSPACES)
+      auth.preferences({})
+      auth.members([aWorkspaceMember({ id: PROFILE.id, displayName: 'Ada Lovelace' })])
+      messaging.get('/api/v1/channels', { items: [], nextCursor: null })
+      const back = renderWithProviders(<App />, { route: '/auth/callback?code=the-code' })
+
+      expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
+      expect(back.location().pathname).toBe('/settings')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('says so for a route that does not exist', async () => {

@@ -17,6 +17,33 @@ describe('the chat store', () => {
     expect(useChatStore.getState().activeChannelId).toBe('channel-1')
   })
 
+  it('remembers the last channel after leaving it, and follows the next one opened', () => {
+    const { setActiveChannel } = useChatStore.getState()
+
+    setActiveChannel('channel-1')
+    setActiveChannel(null)
+
+    // "Back to chat" on Settings needs somewhere to go: leaving clears the open
+    // channel but not the last one.
+    expect(useChatStore.getState().activeChannelId).toBeNull()
+    expect(useChatStore.getState().lastChannelId).toBe('channel-1')
+
+    setActiveChannel('channel-2')
+    setActiveChannel(null)
+
+    expect(useChatStore.getState().lastChannelId).toBe('channel-2')
+  })
+
+  it('has no last channel until one is opened, and resetLastChannel forgets it', () => {
+    expect(useChatStore.getState().lastChannelId).toBeNull()
+
+    useChatStore.getState().setActiveChannel('channel-1')
+    useChatStore.getState().resetLastChannel()
+
+    expect(useChatStore.getState().lastChannelId).toBeNull()
+    expect(useChatStore.getState().activeChannelId).toBe('channel-1')
+  })
+
   it('keeps a draft per channel, and clears only the one sent', () => {
     const { setDraft, clearDraft } = useChatStore.getState()
 

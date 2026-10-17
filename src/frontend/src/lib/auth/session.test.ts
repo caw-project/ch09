@@ -309,6 +309,202 @@ describe('concurrent renewal', () => {
   })
 })
 
+describe('updateProfile', () => {
+  const RENAMED: Profile = { ...PROFILE, displayName: 'Ada L' }
+
+  it('replaces the signed-in profile and tells listeners', async () => {
+    auth.refresh(pair(HOME))
+    await session.restore()
+    const listener = vi.fn()
+    session.subscribe(listener)
+
+    session.updateProfile(RENAMED)
+
+    expect(signedInSession(session).profile).toEqual(RENAMED)
+    expect(listener).toHaveBeenCalled()
+    // Only the profile moved: the token and workspaces are the session's own.
+    expect(signedInSession(session).accessToken).toBe(tokenFor(HOME))
+    expect(signedInSession(session).workspaces).toEqual(WORKSPACES)
+  })
+
+  it('ignores a profile that is not the signed-in user’s', async () => {
+    auth.refresh(pair(HOME))
+    await session.restore()
+
+    session.updateProfile({ ...RENAMED, id: 'user-grace' })
+
+    expect(signedInSession(session).profile).toEqual(PROFILE)
+  })
+
+  it('does nothing while signed out', async () => {
+    auth.problem('post', '/api/v1/auth/refresh', 401, { title: 'Unauthorized' })
+    await session.restore()
+    const before = session.snapshot()
+
+    session.updateProfile(RENAMED)
+
+    expect(session.snapshot()).toBe(before)
+  })
+})
+
+describe('a rename racing a renewal or a switch', () => {
+  const RENAMED: Profile = { ...PROFILE, displayName: 'Ada L' }
+  const meCalls = () => requests().filter((r) => r.url.pathname === '/api/v1/users/me')
+
+  function held() {
+    let release!: (profile: Profile) => void
+    const promise = new Promise<Profile>((resolve) => {
+      release = resolve
+    })
+    return { promise, release }
+  }
+
+  it('keeps the new name when a renewal’s answer predates the rename', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    auth.refresh(pair(HOME, 120, 'first'))
+    await session.restore()
+    const gate = held()
+    auth.meBy(() => gate.promise)
+    auth.refresh(pair(HOME, 120, 'renewed'))
+    await vi.advanceTimersByTimeAsync(60_000)
+    // The renewal is now waiting on `me`, which answered before the PATCH committed.
+    await vi.waitFor(() => expect(meCalls()).toHaveLength(2))
+
+    session.updateProfile(RENAMED)
+    gate.release(PROFILE)
+
+    await vi.waitFor(() =>
+      expect(signedInSession(session).accessToken).toBe(tokenFor(HOME, 'renewed')),
+    )
+    expect(signedInSession(session).profile.displayName).toBe('Ada L')
+  })
+
+  it('keeps the new name when a workspace switch’s answer predates the rename', async () => {
+    auth.refresh(pair(HOME))
+    await session.restore()
+    const gate = held()
+    auth.meBy(() => gate.promise)
+    auth.switchWorkspace(pair(AWAY))
+    const switching = session.changeWorkspace(AWAY)
+    await vi.waitFor(() => expect(meCalls()).toHaveLength(2))
+
+    session.updateProfile(RENAMED)
+    gate.release(PROFILE)
+    await switching
+
+    expect(signedInSession(session).activeWorkspaceId).toBe(AWAY)
+    expect(signedInSession(session).profile.displayName).toBe('Ada L')
+  })
+
+  it('adopts what a renewal fetches when it started after the rename', async () => {
+    // The guard’s positive: an edit made before a renewal begins must not freeze
+    // the profile, or a rename made in another tab would never arrive.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    auth.refresh(pair(HOME, 120, 'first'))
+    await session.restore()
+    session.updateProfile(RENAMED)
+    auth.meBy(() => ({ ...PROFILE, displayName: 'Ada M' }))
+    auth.refresh(pair(HOME, 120, 'renewed'))
+
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    await vi.waitFor(() =>
+      expect(signedInSession(session).accessToken).toBe(tokenFor(HOME, 'renewed')),
+    )
+    expect(signedInSession(session).profile.displayName).toBe('Ada M')
+  })
+})
+
+describe('the return path', () => {
+  const RETURN_KEY = 'collabhub.returnPath'
+  const assign = vi.fn()
+
+  beforeEach(() => {
+    assign.mockReset()
+    vi.stubGlobal('location', { ...window.location, assign })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('is kept by signIn and handed back once', async () => {
+    await session.signIn('dex', '/settings')
+
+    expect(window.sessionStorage.getItem(RETURN_KEY)).toBe('/settings')
+    expect(session.takeReturnPath()).toBe('/settings')
+    expect(session.takeReturnPath()).toBeNull()
+    expect(window.sessionStorage.getItem(RETURN_KEY)).toBeNull()
+  })
+
+  it('keeps a path with a query', async () => {
+    await session.signIn('dex', '/search?q=zeppelin')
+
+    expect(session.takeReturnPath()).toBe('/search?q=zeppelin')
+  })
+
+  it.each(['//evil.example/phish', 'https://evil.example/', 'settings'])(
+    'refuses %j as a place to return to',
+    async (target) => {
+      await session.signIn('dex', target)
+
+      expect(session.takeReturnPath()).toBeNull()
+    },
+  )
+
+  it('is overwritten by the next signIn, and cleared when that one names none', async () => {
+    await session.signIn('dex', '/settings')
+    await session.signIn('dex', '/search?q=a')
+    expect(session.takeReturnPath()).toBe('/search?q=a')
+
+    await session.signIn('dex', '/settings')
+    await session.signIn('dex')
+    expect(session.takeReturnPath()).toBeNull()
+  })
+
+  it('survives a sign-in that completes, for the callback to take', async () => {
+    auth.exchange(pair(HOME))
+    await session.signIn('dex', '/settings')
+
+    const completed = await session.completeSignIn(new URLSearchParams('code=the-code'))
+
+    expect(completed).toBe(true)
+    expect(session.takeReturnPath()).toBe('/settings')
+  })
+
+  describe('after a sign-in that fails', () => {
+    // Each `return false` of completeSignIn: a failed attempt from /settings must
+    // not send a later plain sign-in there.
+    it('forgets it when the identity provider refused', async () => {
+      await session.signIn('dex', '/settings')
+
+      await session.completeSignIn(new URLSearchParams('error=access_denied'))
+
+      expect(session.takeReturnPath()).toBeNull()
+    })
+
+    it('forgets it when the code arrived without this tab’s verifier', async () => {
+      await session.signIn('dex', '/settings')
+      window.sessionStorage.removeItem(VERIFIER_KEY)
+
+      const completed = await session.completeSignIn(new URLSearchParams('code=abc'))
+
+      expect(completed).toBe(false)
+      expect(session.takeReturnPath()).toBeNull()
+    })
+
+    it('forgets it when the exchange fails', async () => {
+      await session.signIn('dex', '/settings')
+      auth.problem('post', '/api/v1/auth/token', 400, { title: 'Bad request', detail: 'No.' })
+
+      const completed = await session.completeSignIn(new URLSearchParams('code=abc'))
+
+      expect(completed).toBe(false)
+      expect(session.takeReturnPath()).toBeNull()
+    })
+  })
+})
+
 describe('signIn', () => {
   it('keeps the verifier and sends the browser to Auth with its challenge', async () => {
     const assign = vi.fn()
