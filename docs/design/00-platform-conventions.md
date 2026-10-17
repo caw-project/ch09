@@ -64,7 +64,8 @@ not mocks).
   Column names `created_at`, `updated_at`. Never store local time.
 - **Soft delete:** Mutable user-facing resources use `deleted_at timestamptz NULL`.
   Queries filter `deleted_at IS NULL` by default. Hard delete only via retention jobs.
-  **Two documented exceptions, both in Messaging — recorded here 2026-08-16.**
+  **Three documented exceptions — the first two in Messaging, recorded here 2026-08-16; the
+  third in Auth, 2026-10-17.**
   They live here rather than only in the service doc because this document wins
   the tie-break, so an exception granted only by doc 02 is an exception the
   contract does not actually grant:
@@ -81,7 +82,13 @@ not mocks).
     to know about: a "deleted" message's text is still in the row until a
     retention job removes it, and the retention values are still open (D16 🔴).
 
-  A third exception should be a decision with a record, not a local call.
+  - **`users` in Auth (D46): a display name stays taken after its account is deleted.** The
+    taken-names read in `identities.provision_user` and the migration's dedupe read do not
+    filter `deleted_at`, and the unique index on `display_name_key` covers deleted rows, so a
+    deleted person's name cannot be given to someone else. Every other `users` read still
+    filters. See the [ADR](../adr/261017-display-names-unique-across-collabhub.md).
+
+  A fourth exception should be a decision with a record, not a local call.
 - **Optimistic concurrency:** Updatable rows carry a `version integer NOT NULL DEFAULT 0`,
   incremented on every update. Updates use `WHERE id = :id AND version = :expected_version`;
   zero rows affected → `409 Conflict`.
@@ -226,6 +233,11 @@ identifier from the request in place of the claim.
 Refresh tokens are **not** workspace-scoped. Switching workspaces exchanges the refresh
 token plus a target workspace ID for a new access token, reusing the rotating-refresh
 machinery in §5.1.
+
+**One exception to "a resource you may not see is a 404" is deliberate (D46).** Display names
+are unique across all of CollabHub, so a `409` on `PATCH /users/me` ("That name is already
+taken.") can reveal that a person with that name exists in another workspace. It names nobody:
+no id, email, name or workspace is in the body beyond that fixed sentence.
 
 A Socket.IO connection inherits the workspace of the token that opened it. On switch, the
 client must drop and re-establish its `/messaging` and `/canvas` connections — a live

@@ -97,6 +97,47 @@ export function me(accessToken: string): Promise<Profile> {
   return request<Profile>('/api/v1/users/me', { headers: authorized(accessToken) })
 }
 
+/**
+ * Rename the signed-in user. Resolves to the stored profile — the server trims and
+ * normalises the name, so what comes back is what to show. A 400 or 409 carries
+ * `errors.displayName`.
+ */
+export function updateMe(accessToken: string, body: { displayName: string }): Promise<Profile> {
+  return request<Profile>('/api/v1/users/me', {
+    method: 'PATCH',
+    headers: authorized(accessToken),
+    body: JSON.stringify(body),
+  })
+}
+
+/** The 12/24-hour choice; absent means "automatic" (register D28). */
+export type Clock = '12h' | '24h'
+
+/** The signed-in user's stored preferences. A key not chosen is absent. */
+export interface Preferences {
+  clock?: Clock
+}
+
+/** `null` puts a key back to automatic. */
+export type PreferencesPatch = { clock?: Clock | null }
+
+export function preferences(accessToken: string): Promise<Preferences> {
+  return request<Preferences>('/api/v1/users/me/preferences', {
+    headers: authorized(accessToken),
+  })
+}
+
+export function updatePreferences(
+  accessToken: string,
+  patch: PreferencesPatch,
+): Promise<Preferences> {
+  return request<Preferences>('/api/v1/users/me/preferences', {
+    method: 'PATCH',
+    headers: authorized(accessToken),
+    body: JSON.stringify(patch),
+  })
+}
+
 export function workspaces(accessToken: string): Promise<{ items: Workspace[] }> {
   return request<{ items: Workspace[] }>('/api/v1/workspaces', { headers: authorized(accessToken) })
 }

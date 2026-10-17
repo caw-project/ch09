@@ -52,7 +52,14 @@ interface ChatState {
    * badge while it holds.
    */
   readingChannelId: string | null
+  /**
+   * The last channel that was open, kept when it is left and cleared on a
+   * workspace change: where Settings' "Back to chat" goes. `null` until one opens.
+   */
+  lastChannelId: string | null
+  /** Sets the open channel; a non-null id is remembered as the last one. */
   setActiveChannel: (channelId: string | null) => void
+  resetLastChannel: () => void
   setReadingChannel: (channelId: string | null) => void
   setDraft: (channelId: string, text: string) => void
   clearDraft: (channelId: string) => void
@@ -72,7 +79,15 @@ export const useChatStore = create<ChatState>((set) => ({
   connectionStatus: 'disconnected',
   joinedChannelId: null,
   readingChannelId: null,
-  setActiveChannel: (channelId) => set({ activeChannelId: channelId }),
+  lastChannelId: null,
+  setActiveChannel: (channelId) =>
+    set((state) => ({
+      activeChannelId: channelId,
+      // Leaving a channel clears the open one but not this: Settings' "Back to
+      // chat" needs somewhere to go.
+      lastChannelId: channelId ?? state.lastChannelId,
+    })),
+  resetLastChannel: () => set({ lastChannelId: null }),
   setReadingChannel: (channelId) => set({ readingChannelId: channelId }),
   setConnectionStatus: (status) => set({ connectionStatus: status }),
   setJoinedChannel: (channelId) => set({ joinedChannelId: channelId }),

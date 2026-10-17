@@ -19,9 +19,13 @@
  *   way the refresh token was not: it is single-use, lives for the seconds
  *   between leaving and returning, is useless without the matching authorization
  *   code, and is deleted before that code is spent.
+ * - **The return path** shares the verifier's storage and its trip: the in-app
+ *   route a signed-out visitor wanted, so signing in lands them there. Not a
+ *   secret, and every `signIn` overwrites or clears it.
  */
 
 const VERIFIER_KEY = 'collabhub.pkceVerifier'
+const RETURN_PATH_KEY = 'collabhub.returnPath'
 
 function read(key: string): string | null {
   try {
@@ -47,6 +51,17 @@ function clear(key: string): void {
   } catch {
     /* see read() */
   }
+}
+
+/**
+ * The route a visitor was sent to sign in from, held across the same redirect as
+ * the verifier. A path inside this app, not a secret; `session.takeReturnPath`
+ * refuses anything that is not one before it is used.
+ */
+export const returnPath = {
+  read: () => read(RETURN_PATH_KEY),
+  write: (path: string) => write(RETURN_PATH_KEY, path),
+  clear: () => clear(RETURN_PATH_KEY),
 }
 
 /**

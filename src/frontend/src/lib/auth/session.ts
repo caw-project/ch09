@@ -18,7 +18,7 @@
  */
 
 import * as api from './api'
-import { pkceVerifier } from './storage'
+import { pkceVerifier, returnPath } from './storage'
 import { challengeFor, createVerifier } from './pkce'
 
 /** Renew this long before expiry, so a slow request cannot straddle it. */
@@ -73,13 +73,45 @@ export function snapshot(): State {
   return state
 }
 
+/**
+ * How many times the signed-in profile has been replaced by `updateProfile`.
+ * `adopt` compares it before and after its fetch to tell whether a rename landed
+ * while its `me` was in flight.
+ */
+let profileEdits = 0
+
+/**
+ * Replace the signed-in user's profile, after a rename the server accepted.
+ *
+ * Only while signed in as that user: a response for anyone else, or one that
+ * arrives after sign-out, changes nothing. The count it keeps is what stops a
+ * renewal or workspace switch from putting the old name back (see `adopt`).
+ */
+export function updateProfile(profile: api.Profile): void {
+  if (state.status !== 'signedIn' || state.session.profile.id !== profile.id) return
+  profileEdits += 1
+  set({ status: 'signedIn', session: { ...state.session, profile } })
+}
+
 async function adopt(pair: api.TokenPair): Promise<void> {
+  // Read before fetching: an edit made after this point is newer than the `me`
+  // being asked for, and must win over it.
+  const edits = profileEdits
   // Nothing to store: the refresh cookie was set by the response that carried
   // this access token, and the browser will send it back unprompted.
-  const [profile, workspaceList] = await Promise.all([
+  const [fetched, workspaceList] = await Promise.all([
     api.me(pair.accessToken),
     api.workspaces(pair.accessToken),
   ])
+  // A `me` answered before a rename committed but landing after `updateProfile`
+  // would put the old name back in the sidebar while the directory shows the new
+  // one. A renewal that *starts* after the edit adopts what it fetches, so a
+  // rename made in another tab still arrives.
+  const kept =
+    profileEdits !== edits &&
+    state.status === 'signedIn' &&
+    state.session.profile.id === fetched.id
+  const profile = kept && state.status === 'signedIn' ? state.session.profile : fetched
 
   set({
     status: 'signedIn',
@@ -155,10 +187,18 @@ export async function restore(): Promise<void> {
   await renew()
 }
 
-/** Begin a login. Navigates away, so nothing after this runs. */
-export async function signIn(provider = 'dex'): Promise<void> {
+/**
+ * Begin a login. Navigates away, so nothing after this runs.
+ *
+ * `returnTo` is the in-app route to land on afterwards. Every call overwrites the
+ * remembered path — or clears it when none is given — so an abandoned attempt
+ * from one route never sends a later plain sign-in there.
+ */
+export async function signIn(provider = 'dex', returnTo?: string): Promise<void> {
   const verifier = createVerifier()
   pkceVerifier.write(verifier)
+  if (returnTo === undefined) returnPath.clear()
+  else returnPath.write(returnTo)
   window.location.assign(api.loginUrl(provider, await challengeFor(verifier)))
 }
 
@@ -169,9 +209,11 @@ export async function signIn(provider = 'dex'): Promise<void> {
  * user landed here mid-login" from "someone opened this URL directly".
  */
 export async function completeSignIn(query: URLSearchParams): Promise<boolean> {
+  // A sign-in that fails forgets where it was meant to land (each `return false`).
   const error = query.get('error')
   if (error) {
     pkceVerifier.clear()
+    returnPath.clear()
     signedOut(describe(error))
     return false
   }
@@ -179,6 +221,7 @@ export async function completeSignIn(query: URLSearchParams): Promise<boolean> {
   const code = query.get('code')
   const verifier = pkceVerifier.read()
   if (!code || !verifier) {
+    returnPath.clear()
     signedOut(code ? 'This sign-in was started in another tab.' : undefined)
     return false
   }
@@ -191,9 +234,22 @@ export async function completeSignIn(query: URLSearchParams): Promise<boolean> {
     await adopt(await api.exchangeCode(code, verifier))
     return true
   } catch (caught) {
+    returnPath.clear()
     signedOut(caught instanceof Error ? caught.message : 'Sign-in failed.')
     return false
   }
+}
+
+/**
+ * Where the sign-in that just completed should land, read once.
+ *
+ * `null` unless it is a path inside this app: starting `/` and not `//`, which a
+ * browser would read as another host.
+ */
+export function takeReturnPath(): string | null {
+  const path = returnPath.read()
+  returnPath.clear()
+  return path !== null && path.startsWith('/') && !path.startsWith('//') ? path : null
 }
 
 export async function changeWorkspace(workspaceId: string): Promise<void> {

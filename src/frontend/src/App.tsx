@@ -1,9 +1,17 @@
 import { useEffect } from 'react'
-import { Navigate, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom'
+import {
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from 'react-router-dom'
 
 import { ChannelView } from './features/channels/ChannelView'
 import { ChatLayout } from './features/channels/ChatLayout'
 import { SearchPage } from './features/search/SearchPage'
+import { SettingsPage } from './features/settings/SettingsPage'
 import * as session from './lib/auth/session'
 import { useSession } from './lib/auth/useSession'
 
@@ -18,6 +26,8 @@ import { useSession } from './lib/auth/useSession'
 
 function SignIn() {
   const state = useSession()
+  // Where the guard sent this visitor from, so signing in lands them back there.
+  const from = fromState(useLocation().state)
 
   // Without this the sign-in form paints for one frame while the session is
   // still restoring from the refresh cookie, and a returning user sees a flash
@@ -37,7 +47,7 @@ function SignIn() {
       <button
         type="button"
         data-testid="sign-in"
-        onClick={() => void session.signIn()}
+        onClick={() => void session.signIn('dex', from)}
         className="rounded bg-accent px-4 py-2 font-medium text-accent-ink"
       >
         Sign in
@@ -60,11 +70,19 @@ function Callback() {
 
   useEffect(() => {
     void session.completeSignIn(query).then((signedIn) => {
-      navigate(signedIn ? '/' : '/sign-in', { replace: true })
+      navigate(signedIn ? (session.takeReturnPath() ?? '/') : '/sign-in', { replace: true })
     })
   }, [query, navigate])
 
   return <Loading label="Signing you in…" />
+}
+
+/** The in-app route `Protected` remembered in the redirect's state, if it did. */
+function fromState(state: unknown): string | undefined {
+  if (typeof state === 'object' && state !== null && 'from' in state) {
+    return typeof state.from === 'string' ? state.from : undefined
+  }
+  return undefined
 }
 
 function Loading({ label = 'Loading…' }: { label?: string }) {
@@ -78,9 +96,13 @@ function Loading({ label = 'Loading…' }: { label?: string }) {
 /** Renders the chat shell for a signed-in user, or sends them to sign in. */
 function Protected({ children }: { children: React.ReactNode }) {
   const state = useSession()
+  const { pathname, search } = useLocation()
 
   if (state.status === 'loading') return <Loading />
-  if (state.status === 'signedOut') return <Navigate to="/sign-in" replace />
+  // Remember where the visitor was going; `SignIn` hands it to the login.
+  if (state.status === 'signedOut') {
+    return <Navigate to="/sign-in" replace state={{ from: pathname + search }} />
+  }
 
   return <ChatLayout current={state.session}>{children}</ChatLayout>
 }
@@ -122,6 +144,14 @@ function SearchRoute() {
   )
 }
 
+function SettingsRoute() {
+  const state = useSession()
+  if (state.status !== 'signedIn') return null
+  return (
+    <SettingsPage accessToken={state.session.accessToken} userId={state.session.profile.id} />
+  )
+}
+
 export function App() {
   useEffect(() => {
     void session.restore()
@@ -150,6 +180,14 @@ export function App() {
         element={
           <Protected>
             <SearchRoute />
+          </Protected>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <Protected>
+            <SettingsRoute />
           </Protected>
         }
       />

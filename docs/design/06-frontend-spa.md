@@ -36,7 +36,7 @@ login flow (PKCE), and direct-to-Garage uploads.
 | Canvas rendering | `react-konva` / `pixi.js` / custom WebGL | Pick per perf needs (Open Decision). |
 | Auth | *(no library — hand-written)* | See below. |
 | Forms / validation | React Hook Form + Zod | Zod schemas mirror `collabhub-contracts` (Pydantic models). |
-| Styling | **Tailwind CSS v4** | 🟢 Decided 2026-08-15 (D26), via `@tailwindcss/vite`. No `tailwind.config.js` or PostCSS config — the theme is `@theme` tokens in `src/index.css`. **Light palette only** — there is no user-preferences feature to store a theme choice in (§9), so following the OS setting would mean maintaining two schemes for a setting nobody can override. Components use tokens (`text-ink-muted`), never literal colours; that is what keeps adding a dark palette cheap later. [ADR](../adr/260815-tailwind-v4-for-spa-styling.md) |
+| Styling | **Tailwind CSS v4** | 🟢 Decided 2026-08-15 (D26), via `@tailwindcss/vite`. No `tailwind.config.js` or PostCSS config — the theme is `@theme` tokens in `src/index.css`. **Light palette only** — preferences now exist (D28, §9) but a theme is not one of them yet, so following the OS setting would mean maintaining two schemes for a setting nobody can override. Components use tokens (`text-ink-muted`), never literal colours; that is what keeps adding a dark palette cheap later. [ADR](../adr/260815-tailwind-v4-for-spa-styling.md) |
 | Acceptance tests | **Gherkin + pytest-bdd + Playwright** | 🟢 Decided 2026-08-15 (D27). Run against `docker compose up`. Selectors are `data-testid` only and live in page objects — a step definition never holds one. [ADR](../adr/260815-pytest-bdd-and-playwright-for-acceptance-tests.md) |
 
 **No OIDC library.** Earlier drafts named `oidc-client-ts`; it was not used, and the reason is
@@ -67,6 +67,7 @@ fewer moving parts than configuring a library out of doing the things it exists 
   /features
     /channels     # channel list, channel view, composer
     /threads
+    /settings     # the /settings page: display name, clock; ClockProvider (D28, D46)
     /canvas       # document view, toolbar, layers, cursors
     /presence     # online users, live cursors, awareness
     /assets       # upload widget, image/file rendering
@@ -79,7 +80,9 @@ fewer moving parts than configuring a library out of doing the things it exists 
 are `App.tsx` and `main.tsx` at the root of `/src`, which is small enough not to
 need a folder of its own. `/features/canvas`, `/features/presence`,
 `/features/assets` and `/lib/yjs` are the eventual shape and do not exist yet.
-`/features/threads` exists as of 2026-10-02 (§5.2, *Threads*).
+`/features/threads` exists as of 2026-10-02 (§5.2, *Threads*). `/features/settings` exists
+as of 2026-10-17 (§5.2, *Names*, and §9): `/settings` is a protected route inside the
+shell, reached from the sidebar's name link, and holds the display name and the clock.
 
 ---
 
@@ -106,9 +109,18 @@ need a folder of its own. `/features/canvas`, `/features/presence`,
      origin behind a single ingress. Under `SameSite=Strict` a genuinely cross-site split
      stops the cookie being sent, and the symptom is a silent sign-out rather than an error.
 
-   The only thing the SPA persists is the PKCE verifier, in `sessionStorage`, for the seconds
-   between redirecting to the provider and returning. It is single-use, useless without the
-   matching authorization code, and cleared before that code is spent.
+   The only things the SPA persists are the PKCE verifier and, since 2026-10-17, one
+   non-secret in-app path (`collabhub.returnPath`), in `sessionStorage`, for the seconds
+   between redirecting to the provider and returning. The verifier is single-use, useless
+   without the matching authorization code, and cleared before that code is spent. The path
+   is where the guard found a signed-out visitor (`state.from`), so signing in lands them
+   there rather than on `/`: only a path starting `/` and not `//` is used, every `signIn`
+   overwrites or clears it, and every failed sign-in clears it.
+
+   A renewal or workspace switch fetches `me` before it adopts the session. A rename that
+   lands while that fetch is out would be undone by the older answer, so `session.ts` counts
+   profile edits (`updateProfile`) and `adopt()` keeps the session's current profile when the
+   count moved; a renewal that starts after the edit adopts what it fetches.
 5. An Axios/fetch interceptor attaches `Authorization: Bearer`. Renewal is **ahead of expiry
    on a timer**, not reactive on a 401: waiting for a failure means every call site needs
    retry logic, whereas renewing early means they only ever see a valid token. Rotation makes
@@ -313,9 +325,24 @@ the short id shows meanwhile. An id seen before a fetch that lands without it is
 *departed* and asks for nothing more until a fetch for another reason lands (a
 mount, a window focus, a reconnect — a reconnect counts even when it joins the
 tracker's own fetch; a stale mount or focus refetch that joins one does not).
-Every socket connect refetches the directory. **Renames are not covered**: a
-changed name shows at the next refetch after the 5 minutes are up (a mount, a
-window focus, a reconnect, or an unknown id). Code: `features/channels/directoryRefresh.ts`.
+Every socket connect refetches the directory. **Renames are not covered** for anyone but
+the renamer: another person's changed name shows at the next refetch after the 5 minutes
+are up (a mount, a window focus, a reconnect, or an unknown id). Code:
+`features/channels/directoryRefresh.ts`.
+
+**The renamer's own tab — added 2026-10-17** (gh-3, register D46). A rename from
+`/settings` writes the new name at once, in the mutation's own `onSuccess` so it survives
+leaving the page: the session profile (the sidebar), the profile query and every cached
+`['workspace-members', *]` list. `cancelQueries` is awaited first — `invalidateQueries`
+cancels an in-flight fetch only when the query already has data, and with none it joins
+that fetch, whose old name would then land — and an invalidate after the writes refetches
+once the commit is visible. Nothing is pushed to anyone else.
+
+**Preferences — added 2026-10-17** (register D28). One `['user-preferences', userId]`
+query (a person's, so no workspace in the key) read by `ClockProvider` in the shell;
+`MessageItem`, `ThreadSummary` and `SearchResult` format times through `lib/time` with
+`useClock()`. Choosing a clock is optimistic, reverts only if the cache still holds that
+choice, and runs under a mutation `scope` so the server stores choices in the order made.
 
 **Threads — added 2026-10-02** (register D8a, ADR 261002). Single-level; the code
 is in `/features/threads`.
@@ -476,14 +503,11 @@ Over `GET /api/v1/search/messages` (doc 02, D8c), unchanged.
 - PWA/offline shell for the mobile path; service worker caches the app shell, not data.
 
 ## 9. Open Decisions
-- **User preferences — there is no feature for them anywhere** (register D28). `users`
-  carries a display name, an avatar reference and a status (doc 01 §4), and
-  `PATCH /users/me` updates the first two. Nothing stores a per-user choice, so
-  a theme toggle, a locale, a timezone or notification settings all need the
-  same missing thing first: a place to put them, and a decision about whether
-  they are Auth's (a column, in the token, cached in R1) or a separate concern.
-  Currently blocking a dark mode; i18n and notification channels (Worker D18)
-  will want it too.
+- ~~**User preferences — where they live.**~~ — 🟢 **Decided 2026-10-17 (register D28).**
+  Auth stores them (`user_preferences`, doc 01 §4), per user, with server-validated keys;
+  the SPA reads them through one TanStack query. The first is the 12/24-hour clock. A
+  theme, a locale and notification settings are still unbuilt, but now have somewhere to
+  go: add a key to `auth.preferences.KNOWN`. A dark mode additionally needs a palette (D26).
 - **React Native vs. PWA** for mobile — separate codebase vs. shared (the architecture lists
   both). Affects how much of `/lib` is platform-agnostic.
 - **Canvas renderer:** Konva (DOM/2D, simpler) vs. PixiJS/WebGL (perf) vs. custom. Driven by

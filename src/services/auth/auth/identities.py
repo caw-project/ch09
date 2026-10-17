@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
-from sqlalchemy import Select, func, select, text, tuple_
+from sqlalchemy import Select, func, or_, select, text, tuple_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from auth import names
 from auth.models import ExternalIdentity, User, Workspace, WorkspaceMember
 from shared import Page, PageRequest, build_page, uuid7
 
@@ -23,6 +25,9 @@ MEMBER = "member"
 GUEST = "guest"
 
 ROLES = (OWNER, ADMIN, MEMBER, GUEST)
+
+# The unique index on `users.display_name_key` (migration 0002).
+NAME_INDEX = "ux_users_display_name_key"
 # Who may change membership. Kept here rather than in the router because it is a
 # fact about the authorization model, not about HTTP.
 MANAGING_ROLES = (OWNER, ADMIN)
@@ -83,10 +88,96 @@ async def ensure_demo_workspace(session: AsyncSession, name: str) -> Workspace:
     return workspace
 
 
+class NameTakenError(Exception):
+    """Another account (deleted ones included) already holds this name."""
+
+
+# Losing the name index this many times in a row needs as many first sign-ins with
+# one base name, each committing inside the others' window. Past it the violation
+# is re-raised rather than looping on a bug.
+_NAME_ATTEMPTS = 10
+
+
+def _is_name_conflict(exc: IntegrityError) -> bool:
+    """Whether `exc` is a violation of the display-name index and nothing else.
+
+    SQLAlchemy's asyncpg adapter raises its translated error `from` asyncpg's, and
+    that one carries the constraint's name. The email index must stay an error.
+    """
+    cause = getattr(exc.orig, "__cause__", None)
+    return getattr(cause, "constraint_name", None) == NAME_INDEX
+
+
+async def rename_user(session: AsyncSession, user: User, name: str) -> bool:
+    """Give `user` the already-normalised `name`; False, writing nothing, if it is theirs.
+
+    The unique index is the race control: a pre-check cannot see another
+    transaction's uncommitted name. The flush runs in a SAVEPOINT so losing leaves
+    the session usable, and raises `NameTakenError`.
+    """
+    if name == user.display_name:
+        return False
+    try:
+        async with session.begin_nested():
+            user.display_name = name
+            user.updated_at = datetime.now(UTC)
+            user.version += 1
+            await session.flush()
+    except IntegrityError as exc:
+        if _is_name_conflict(exc):
+            raise NameTakenError(name) from exc
+        raise
+    return True
+
+
+async def _taken_keys(session: AsyncSession, base: str) -> set[str]:
+    """Keys equal to `base`'s, or `base`'s followed by a space (its suffixed forms)."""
+    key = names.name_key(base)
+    result = await session.execute(
+        # conventions: ok — deleted accounts keep their names: D46, Conventions §3's
+        # third soft-delete exception.
+        select(User.display_name_key).where(
+            or_(
+                User.display_name_key == key,
+                User.display_name_key.startswith(key + " ", autoescape=True),
+            )
+        )
+    )
+    return set(result.scalars().all())
+
+
+async def _insert_with_free_name(session: AsyncSession, *, email: str, display_name: str) -> User:
+    """Insert a new user under the first free form of `display_name`.
+
+    A candidate another sign-in committed after the read loses at the index; that
+    key is remembered and the next suffix tried, so no candidate is tried twice.
+    """
+    base = names.provision_name(display_name, email)
+    refused: set[str] = set()
+    for attempt in range(_NAME_ATTEMPTS):
+        candidate = names.first_free(base, await _taken_keys(session, base) | refused)
+        user = User(id=uuid7(), email=email, display_name=candidate)
+        try:
+            async with session.begin_nested():
+                session.add(user)
+                await session.flush()
+        except IntegrityError as exc:
+            if not _is_name_conflict(exc) or attempt == _NAME_ATTEMPTS - 1:
+                raise
+            refused.add(names.name_key(candidate))
+            continue
+        return user
+    raise AssertionError("unreachable")  # pragma: no cover — the loop returns or raises
+
+
 async def provision_user(
     session: AsyncSession, *, email: str, display_name: str, demo_workspace_name: str | None
 ) -> User:
     """Return the account for `email`, creating it and its workspaces if new.
+
+    The name is cleaned (`names.provision_name`) and, when another account already
+    holds it — deleted ones included — takes the first free suffix: `X 2`, `X 3`.
+    A first sign-in is never refused over a name.
 
     A brand-new user gets their own workspace, which they own. Locally they also
     join the shared demo workspace as a member, so there are always two and the
@@ -98,11 +189,9 @@ async def provision_user(
     if user is not None:
         return user
 
-    user = User(id=uuid7(), email=email, display_name=display_name)
-    session.add(user)
-    await session.flush()
+    user = await _insert_with_free_name(session, email=email, display_name=display_name)
 
-    own = Workspace(id=uuid7(), name=f"{display_name}'s Workspace")
+    own = Workspace(id=uuid7(), name=f"{user.display_name}'s Workspace")
     session.add(own)
     await session.flush()
     session.add(WorkspaceMember(workspace_id=own.id, user_id=user.id, role=OWNER))

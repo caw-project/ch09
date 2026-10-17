@@ -24,8 +24,10 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import CITEXT, TIMESTAMP, UUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import CITEXT, JSONB, TIMESTAMP, UUID
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, validates
+
+from auth.names import name_key
 
 # Every timestamp on the platform is UTC `timestamptz` (Conventions §3).
 Timestamp = TIMESTAMP(timezone=True)
@@ -36,11 +38,22 @@ class Base(DeclarativeBase):
 
 
 class User(Base):
+    """A person.
+
+    `display_name_key` is what names are compared by (`auth.names.name_key`), kept
+    beside the name and set whenever the name is. It is stored rather than derived
+    in SQL so the database compares exactly what the application computed: a
+    `lower(display_name)` index would be a second, different case rule. The unique
+    index on it covers deleted rows too — a name stays taken (register D46).
+    """
+
     __tablename__ = "users"
+    __table_args__ = (Index("ux_users_display_name_key", "display_name_key", unique=True),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     email: Mapped[str] = mapped_column(CITEXT, nullable=False, unique=True)
     display_name: Mapped[str] = mapped_column(String, nullable=False)
+    display_name_key: Mapped[str] = mapped_column(String, nullable=False)
     avatar_asset: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="active")
     created_at: Mapped[datetime] = mapped_column(
@@ -51,6 +64,32 @@ class User(Base):
     )
     deleted_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+
+    @validates("display_name")
+    def _set_key(self, _attribute: str, value: str) -> str:
+        self.display_name_key = name_key(value)
+        return value
+
+
+class UserPreferences(Base):
+    """One row per user: the choices only they make (register D28).
+
+    Global to the person, not to a workspace. `prefs` holds only keys
+    `auth.preferences.KNOWN` accepts; a user who has chosen nothing has no row.
+    """
+
+    __tablename__ = "user_preferences"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True
+    )
+    prefs: Mapped[dict[str, str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    updated_at: Mapped[datetime] = mapped_column(
+        Timestamp, nullable=False, server_default=func.now()
+    )
 
 
 class ExternalIdentity(Base):

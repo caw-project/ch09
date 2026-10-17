@@ -531,8 +531,30 @@ async function adopt(pair: api.TokenPair): Promise<void> {
 
 ## Found while building
 
-*Filled in by the code-writer: every deviation from this plan, and every bug the first real run
-found, each with the test that now pins it down. Empty until then.*
+Filled in by the code-writer, round 1. No bug was found by a run; the departures:
+
+1. **`useClock` and its context are in `features/settings/useClock.ts`, not `ClockProvider.tsx`.**
+   The lint rule `react-refresh/only-export-components` rejects a component file that also
+   exports a hook, and a waiver is not warranted when a file split fixes it. `ClockProvider`
+   is still exported from `ClockProvider.tsx` as the tests import it. No test pins the
+   location of `useClock`.
+2. **`directoryKeys.all = ['workspace-members']`** added to `useWorkspaceMembers.ts`, the
+   prefix a rename writes across. Same key as the tests' literal.
+3. **`usePreferences` uses TanStack's defaults** (stale at once, so the page's mount refetches);
+   only `useProfile` sets `refetchOnMount: 'always'`. Equivalent for decision 35; pinned by
+   `shows the server's name and clock`.
+4. **The form is not rendered at all until the profile has been fetched after mount** (a
+   "Loading…" line instead), rather than rendering it disabled: the tests' `user.clear` refuses
+   a disabled field. Matches decision 35's wording. Pinned by the same test.
+5. **An unchanged avatar is no longer a write.** `update_me`'s avatar branch bumps
+   `version`/`updated_at` only when the avatar value changes (plan: "a no-op writes nothing").
+   No test pins it.
+6. **Plan-review 2's optional item (two clock saves failing in a row restore a value the server
+   never stored) is not fixed.** The next visit reads from the server. No test.
+7. **A flake**: `App.test.tsx › sends a signed-out visitor who opens a channel link to sign in`
+   failed once in a whole-suite run (`location()` still `/c/…`), and passed alone and in two
+   further whole runs. It does not touch the new code path; the location spy's effect had not
+   yet run when the button was found.
 
 ## Not in this plan
 

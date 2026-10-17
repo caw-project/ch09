@@ -30,6 +30,8 @@ import { workspaceMembers, type WorkspaceMember } from '../../lib/auth/api'
 import { directoryTracker } from './directoryRefresh'
 
 export const directoryKeys = {
+  /** Every workspace's directory: the prefix a rename writes across. */
+  all: ['workspace-members'] as const,
   members: (workspaceId: string | null) => ['workspace-members', workspaceId] as const,
 }
 

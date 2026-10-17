@@ -20,6 +20,7 @@ import { useChannelSocket } from '../../lib/realtime/useChannelSocket'
 import { useAttachmentStore } from '../../stores/attachments'
 import { useChatStore } from '../../stores/chat'
 import { SearchBox } from '../search/SearchBox'
+import { ClockProvider } from '../settings/ClockProvider'
 import { cancelAll } from '../attachments/uploads'
 import { ChannelList } from './ChannelList'
 import { CreateChannelDialog } from './CreateChannelDialog'
@@ -52,6 +53,9 @@ export function ChatLayout({ current, children }: Props) {
     () => () => {
       cancelAll()
       useAttachmentStore.getState().reset()
+      // The same goes for the channel Settings' "Back to chat" would return to:
+      // it belongs to the workspace that is gone.
+      useChatStore.getState().resetLastChannel()
     },
     [workspaceId],
   )
@@ -67,6 +71,7 @@ export function ChatLayout({ current, children }: Props) {
 
   return (
     <SocketProvider socket={socket}>
+      <ClockProvider accessToken={current.accessToken} userId={current.profile.id}>
       <div className="grid h-full grid-cols-[16rem_1fr]">
         <aside className="flex flex-col border-r border-border bg-surface-sunken">
           <SearchBox workspaceId={current.activeWorkspaceId} />
@@ -117,6 +122,7 @@ export function ChatLayout({ current, children }: Props) {
 
         <main className="h-full overflow-y-auto bg-surface">{children}</main>
       </div>
+      </ClockProvider>
     </SocketProvider>
   )
 }
