@@ -294,9 +294,13 @@ or is checked again. Keep the pass to that part:
   `Changed since the send-back` — not every source again.
 - **A writer** changes what the findings name and what follows from the change, reruns
   what it touched, and brings its output up to date. Nothing else is rewritten. The
-  exception is the code-writer's verification: a rework that changes any file reruns the
-  plan's `scripts/test.sh` layers, so the committed `docs/test-report.md` is stamped at the
-  final tree — and a reviewing code-reviewer checks that stamp against `git log -1`.
+  exception is the code-writer's verification: a rework reruns each of the plan's
+  `scripts/test.sh` layers whose inputs it changed — code, a test, config, a migration,
+  anything an image or the SPA builds from — so the committed `docs/test-report.md` holds
+  each layer's result for the tree it last depended on. A change to Markdown alone, or to
+  comments alone, reruns lint and nothing else. A reviewing code-reviewer checks with
+  `git diff --name-only <the report's revision>` that nothing changed since is an input
+  to a layer that wasn't rerun.
 - **A reviewer** checks each fix is there and that it broke nothing beside it: the changed
   files, the tests that cover them, the Review responses. It doesn't review untouched
   work again, form new expectations, or rerun a sketch or a mutant the change can't reach.

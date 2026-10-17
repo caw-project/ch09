@@ -193,9 +193,11 @@ What only a person can run or decide: the first real run, and anything this stag
 As the shared context's *Rounds* and *The final round* say, with the green report as the
 place for **Review responses**. A code-reviewer's finding against a test is not yours to
 fix: answer it in Review responses, and change the code only where the finding is about
-the code. Rerun every test the fix touches, then the whole unit layer again, and rerun the
-e2e layer if the fix could reach a journey. Update the report — every result in *What
-ran* is from after your last change.
+the code. Rerun the layers whose inputs the fix changed, as the shared context's *A rework
+pass* says — every test the fix touches, then that whole layer, and e2e only if the fix
+could reach a journey; a Markdown or comment-only fix reruns lint and nothing else. Update
+the report: *What ran* says what was rerun after your last change, and why the rest
+wasn't.
 
 ## When to stop
 

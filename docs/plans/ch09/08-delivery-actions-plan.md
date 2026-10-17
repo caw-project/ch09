@@ -165,6 +165,13 @@ Settled to run on to green without a stop, at the user's word. What each failed 
   writer's claim and sketches from the plan itself. The runner removes `build/sketch/` when
   every stage ends, test first, so the code-writer never builds from the test pair's probe
   and a stage that forgot `sketch.sh clean` leaves nothing for the next.
+- **The second gh-3 run (39038184921) went to `accepted` with no send-back** — the test pair
+  approved first time, the code-reviewer found only stale D28 docs — in 107 minutes against
+  run 1's 99 (its failed pass included), at $26.14. Sketching every test cost the test-writer
+  ten minutes for two short rounds saved, and the docs-only code rework spent 7.6 minutes
+  rerunning every layer. So the test-writer now sketches only tests at risk (timers, races,
+  library events, import-failing files, pure rules), and a rework reruns only the layers
+  whose inputs it changed — Markdown or comments alone rerun lint.
 
 ## Verified
 
