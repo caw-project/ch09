@@ -29,7 +29,9 @@ ever merged or forced. After every stage the runner commits everything outside b
 `needs a human at <stage>, round <R>`, a failure `failed at <stage>, round <R>` with the
 error, and the approval `accepted`. A write the rules refuse is set aside first, into
 build/delivery/refused/, and the path put back as the last checkpoint had it, so the
-failure commit never keeps it. A sketch in build/sketch/ is removed when its stage ends:
+failure commit never keeps it. A verdict returned without the file it owes — a review, a
+report, a send-back file, a proof of its own — is asked for it once in the same session,
+with a few turns, before the state machine fails the run over it. A sketch in build/sketch/ is removed when its stage ends:
 no stage builds from another's probe. A push the remote rejects stops the run with exit 1,
 naming both commits. DELIVER_PUSH=0 commits without fetching or pushing.
 
@@ -161,7 +163,14 @@ from delivery.run.commit import (
     stop_message,
 )
 from delivery.run.context import context_block
-from delivery.run.invoke import AgentRunner, Pass, result_of, run_agent, run_claude
+from delivery.run.invoke import (
+    AgentRunner,
+    Pass,
+    finish_outputs,
+    result_of,
+    run_agent,
+    run_claude,
+)
 from delivery.run.keys import (
     Paths,
     Source,
@@ -173,7 +182,7 @@ from delivery.run.keys import (
     render_issue,
     worktree_for,
 )
-from delivery.run.machine import HumanStop, advance, has_writer, pair_of
+from delivery.run.machine import HumanStop, advance, has_writer, missing_outputs, pair_of
 from delivery.run.preview import deploy_preview
 from delivery.run.record import (
     content_hash,
@@ -501,7 +510,7 @@ class Delivery:
         model = model_for(stage, state, self.settings)
         effort = effort_for(stage, state, self.settings)
         round_ = state.rounds[pair_of(stage)]
-        result = self.run_stage(stage, state, model, effort, preview, agent, sleep)
+        result = self.run_stage(stage, state, model, effort, preview, agent, sleep, proof_before)
         status, summary = str(result["status"]), str(result.get("summary", ""))
         self.last = Ran(stage, status, round_, summary)
         stats = f"{self.stats(state.step)} · {self.ran_with(stage, model, effort)}"
@@ -535,6 +544,7 @@ class Delivery:
         preview: str,
         agent: AgentRunner,
         sleep: Callable[[float], None],
+        proof_before: str = "",
     ) -> dict:
         base = self.transcripts / f"{state.step:02d}-{stage}"
         transcript = f"{base.relative_to(self.worktree)}.json"
@@ -580,6 +590,38 @@ class Delivery:
         shutil.rmtree(self.worktree / "build" / "sketch", ignore_errors=True)
         # The rules no agent may break, checked rather than trusted — before anything else,
         # because a stage stopped mid-way may still have broken one.
+        self.check_rules(stage, head, before, base)
+        result = result_of(ran, stage=stage, turns=turns, round_=round_, transcript=transcript)
+        # A verdict without the file it owes is asked for the file once, in its own session:
+        # a few turns, where failing the run costs a person and a rerun. The machine checks
+        # again, and fails as before if it is still missing.
+        missing = missing_outputs(
+            state,
+            stage,
+            result,
+            self.paths,
+            exists=self.holds,
+            proof_rewritten=content_hash(self.worktree / self.paths.proof) != proof_before,
+        )
+        session = str(ran.output.get("session_id") or "")
+        if missing and session:
+            log(
+                f"{stage} returned {result['status']} but wrote no {', '.join(missing)} — asking it for them"
+            )
+            finish_outputs(
+                p,
+                session=session,
+                status=str(result["status"]),
+                missing=missing,
+                cwd=self.worktree,
+                base=base,
+                run=agent,
+            )
+            self.check_rules(stage, head, before, base)
+        return result
+
+    def check_rules(self, stage: str, head: str, before: dict[str, str], base: Path) -> None:
+        """Stops the run on a commit or a write outside the stage's rules."""
         if git("-C", str(self.worktree), "rev-parse", "HEAD") != head:
             raise RunError(
                 f"{stage} committed — the workflow never commits. Inspect {self.branch} before rerunning"
@@ -603,7 +645,6 @@ class Delivery:
                 + "\n".join(refused)
                 + aside
             )
-        return result_of(ran, stage=stage, turns=turns, round_=round_, transcript=transcript)
 
     # --- helpers --------------------------------------------------------------------
 

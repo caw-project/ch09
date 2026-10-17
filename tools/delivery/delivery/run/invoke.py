@@ -48,6 +48,16 @@ RESUME = (
 )
 
 
+MISSING = (
+    "You returned {status}, but these files your result needs are not there: {files}. This"
+    " is the same session: don't redo the work. Write each one as your instructions say,"
+    " from what you have already found, and return the same result through StructuredOutput."
+)
+
+#: Enough to write a file from what the session already holds, and no more.
+MISSING_TURNS = 20
+
+
 def agent_env(env: Mapping[str, str]) -> dict[str, str]:
     """The environment an agent or the deploy script runs in: the caller's, minus the
     virtualenv `uv run` started this runner in. That one is the primary checkout's — its
@@ -176,6 +186,37 @@ def run_agent(
                 raise RunError(f"{p.stage} failed when resumed — see {out}")
     assert found is not None  # noqa: S101 — every path above has a result or raised.
     return Ran(subtype=subtype_of(found), output=found, turns=p.turns)
+
+
+def finish_outputs(
+    p: Pass,
+    *,
+    session: str,
+    status: str,
+    missing: list[str],
+    cwd: Path,
+    base: Path,
+    run: AgentRunner,
+) -> Ran:
+    """Resumes a pass that returned its verdict without the files it owes, once, to write
+    them — transcript in `<base>.missing.json`. Whether they are there now is the state
+    machine's to check, as for any pass."""
+    out = base.with_name(base.name + ".missing.json")
+    text = run(
+        claude_args(
+            p,
+            prompt=MISSING.format(status=status, files=", ".join(missing)),
+            turns=MISSING_TURNS,
+            resume=session,
+        ),
+        cwd,
+    )
+    out.write_text(text)
+    found = parsed(text)
+    if not subtype_of(found):
+        raise RunError(f"{p.stage} failed when asked for {', '.join(missing)} — see {out}")
+    assert found is not None  # noqa: S101 — a subtype means a parsed result.
+    return Ran(subtype=subtype_of(found), output=found, turns=MISSING_TURNS)
 
 
 def result_of(ran: Ran, *, stage: str, turns: int, round_: int, transcript: str) -> dict:

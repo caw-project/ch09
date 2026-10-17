@@ -500,6 +500,77 @@ def test_a_sketch_never_outlives_its_stage(repo, issue_3):
     assert not (repo.parent / "caw-gh-3" / "build" / "sketch").exists()
 
 
+def test_an_approval_without_its_review_is_asked_for_it_once(repo, remote, issue_3):
+    # A reviewer that approves and forgets the file is resumed in its session to write it,
+    # not failed: the review is the record, and it costs a few turns, not a rerun.
+    class Forgets(FakeAgent):
+        def __call__(self, args: list[str], cwd: Path) -> str:
+            stage = args[args.index("--agent") + 1]
+            if stage == "plan-reviewer" and "--resume" not in args:
+                self.prompts.append(args[args.index("-p") + 1])
+                return json.dumps(
+                    {
+                        "subtype": "success",
+                        "is_error": False,
+                        "num_turns": 3,
+                        "total_cost_usd": 0.5,
+                        "duration_ms": 60000,
+                        "session_id": "s-forgot",
+                        "structured_output": {
+                            "status": "approved",
+                            "summary": "looks right",
+                            "files": [],
+                            "questions": [],
+                        },
+                    }
+                )
+            if "--resume" in args:
+                # Asked for the file by name, in the session that forgot it.
+                assert args[args.index("--resume") + 1] == "s-forgot"
+                named = args[args.index("-p") + 1].split(": ", 1)[1].split(".md")[0] + ".md"
+                (cwd / named).parent.mkdir(parents=True, exist_ok=True)
+                (cwd / named).write_text("Approved.\n")
+                return json.dumps({"subtype": "success", "is_error": False, "session_id": "s"})
+            return super().__call__(args, cwd)
+
+    code = run(repo, issue_3, Forgets(reviewer="approved"))
+
+    assert code == 3  # paused at the test-writer, which has no agent here
+    assert "docs/plans/gh-3/reviews/plan-reviewer-1.md" in committed(remote)
+    assert subjects(remote)[0] == "delivery(gh-3): plan-reviewer approved, round 1"
+
+
+def test_a_file_still_missing_after_asking_fails_the_run(repo, issue_3, capsys):
+    class NeverWrites(FakeAgent):
+        def __call__(self, args: list[str], cwd: Path) -> str:
+            stage = args[args.index("--agent") + 1]
+            if stage == "plan-reviewer":
+                return json.dumps(
+                    {
+                        "subtype": "success",
+                        "is_error": False,
+                        "num_turns": 3,
+                        "total_cost_usd": 0.5,
+                        "duration_ms": 60000,
+                        "session_id": "s-never",
+                        "structured_output": {
+                            "status": "approved",
+                            "summary": "looks right",
+                            "files": [],
+                            "questions": [],
+                        },
+                    }
+                )
+            return super().__call__(args, cwd)
+
+    code = run(repo, issue_3, NeverWrites(reviewer="approved"))
+
+    assert code == 1
+    assert "approved but wrote no docs/plans/gh-3/reviews/plan-reviewer-1.md" in (
+        capsys.readouterr().err
+    )
+
+
 def test_a_refused_edit_to_a_tracked_file_is_put_back(repo, remote, issue_3):
     def edits_gitignore(stage: str, cwd: Path) -> None:
         if stage == "plan-writer":

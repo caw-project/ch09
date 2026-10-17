@@ -249,16 +249,25 @@ exists needs-human.md
 commits 2
 committed 'delivery(issue-999): needs a human at plan-reviewer, round 1'
 
-# The acceptance-reviewer approves only with its proof written.
-scenario acceptance-approves-without-proof 1 done approved done approved done approved approved_bare
-ran plan-writer plan-reviewer test-writer test-reviewer code-writer code-reviewer acceptance-reviewer
+# The acceptance-reviewer approves only with its proof written. Without it, it is
+# asked for the proof once, in its own session; still without it, the run stops.
+scenario acceptance-approves-without-proof 1 done approved done approved done approved approved_bare approved_bare
+ran plan-writer plan-reviewer test-writer test-reviewer code-writer code-reviewer acceptance-reviewer \
+    acceptance-reviewer
+logged 'asking it for them'
+logged 'approved but wrote no'
+
+scenario acceptance-writes-its-proof-when-asked 0 done approved done approved done approved approved_bare approved
+ran plan-writer plan-reviewer test-writer test-reviewer code-writer code-reviewer acceptance-reviewer \
+    acceptance-reviewer
+committed 'delivery(issue-999): accepted'
 
 # It has no writer to ask for changes: that is a stop, never a loop.
 scenario acceptance-may-not-ask-for-changes 1 done approved done approved done approved changes_requested
 logged 'has no writer to take changes'
 
 # A proof from an earlier pass is not this pass's proof.
-scenario acceptance-stale-proof 1 done approved done approved done approved send_back done approved approved_bare
+scenario acceptance-stale-proof 1 done approved done approved done approved send_back done approved approved_bare approved_bare
 logged 'approved but did not rewrite'
 
 # It sends back to the code-writer, and the flow comes forward through the

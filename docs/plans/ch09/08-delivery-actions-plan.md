@@ -172,6 +172,12 @@ Settled to run on to green without a stop, at the user's word. What each failed 
   rerunning every layer. So the test-writer now sketches only tests at risk (timers, races,
   library events, import-failing files, pure rules), and a rework reruns only the layers
   whose inputs it changed — Markdown or comments alone rerun lint.
+- **Run 3 (39050054052) failed at the test-reviewer's round 2:** a 9-turn rework pass approved
+  and wrote no review. The machine refused it rightly, but a forgotten file cost a person and
+  a resume. Now, test first, the runner asks first: a verdict missing a file it owes is
+  resumed once in its session, 20 turns, with the files named (`<NN-stage>.missing.json`
+  beside the transcript), and the machine fails as before if it is still missing. The loop
+  test's proof scenarios ask once before they stop, and one now writes its proof when asked.
 
 ## Verified
 

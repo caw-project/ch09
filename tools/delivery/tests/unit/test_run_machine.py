@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import copy
 import re
 
 import pytest
 from delivery.errors import RunError
 from delivery.run.keys import paths_for
-from delivery.run.machine import STAGES, advance, next_stage
+from delivery.run.machine import STAGES, advance, missing_outputs, next_stage
 from delivery.run.settings import Settings
 from delivery.run.state import State
 
@@ -243,3 +244,54 @@ def test_needs_human_stops_with_the_agents_questions(state):
 def test_a_status_the_role_may_not_return_is_an_error(state):
     with pytest.raises(RunError, match="may not return 'approved'"):
         step(state, "plan-writer", "approved")
+
+
+# --- what a verdict needs on disk, asked before the machine moves ------------------
+
+
+def missing(state, stage, status, *, written=(), proof_rewritten=True):
+    state.stage = stage
+    return missing_outputs(
+        state,
+        stage,
+        result(status),
+        PATHS,
+        exists=lambda path: path in written,
+        proof_rewritten=proof_rewritten,
+    )
+
+
+def test_a_verdict_with_its_files_in_place_misses_nothing(state):
+    assert missing(state, "plan-writer", "done", written={PATHS.plan}) == []
+
+
+def test_an_approval_without_its_review_misses_the_review(state):
+    state.rounds["test"] = 2
+
+    assert missing(state, "test-reviewer", "approved") == [f"{REVIEWS}/test-reviewer-2.md"]
+
+
+def test_a_reviewer_sending_back_misses_both_files_it_owes(state):
+    assert missing(state, "code-reviewer", "send_back") == [
+        f"{REVIEWS}/code-reviewer-sendback-2.md",
+        f"{REVIEWS}/code-reviewer-1.md",
+    ]
+
+
+def test_an_approval_that_left_the_last_proof_misses_the_proof(state):
+    assert missing(
+        state, "acceptance-reviewer", "approved", written={PATHS.proof}, proof_rewritten=False
+    ) == [PATHS.proof]
+
+
+def test_a_stop_for_a_human_owes_no_file(state):
+    assert missing(state, "plan-reviewer", "needs_human") == []
+
+
+def test_asking_leaves_the_state_alone(state):
+    state.stage = "code-reviewer"
+    before = copy.deepcopy(state)
+
+    missing(state, "code-reviewer", "send_back")
+
+    assert state == before
