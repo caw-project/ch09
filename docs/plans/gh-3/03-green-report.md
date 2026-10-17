@@ -40,6 +40,12 @@ See plan *Found while building*: `useClock` in its own file; `directoryKeys.all`
 - Two failed clock saves in a row (plan-review 2): left, optional.
 - `scope` kept (test-review): yes.
 
+## Review responses (round 2)
+1. Fixed: the root `README.md` now says D28 is settled (Auth stores preferences; the clock is the first) and the SPA stays light-only because no theme preference exists. The `index.css` `@theme` comment says the same.
+2. Fixed: the missing space in `update_me`'s docstring.
+
+Reran after the edits (docs and comments only): `scripts/test.sh lint unit integration` passed (integration 594), and `scripts/test.sh e2e` passed, so `docs/test-report.md` is stamped at the final tree.
+
 ## Left for the human
 - First real run by hand (`docker compose up -d --build`): rename Ada, watch the sidebar and her message; take Grace's name in capitals (409 on the field); choose 24-hour and look at an afternoon message; sign out on `/settings` and sign back in (lands on `/settings`).
 - Read the assumed decisions: 12, 13, 15, 17/19/22, 25, 28, 29, 30, 34, 37.

@@ -61,7 +61,7 @@ async def update_me(
     accounts included (register D46 → 409 that names nobody). Saving the name you
     already have is a 200 that writes nothing.
 
-    A field left out is left alone;`avatarAsset: null` clears the avatar. The
+    A field left out is left alone; `avatarAsset: null` clears the avatar. The
     two are told apart by what the request actually carried rather than by
     treating None as "no change", or an avatar could be set but never removed.
     """
