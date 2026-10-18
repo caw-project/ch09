@@ -28,7 +28,7 @@ runner and the workflow do now.
 - **`build/acceptance/` is uploaded as the `<key>-acceptance` artifact** (14 days), and the
   branch as a bundle. Transcripts are uploaded only from a private repo: `ch09` is public.
 - **The preview dies with the job.** Run 3's proof links a quick tunnel that was gone when
-  the job ended (handoff 07, decision 11, accepted that for slice 3).
+  the job ended. Handoff 07's decision 11 accepted that for slice 3; decision 4 below replaces it.
 - **No CI runs on a PR.** `deliver.yml` is the repo's only workflow; `docs/test-report.md`,
   committed by the code-writer's final verification, is the test evidence.
 - **Backends:** `tools/delivery/delivery/model.py`'s `Backend` has `check`, `create`, `get`,
@@ -41,6 +41,8 @@ runner and the workflow do now.
 |---|---|
 | 1 | **The approval opens the PR.** An `approved` acceptance pass ends with a PR from `feature/<key>` into `main`, opened in the same run, after the `accepted` commit is pushed. |
 | 2 | **The acceptance-reviewer writes it.** The PR's title and body are the acceptance-reviewer's, built from its proof, with the proof's evidence attached and the run's artifacts linked. |
+| 3 | **Screenshots live in the branch's history for as long as the PR does.** The runner commits the screenshots the proof cites under `docs/plans/<key>/proof/`, then deletes them in the very next commit, and pushes both. The PR body links each one at the commit that added it (`…/blob/<sha>/…?raw=true`), so they show inline. The PR's diff has no images. A squash merge brings none into `main`; a plain merge keeps them in history but not in the tree. Once the branch is deleted, those commits go with it. No evidence branch, nothing to clean up. |
+| 4 | **The preview a reviewer tries runs on a hosted runner, held open for the review.** A new `.github/workflows/preview.yml` deploys the PR's branch with `scripts/deploy.sh preview up`, posts the origin to the PR, and then waits. We assume a PR is reviewed well within a hosted runner's 6 hours. The job ends when the PR is approved or closed, or just before its time limit, whichever comes first. A push to the PR starts a new preview job and cancels the old one (one concurrency group per PR, `cancel-in-progress: true`), so a closed event stops the waiting job the same way. The proof's *Try it* section points at the PR's preview, not the acceptance run's tunnel, which dies with `deliver.yml`. |
 
 ## Open — put these to the user
 
@@ -55,30 +57,20 @@ runner and the workflow do now.
    - **The agent opens it**: `Bash(gh pr create --body-file *)` in its tools. Simpler on
      GitHub, but the agent needs `GH_TOKEN`, knows the backend, and a locally run delivery
      against forge needs `tea` in its tools too.
-2. **Screenshots inline.** GitHub has no API for the image attachments its web editor makes
-   (handoff 03 item 3). Options:
-   - commit the cited screenshots under `docs/plans/<key>/proof/` on the branch and link
-     them by commit SHA: they render in the PR body, but they stay in `main`'s history after the merge;
-   - push them to a separate evidence branch (one orphan branch, a folder per key) and link
-     those: inline, out of `main`, but a second branch the runner pushes;
-   - no inline images: link the `<key>-acceptance` artifact (`actions/upload-artifact`'s
-     `artifact-url` output). Cheapest, but a zip download, gone after 14 days, and Actions-only.
-
-   Recommended: the evidence branch, with the artifact linked as well. The proof's
-   *Screenshots* section and the agent's link rule change with the choice.
-3. **The preview a reviewer tries.** Handoff 07 decision 11 planned a second workflow,
-   triggered by the PR, that deploys a fresh preview and keeps it up until the PR is approved
-   or a timeout. Two facts change that plan:
-   - **A PR opened with `GITHUB_TOKEN` triggers no `pull_request` workflow**, so a
-     PR-triggered preview never runs for the delivery's own PR. `workflow_dispatch` is the
-     exception: `deliver.yml` can dispatch the preview workflow itself, or the PR is opened
-     with a GitHub App token.
-   - **"Stays up" on a hosted runner is a job held open** — up to 6 hours, billed while it
-     waits — with a quick tunnel whose URL changes each time.
-
-   Choose between: a dispatched preview job with a timeout that posts its URL to the PR; a long-lived
-   cluster the job deploys to; or no live preview, so the PR relies on screenshots and *Try it* says how to
-   bring one up locally. This could also be its own slice, after the PR.
+2. **How the delivery's own PR starts its preview.** GitHub starts no workflow for an event
+   caused by `GITHUB_TOKEN`, so it can't recurse: a PR that `deliver.yml` opens with its
+   own token fires no `pull_request` workflow. A person's push to the PR still fires one. Two
+   ways around it:
+   - **`deliver.yml` dispatches the preview itself** (recommended): `gh workflow run
+     preview.yml -f pr=<n>` right after it opens the PR. `workflow_dispatch` is the one event
+     `GITHUB_TOKEN` may start. No new secret is needed, and `preview.yml` takes both
+     triggers.
+   - **Open the PR with a GitHub App token**, so `pull_request` fires as it does for a person.
+     Cleaner events, but it means an App and its private key in the repo's secrets.
+3. **The proof's screenshot links.** Today they are relative (`../../../build/acceptance/…`).
+   With decision 3, either the agent names the screenshots it cites and the runner rewrites
+   the links in the PR body to the commit's raw URLs (recommended: the agent never knows a
+   SHA or a URL), or the proof links `proof/<file>` and the body is lifted as is.
 4. **When the PR opens, and as what.** Only at `approved`, as a ready PR (recommended), or a draft
    PR from the first checkpoint that each stage updates, ready at approval. A draft
    from the start shows progress on GitHub, but it means a PR body for every stage to keep up.
@@ -103,16 +95,23 @@ runner and the workflow do now.
 2. **Runner:** after the `accepted` push, open or update the PR from the agent's file;
    a PR failure after a good push is reported but isn't a failed delivery. `DELIVER_PR=0` to
    turn it off; `loop-test.sh` sets it, as it sets `DELIVER_PUSH=0`.
-3. **The acceptance-reviewer:** the PR file (or tool), the screenshot rule, its write scope
+3. **Screenshots (decision 3):** the runner's add-then-remove commits after the `accepted`
+   one, and the links rewritten to them in the PR body. Test it against a bare repo, as the
+   checkpoint tests do: the PR's net diff has no images, and the linked SHA holds each one.
+4. **The acceptance-reviewer:** the PR file (or tool), the screenshots it cites, its write scope
    in `rules.py` and the fixture together, and the stub's approved pass writing the file.
-4. **The workflow:** `pull-requests: write`; the repo setting *Allow GitHub Actions to create
-   and approve pull requests* on `ch09`; the evidence push and the artifact link; the PR URL in the
+5. **`deliver.yml`:** `pull-requests: write` (and `actions: write` to dispatch the preview); the repo
+   setting *Allow GitHub Actions to create and approve pull requests* on `ch09`; the PR URL in the
    job summary.
-5. **Record:** CLAUDE.md's *Delivery workflow* paragraph ("a tested feature ready for
+6. **`preview.yml` (decision 4):** the same setup as `deliver.yml`, minus `claude`. It runs
+   `preview up`, comments the origin on the PR, polls the PR's review state and stops when
+   it is approved or closed, or at about 5¾ hours, then runs `preview down`. Concurrency is
+   per PR, so a push replaces the preview. A stub delivery's PR is enough to prove it.
+7. **Record:** CLAUDE.md's *Delivery workflow* paragraph ("a tested feature ready for
    review" becomes a PR); the `delivery.run` docstring; an ADR for the PR step and where
    evidence lives.
-6. **Proof:** a stub dispatch on `ch09` that opens a PR, a second that updates it, then one real
-   run.
+8. **Proof:** a stub dispatch on `ch09` that opens a PR, whose preview comes up and posts its origin.
+   A second dispatch updates the PR. Closing the PR takes the preview down. Then one real run.
 
 ## Carried over
 
@@ -132,6 +131,7 @@ runner and the workflow do now.
 
 ## Not this slice
 
-Merging, and any review agent acting on PR comments. Forgejo and Azure DevOps adaptors
+Merging, and any review agent acting on PR comments. A preview that outlives a hosted
+runner's 6 hours (a self-hosted runner or a long-lived cluster). Forgejo and Azure DevOps adaptors
 beyond what open item 7 settles. CI checks on the PR — a separate workflow, not the
 delivery's.
