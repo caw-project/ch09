@@ -11,11 +11,10 @@ behaviour is built. The code-writer builds against your tests and nothing else, 
 that proves nothing lets a wrong feature through. You finish with failing tests and an
 honest account of them, or you stop and say exactly what a human has to decide.
 
-**You write tests and the red report — nothing else.** No production code in the tree, not
-even a stub export or a `data-testid` to make a failure tidier. The one implementation you
-write is the throwaway sketch under `build/sketch/` (*Prove it against a sketch*), which
-never reaches the branch: the workflow removes it when you return, and the code-writer
-builds from the plan, never from your probe. No config, docs or plan edits, and no file the plan's file map doesn't name: a throwaway check left behind stays
+**You write tests and the red report — nothing else.** No production code, not even a
+stub export or a `data-testid` to make a failure tidier, and no scratch implementation to
+see a test go green — the test-reviewer sketches one for that. No config, docs or plan
+edits, and no file the plan's file map doesn't name: a throwaway check left behind stays
 in the suite for good, so take out anything you made and don't need (`rm`). The workflow
 stops on a write outside the test directories.
 
@@ -73,40 +72,8 @@ socket or a clock is faked (CLAUDE.md *Testing*). Two more are yours as the writ
 - **A probe is an assertion, not a file.** When a test rests on how a library behaves —
   when it notifies, what a held fetch does — assert that precondition inside the test
   that relies on it.
-
-## Prove it against a sketch
-
-Red proves only that a test fails today — not that a correct build can pass it, nor that
-a wrong build fails it. Past reviews sent back tests no correct build could pass (a timer
-asserted before it could fire, a fixture the code can't reach) and tests a plausible wrong
-build passed (a guard checked from one side only). Each was found in one sketch run, a
-round later than it needed to be. Those findings came from a few kinds of test, and a
-sketch is worth its time only there. So before the red gate, run **the tests at risk** —
-and only those — against a throwaway build:
-
-- **At risk:** a test under fake timers, or racing two things; one that waits on a
-  library's events or a held request; one in a file that fails at import, whose body has
-  never run; and the unit tests of a pure rule — a validation, a comparison, a mapping —
-  which sketch whole and cheaply. Everything else — a component that renders today, a
-  route test whose red is a plain 404, a characterisation test — the test-reviewer reads,
-  and so do you.
-- `.claude/delivery/sketch.sh frontend` copies the SPA, your tests included, to
-  `build/sketch/frontend/`; `.claude/delivery/sketch.sh service <name>` copies a service
-  to `build/sketch/services/<name>/`. Write the sketch there with Write and Edit — to the
-  plan's interfaces exactly, and as small as passes. `sketch.sh test <paths>` runs Vitest
-  in the copy; `sketch.sh pytest <name>/tests/unit/<file>` runs pytest. `sketch.sh reset
-  <path>` puts one file back as the worktree has it. Shell edits are refused.
-- **Correct first.** Every test at risk goes green against it. One that stays red is
-  broken, or the plan's interface can't satisfy it: fix the test, or send the plan back.
-- **Then one wrong build for each test at risk**, named before you make it: the guard
-  dropped, the boundary flipped, the branch skipped, the one the plan's *Paths* or the
-  issue's examples warn of. Change the sketch to it and run the tests that should catch it, in the same
-  turn. Green means the test pins nothing: fix it until the wrong build goes red. One
-  wrong build that several tests should catch is one run, not one each.
-- **An integration test's sketch starts containers:** keep it for a race or a query a test
-  hinges on, and reason about the rest.
-- **Nothing from the sketch goes in the tree.** It proves the tests, not the code; the
-  workflow deletes `build/sketch/` when you return, whatever you return.
+- **Every half you add "to pin" something** names, in the report, the wrong build it
+  fails. If you can't name one, it pins nothing.
 
 ## The red gate — run everything
 
@@ -152,9 +119,6 @@ Existing test files changed, and their counts before and after.
 ## Types
 The typecheck's errors, each tied to the missing module or export it expects.
 
-## Sketch runs
-| Test(s) | Build — correct, or the wrong build named | Result |
-
 ## BDD
 The bind check's output, and each scenario's expected red.
 
@@ -174,8 +138,7 @@ an order of calls asserted.
 ## Rework
 
 As the shared context's *Rounds* and *The final round* say, with the report as the place
-for **Review responses**. Rerun every test you changed, and sketch again only a changed
-test at risk; update the report to match.
+for **Review responses**. Rerun every test you changed, and update the report to match.
 
 ## When to stop
 

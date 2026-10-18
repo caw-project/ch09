@@ -178,6 +178,12 @@ Settled to run on to green without a stop, at the user's word. What each failed 
   resumed once in its session, 20 turns, with the files named (`<NN-stage>.missing.json`
   beside the transcript), and the machine fails as before if it is still missing. The loop
   test's proof scenarios ask once before they stop, and one now writes its proof when asked.
+- **Run 3's test-writer took 23.4 minutes and 310 turns sketching only the tests at risk**,
+  against run 2's 25.8 sketching all and run 1's 13.9 sketching none, and the test-reviewer's
+  own sketch still found the one real gap (`created_at` against id). Sketching twice costs
+  about ten minutes a run for no round it saves, so it is the test-reviewer's alone again:
+  the test-writer's prompt is back to the pre-sketch version, and `sketch.sh` is off its tools
+  (fixture and rule together). The runner still removes `build/sketch/` after every stage.
 
 ## Verified
 

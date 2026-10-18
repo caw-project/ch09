@@ -159,13 +159,12 @@ TOOLS: dict[str, tuple[str, ...]] = {
     "plan-reviewer": (*BASE, *READ_ONLY_BASH),
     # The first stage that runs anything, so the first that installs: a worktree has no
     # node_modules/ or .venv/ until it does (both ignored, so the write check never sees
-    # them). `npm ci`, never `npm install`, which rewrites the lockfile. The sketch is a
-    # throwaway build under the ignored build/sketch/, to prove each test can go green and
-    # catches a wrong build; the workflow removes it when the stage ends.
+    # them). `npm ci`, never `npm install`, which rewrites the lockfile. No sketch: proving
+    # a test against a throwaway build is the test-reviewer's, which found the gaps anyway
+    # and cost the writer ten minutes a run when it did it too.
     "test-writer": (
         *BASE,
         "Bash(npm --prefix src/frontend ci*)",
-        "Bash(.claude/delivery/sketch.sh *)",
         "Bash(uv run ruff *)",
         *READ_ONLY_BASH,
         *TEST_BASH,

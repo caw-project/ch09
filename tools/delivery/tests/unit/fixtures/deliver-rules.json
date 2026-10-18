@@ -102,7 +102,6 @@
     "Edit",
     "Skill",
     "Bash(npm --prefix src/frontend ci*)",
-    "Bash(.claude/delivery/sketch.sh *)",
     "Bash(uv run ruff *)",
     "Bash(git log *)",
     "Bash(git show *)",

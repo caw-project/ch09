@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# A throwaway copy of the code, for the test pair and the code-reviewer. The
-# test-writer and the test-reviewer run the failing tests against a sketch of the
-# plan's interfaces: a correct one, to prove each test can go green, and a wrong
-# one, to prove the test catches it.
+# A throwaway copy of the code, for the reviewers. The test-reviewer runs the
+# failing tests against a sketch of the plan's interfaces: a correct one, to
+# prove each test can go green, and a wrong one, to prove the test catches it.
 # The code-reviewer does it the other way round: it breaks the writer's real
 # code in the copy, to see which mistakes the green tests would catch.
 #
@@ -122,7 +121,7 @@ case "${1:-}" in
         rm -rf build/sketch
         ;;
     *)
-        sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
         exit 1
         ;;
 esac

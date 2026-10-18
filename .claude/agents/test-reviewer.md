@@ -88,9 +88,6 @@ run the tests against a throwaway implementation:
   `build/sketch/frontend/`. Write the sketch there with Write and Edit — to the plan's
   interfaces exactly, and as small as passes: this is a probe, not a build.
   `.claude/delivery/sketch.sh test <paths>` runs Vitest in the copy.
-- **The red report's *Sketch runs* are the writer's claim, not your evidence.** Your
-  sketch is your own, from the plan: rerun any run a finding hinges on, and run every wrong
-  build your *Expectations* named that the writer didn't.
 - **Sketch correct first.** Every new test that goes green against it can pass; one that
   stays red is broken, or the plan's interface can't satisfy it — find which.
 - **Then the wrong builds** — every one your *Expectations* named, not only those that
