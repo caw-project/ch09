@@ -12,8 +12,10 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import Select, func, select, text, tuple_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from auth import names
 from auth.models import ExternalIdentity, User, Workspace, WorkspaceMember
 from shared import Page, PageRequest, build_page, uuid7
 
@@ -83,6 +85,36 @@ async def ensure_demo_workspace(session: AsyncSession, name: str) -> Workspace:
     return workspace
 
 
+NAME_INDEX = "ux_users_display_name_key"
+
+
+def is_name_taken(exc: IntegrityError) -> bool:
+    """Whether an integrity error is the display-name index refusing a duplicate.
+
+    SQLAlchemy's asyncpg adaptor re-raises with the asyncpg error as `__cause__`
+    of `exc.orig`, and asyncpg's unique violation carries `constraint_name`. Any
+    other violation (the email, say) is not a taken name and is the caller's to
+    re-raise.
+    """
+    driver_error = getattr(exc.orig, "__cause__", None)
+    return getattr(driver_error, "constraint_name", None) == NAME_INDEX
+
+
+async def _insert_with_free_name(session: AsyncSession, *, email: str, base: str) -> User:
+    for name in names.candidates(base):
+        try:
+            async with session.begin_nested():
+                user = User(id=uuid7(), email=email, display_name=name)
+                session.add(user)
+                await session.flush()
+        except IntegrityError as exc:
+            if not is_name_taken(exc):
+                raise
+            continue
+        return user
+    raise AssertionError("candidates() is endless")  # pragma: no cover
+
+
 async def provision_user(
     session: AsyncSession, *, email: str, display_name: str, demo_workspace_name: str | None
 ) -> User:
@@ -93,16 +125,24 @@ async def provision_user(
     workspace switcher is exercisable from the first sign-in; pass
     `demo_workspace_name=None` to skip that, which is what every environment
     other than a laptop does.
+
+    Display names are unique (register D46) and a first sign-in never refuses
+    over one. The IdP's name is cleaned (`names.from_idp`) and then tried as
+    `X`, `X 2`, `X 3`, … until the insert is accepted. Each try is its own
+    savepoint, because the unique index is the only thing that settles two
+    sign-ins racing for one name — a lookup first would race. A holder that has
+    not committed makes the insert wait: if it commits we take the next suffix,
+    if it rolls back the name is ours. The workspace is named from the result.
     """
     user = await find_user_by_email(session, email)
     if user is not None:
         return user
 
-    user = User(id=uuid7(), email=email, display_name=display_name)
-    session.add(user)
-    await session.flush()
+    user = await _insert_with_free_name(
+        session, email=email, base=names.from_idp(display_name, email)
+    )
 
-    own = Workspace(id=uuid7(), name=f"{display_name}'s Workspace")
+    own = Workspace(id=uuid7(), name=f"{user.display_name}'s Workspace")
     session.add(own)
     await session.flush()
     session.add(WorkspaceMember(workspace_id=own.id, user_id=user.id, role=OWNER))

@@ -700,3 +700,18 @@ verbatim: `Ada is signed in`, `Ada has created a public channel named`, `Grace i
 - `When Grace opens her direct message with Ada`
 - `When Grace sends "{body}"`
 - `Then Ada sees "{body}" in the channel without reloading`
+
+## 35. 🟢 Settings — Alan as a third persona, four new phrases (issue gh-3)
+
+§1 calls a third person a contract question; issue gh-3 settles it: the rename journey needs a
+person who is neither Ada (the signed-in `Background`) nor Grace (the second browser), so
+**Alan** (`alan@collabhub.dev`) is the third persona, with `alan_context` and `alan` fixtures
+beside Grace's. `settings.feature` has one scenario: the rename itself is a rule proven lower
+down, but that a second browser, after a reload, sees the new name on an old message needs two
+real windows and the server. Reused verbatim: `Ada is signed in`, `Ada has created a public
+channel named`, `Grace reloads CollabHub`, `Grace opens the "{name}" channel`. New:
+
+- `Given Alan has sent "{body}" in "{channel}"`
+- `When Alan changes his name to "{name}"`
+- `Then Alan sees his name as "{name}"`
+- `Then Grace sees "{body}" written by "{name}"` (quoted, so it cannot bind `written by Ada`)

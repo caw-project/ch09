@@ -32,11 +32,15 @@ interface Props {
 export function ChannelView({ accessToken, workspaceId, userId }: Props) {
   const { channelId } = useParams<{ channelId: string }>()
   const setActiveChannel = useChatStore((state) => state.setActiveChannel)
+  const setLastChannel = useChatStore((state) => state.setLastChannel)
 
   useEffect(() => {
     setActiveChannel(channelId ?? null)
+    // Kept when the channel unmounts, unlike the active one: it is where
+    // Settings' "Back to chat" goes.
+    if (channelId) setLastChannel(channelId)
     return () => setActiveChannel(null)
-  }, [channelId, setActiveChannel])
+  }, [channelId, setActiveChannel, setLastChannel])
 
   const queryClient = useQueryClient()
   // Which thread is open lives in the URL. Switching channel drops it, since

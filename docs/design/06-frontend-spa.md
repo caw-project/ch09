@@ -66,6 +66,7 @@ fewer moving parts than configuring a library out of doing the things it exists 
     /yjs          # Yjs doc factory + Socket.IO sync provider
   /features
     /channels     # channel list, channel view, composer
+    /settings     # the Settings page at /settings: display name, 12/24-hour clock
     /threads
     /canvas       # document view, toolbar, layers, cursors
     /presence     # online users, live cursors, awareness
@@ -106,9 +107,13 @@ need a folder of its own. `/features/canvas`, `/features/presence`,
      origin behind a single ingress. Under `SameSite=Strict` a genuinely cross-site split
      stops the cookie being sent, and the symptom is a silent sign-out rather than an error.
 
-   The only thing the SPA persists is the PKCE verifier, in `sessionStorage`, for the seconds
-   between redirecting to the provider and returning. It is single-use, useless without the
-   matching authorization code, and cleared before that code is spent.
+   The only things the SPA persists are the PKCE verifier and the **return path**, in
+   `sessionStorage`, for the seconds between redirecting to the provider and returning. The
+   verifier is single-use, useless without the matching authorization code, and cleared
+   before that code is spent. The return path is the page a signed-out visitor was heading
+   for (`Protected` passes it to `/sign-in`, `session.signIn(provider, returnTo)` keeps it);
+   after the callback `session.takeReturnPath()` hands it back once, and only a same-origin
+   path (a `/` first, not `//` or `/\`) is honoured — anything else goes home.
 5. An Axios/fetch interceptor attaches `Authorization: Bearer`. Renewal is **ahead of expiry
    on a timer**, not reactive on a 401: waiting for a failure means every call site needs
    retry logic, whereas renewing early means they only ever see a valid token. Rotation makes
@@ -313,9 +318,21 @@ the short id shows meanwhile. An id seen before a fetch that lands without it is
 *departed* and asks for nothing more until a fetch for another reason lands (a
 mount, a window focus, a reconnect — a reconnect counts even when it joins the
 tracker's own fetch; a stale mount or focus refetch that joins one does not).
-Every socket connect refetches the directory. **Renames are not covered**: a
-changed name shows at the next refetch after the 5 minutes are up (a mount, a
-window focus, a reconnect, or an unknown id). Code: `features/channels/directoryRefresh.ts`.
+Every socket connect refetches the directory. **Renames** (issue gh-3, register D46):
+the renamer's own tab updates at once — the session profile (the sidebar), every cached
+directory and `['profile','me']` are written, then invalidated so a fetch answered before
+the commit cannot land the old name back. Everyone else, including the renamer's other
+tabs' message authors, sees the new name at the next refetch (a mount, a window focus, a
+reconnect, an unknown id or the 5 minutes). Nothing is broadcast. The renamer's other tabs'
+sidebar follows on the next token renewal (≤ 15 minutes), a switch or a reload.
+Code: `features/channels/directoryRefresh.ts`, `features/settings/useProfile.ts`.
+
+**Settings — added 2026-10-19** (`/features/settings`, register D28). `/settings` is inside
+the chat shell, reached by the current user's name in the sidebar. The form renders only what
+this visit fetched; Save is enabled for a changed name of 1–100 code points, and the
+server's 400/409 shows on the field. The clock (Automatic / 12-hour / 24-hour) saves as it
+is chosen, in order, and is put back if refused. It reaches `MessageItem`, `ThreadSummary`
+and `SearchResult` through `useClock()`, which only reads the `['preferences']` cache.
 
 **Threads — added 2026-10-02** (register D8a, ADR 261002). Single-level; the code
 is in `/features/threads`.
@@ -476,14 +493,10 @@ Over `GET /api/v1/search/messages` (doc 02, D8c), unchanged.
 - PWA/offline shell for the mobile path; service worker caches the app shell, not data.
 
 ## 9. Open Decisions
-- **User preferences — there is no feature for them anywhere** (register D28). `users`
-  carries a display name, an avatar reference and a status (doc 01 §4), and
-  `PATCH /users/me` updates the first two. Nothing stores a per-user choice, so
-  a theme toggle, a locale, a timezone or notification settings all need the
-  same missing thing first: a place to put them, and a decision about whether
-  they are Auth's (a column, in the token, cached in R1) or a separate concern.
-  Currently blocking a dark mode; i18n and notification channels (Worker D18)
-  will want it too.
+- ~~**User preferences.**~~ — 🟢 **Decided 2026-10-19 (register D28).** Auth owns them in
+  `user_preferences` (doc 01 §4), per user, with validated keys; the SPA reads them through
+  TanStack Query (§5.2, *Settings*). The first key is the 12/24-hour `clock`. A theme, a
+  locale or notification settings (Worker D18) are further keys, not further machinery.
 - **React Native vs. PWA** for mobile — separate codebase vs. shared (the architecture lists
   both). Affects how much of `/lib` is platform-agnostic.
 - **Canvas renderer:** Konva (DOM/2D, simpler) vs. PixiJS/WebGL (perf) vs. custom. Driven by

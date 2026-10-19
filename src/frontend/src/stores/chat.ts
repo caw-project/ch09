@@ -52,7 +52,15 @@ interface ChatState {
    * badge while it holds.
    */
   readingChannelId: string | null
+  /**
+   * The channel most recently open, kept after it closes — `activeChannelId` is
+   * cleared when the channel unmounts, so by the time Settings renders it is
+   * gone, and "Back to chat" needs somewhere to go. Cleared on a workspace
+   * switch, where the channel no longer exists.
+   */
+  lastChannelId: string | null
   setActiveChannel: (channelId: string | null) => void
+  setLastChannel: (channelId: string | null) => void
   setReadingChannel: (channelId: string | null) => void
   setDraft: (channelId: string, text: string) => void
   clearDraft: (channelId: string) => void
@@ -66,6 +74,7 @@ interface ChatState {
 
 export const useChatStore = create<ChatState>((set) => ({
   activeChannelId: null,
+  lastChannelId: null,
   drafts: {},
   threadDrafts: {},
   sendErrors: {},
@@ -73,6 +82,7 @@ export const useChatStore = create<ChatState>((set) => ({
   joinedChannelId: null,
   readingChannelId: null,
   setActiveChannel: (channelId) => set({ activeChannelId: channelId }),
+  setLastChannel: (channelId) => set({ lastChannelId: channelId }),
   setReadingChannel: (channelId) => set({ readingChannelId: channelId }),
   setConnectionStatus: (status) => set({ connectionStatus: status }),
   setJoinedChannel: (channelId) => set({ joinedChannelId: channelId }),

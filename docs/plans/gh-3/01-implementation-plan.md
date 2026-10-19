@@ -563,8 +563,20 @@ op.create_table("user_preferences",
 
 ## Found while building
 
-*Filled in by the code-writer: every deviation from this plan, and every bug the first real run
-found, each with the test that now pins it down. Empty until then.*
+Round 1 (code-writer):
+
+1. **`useClock` is a cache subscription, not a `skipToken` query** (Decision 42; plan-reviewer-2
+   finding 1). `useSyncExternalStore` over `queryCache.subscribe` + `getQueryData`: no observer,
+   so no options left on the shared Query. Pinned by `usePreferences.test.ts` *a reader that
+   rendered on its own…* and *useClock reads the cache and sends no request*.
+2. **`upgrade_to_head` stays**, as a one-line wrapper over `upgrade_to(dsn, "head")` — Auth's
+   integration `conftest.py` (a test file) and `migrate.py` import it.
+3. **`users.update_me` 400 `detail`** is the same sentence as `errors.displayName`.
+4. **Send-back to the test pair (no test pins a fix):** `SettingsPage.test.tsx:262`
+   (`stored = body.clock === null ? {} : { ...stored, ...body }`) does not typecheck against the
+   plan's `Preferences` (`clock?: Clock`) — `body.clock` is still `Clock | null` in the spread.
+   `tsc -b` fails, so `npm run build` and the frontend image fail, and the e2e layer cannot run.
+   See `reviews/code-writer-sendback-3.md`.
 
 ## Not in this plan
 

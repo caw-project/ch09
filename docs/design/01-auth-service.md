@@ -59,7 +59,9 @@ Base path `/api/v1`. Token endpoints and JWKS are unauthenticated; all others re
 | POST | `/auth/logout` | Bearer | Revoke the `jti` and the cookie's refresh token; clear the cookie. |
 | GET | `/auth/userinfo` | Bearer | Claims for the current token. |
 | GET | `/users/me` | Bearer | Current user profile. |
-| PATCH | `/users/me` | Bearer | Update own profile (display name, avatar ref). |
+| PATCH | `/users/me` | Bearer | Update own profile (display name, avatar ref). Name stored trimmed and NFC, 1–100 code points, no control/format/invisible characters: otherwise 400 `errors.displayName`. Taken (ignoring case, deleted accounts included): 409 `"That name is already taken."`, naming nobody (register D46). Saving the name you have is a no-op. |
+| GET | `/users/me/preferences` | Bearer | Own preferences, `{"clock"?: "12h"\|"24h"}`; `{}` when none, and reading creates no row (register D28). |
+| PATCH | `/users/me/preferences` | Bearer | Merge a flat object; `null` removes a key. Unknown key or bad value: 400 `errors.<key>`, nothing changes. Not in the fail-closed set (Conventions §5.2). |
 | GET | `/users/{id}` | Bearer | Public profile of a user (name, avatar). |
 | GET | `/workspaces/{id}/members` | Bearer (member) | List members + roles. |
 | POST | `/workspaces/{id}/members` | Bearer (admin) | Invite/add member. |
@@ -161,6 +163,7 @@ CREATE TABLE users (
     id            uuid PRIMARY KEY,
     email         citext NOT NULL UNIQUE,
     display_name  text NOT NULL,
+    display_name_key text NOT NULL,          -- NFC(casefold(display_name)), set by the application (D46)
     avatar_asset  uuid NULL,                 -- references Asset service id (no FK, cross-service)
     status        text NOT NULL DEFAULT 'active',  -- active | suspended | deactivated
     created_at    timestamptz NOT NULL DEFAULT now(),
@@ -205,7 +208,24 @@ CREATE TABLE refresh_tokens (
     revoked_at    timestamptz NULL
 );
 CREATE INDEX ix_refresh_user ON refresh_tokens (user_id) WHERE revoked_at IS NULL;
+
+-- Not partial: a deleted account's name stays taken (register D46).
+CREATE UNIQUE INDEX ux_users_display_name_key ON users (display_name_key);
+
+-- Per-user preferences (register D28). A row exists only once a preference is saved.
+CREATE TABLE user_preferences (
+    user_id     uuid PRIMARY KEY REFERENCES users(id),
+    prefs       jsonb NOT NULL DEFAULT '{}',
+    version     integer NOT NULL DEFAULT 0,
+    updated_at  timestamptz NOT NULL DEFAULT now()
+);
 ```
+
+`display_name_key` is computed in Python (`auth.names.name_key`) rather than by an index on
+`lower(display_name)`, because Postgres `lower()` follows the database's locale and could
+disagree with the application between environments. Migration `0002` trims and
+NFC-composes stored names, keeps the oldest holder of each key and suffixes the rest
+(`Sam`, `Sam 2`, …), then builds the index; it does not restore names on downgrade.
 
 SQLAlchemy models map one-to-one to these tables; Alembic owns the migration history.
 
@@ -261,6 +281,13 @@ cannot resolve its own `localhost` — and in any cluster whose public hostname 
 in-cluster service name. Discovery is fetched over the back channel, its `issuer` checked
 against the public authority, and the endpoints it advertises (which the provider derives
 from its issuer, so they carry the public host) are rewritten onto the internal base.
+
+**A first sign-in's display name** (register D46) comes from the IdP's `name`, cleaned
+rather than refused: invisible characters are dropped, it is cut to 100 code points, and a
+name left empty falls back to the email's local part, then to `user`. If the name is taken
+the account is created as `X 2`, `X 3`, … (each attempt in a savepoint, so two sign-ins
+racing for one name both succeed with different suffixes). The workspace is named from the
+result. A return sign-in never overwrites a name the user chose.
 
 **Account linking.** Match `(provider, subject)` first, so a user who changes their email
 upstream keeps their account. If there is no such identity but the email already has an

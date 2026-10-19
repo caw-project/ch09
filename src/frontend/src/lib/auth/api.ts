@@ -97,6 +97,48 @@ export function me(accessToken: string): Promise<Profile> {
   return request<Profile>('/api/v1/users/me', { headers: authorized(accessToken) })
 }
 
+/**
+ * Rename the caller. Auth answers 400 on `errors.displayName` for a name it
+ * refuses and 409 for one already taken — both arrive as a `ProblemError` whose
+ * `errors` map the form shows on the field.
+ */
+export function updateMe(accessToken: string, patch: { displayName: string }): Promise<Profile> {
+  return request<Profile>('/api/v1/users/me', {
+    method: 'PATCH',
+    headers: authorized(accessToken),
+    body: JSON.stringify(patch),
+  })
+}
+
+export type Clock = '12h' | '24h'
+
+/** The user's preferences (register D28). Absent key = "Automatic". */
+export interface Preferences {
+  clock?: Clock
+}
+
+/** A preferences change: `null` removes the key. */
+export interface PreferencesPatch {
+  clock?: Clock | null
+}
+
+export function preferences(accessToken: string): Promise<Preferences> {
+  return request<Preferences>('/api/v1/users/me/preferences', {
+    headers: authorized(accessToken),
+  })
+}
+
+export function updatePreferences(
+  accessToken: string,
+  patch: PreferencesPatch,
+): Promise<Preferences> {
+  return request<Preferences>('/api/v1/users/me/preferences', {
+    method: 'PATCH',
+    headers: authorized(accessToken),
+    body: JSON.stringify(patch),
+  })
+}
+
 export function workspaces(accessToken: string): Promise<{ items: Workspace[] }> {
   return request<{ items: Workspace[] }>('/api/v1/workspaces', { headers: authorized(accessToken) })
 }

@@ -42,9 +42,7 @@ federates to an upstream IdP and is never an OpenID Provider itself
 access token is scoped to exactly one workspace, so switching is a token
 exchange ([ADR](docs/adr/260727-single-active-workspace-per-token.md)).
 
-Still open and worth knowing about: **D28** — there is no user-preferences
-feature anywhere, which is why the SPA is light-only rather than following the
-OS; and **D16** — retention values are unset, so nothing hard-deletes anything.
+Still open and worth knowing about: **D16** — retention values are unset, so nothing hard-deletes anything.
 
 `collabhub-shared` carries the cross-cutting layer so the next service inherits it: RFC 7807
 Problem Details, UUID v7, JWKS-backed verification, the token denylist, cursor pagination and

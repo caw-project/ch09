@@ -18,7 +18,7 @@
  */
 
 import * as api from './api'
-import { pkceVerifier } from './storage'
+import { pkceVerifier, returnPath } from './storage'
 import { challengeFor, createVerifier } from './pkce'
 
 /** Renew this long before expiry, so a slow request cannot straddle it. */
@@ -73,13 +73,40 @@ export function snapshot(): State {
   return state
 }
 
+/**
+ * How many times `updateProfile` has taken effect. `adopt` notes it before it
+ * fetches the profile: if it moved meanwhile, a rename landed while the fetch
+ * was in flight, and the fetch may have been answered before that commit.
+ */
+let profileUpdates = 0
+
+/**
+ * Replace the signed-in user's profile, e.g. after a rename.
+ *
+ * Only when signed in *as that id*: a late response for a user who has since
+ * signed out, or a different one, must not write into someone else's session.
+ */
+export function updateProfile(profile: api.Profile): void {
+  if (state.status !== 'signedIn' || state.session.profile.id !== profile.id) return
+  profileUpdates += 1
+  set({ status: 'signedIn', session: { ...state.session, profile } })
+}
+
 async function adopt(pair: api.TokenPair): Promise<void> {
   // Nothing to store: the refresh cookie was set by the response that carried
   // this access token, and the browser will send it back unprompted.
-  const [profile, workspaceList] = await Promise.all([
+  const updatesBefore = profileUpdates
+  const [fetched, workspaceList] = await Promise.all([
     api.me(pair.accessToken),
     api.workspaces(pair.accessToken),
   ])
+
+  // A rename that landed while `me` was in flight is newer than what came back
+  // — the answer may predate its commit — so the session's own profile stands.
+  // Only for the same user: a different one's profile is the fetched one.
+  const current = state.status === 'signedIn' ? state.session.profile : undefined
+  const profile =
+    profileUpdates !== updatesBefore && current?.id === fetched.id ? current : fetched
 
   set({
     status: 'signedIn',
@@ -155,11 +182,35 @@ export async function restore(): Promise<void> {
   await renew()
 }
 
-/** Begin a login. Navigates away, so nothing after this runs. */
-export async function signIn(provider = 'dex'): Promise<void> {
+/**
+ * Begin a login. Navigates away, so nothing after this runs.
+ *
+ * `returnTo` is the page the visitor was on; it is kept beside the verifier and
+ * handed back by `takeReturnPath`. A sign-in that names none clears any earlier
+ * one, so an abandoned attempt cannot send a later login somewhere stale.
+ */
+export async function signIn(provider = 'dex', returnTo?: string): Promise<void> {
   const verifier = createVerifier()
   pkceVerifier.write(verifier)
+  if (returnTo) returnPath.write(returnTo)
+  else returnPath.clear()
   window.location.assign(api.loginUrl(provider, await challengeFor(verifier)))
+}
+
+/**
+ * Where a completed sign-in should land, once: the remembered path, or `/`.
+ *
+ * Read from storage that any script on the origin can write, so only a path on
+ * this origin is honoured — one `/` first, and not `//` or `/\`, which browsers
+ * resolve to another host. Anything else is `/`, and is forgotten either way.
+ */
+export function takeReturnPath(): string {
+  const stored = returnPath.read()
+  returnPath.clear()
+  if (stored?.startsWith('/') && !stored.startsWith('//') && !stored.startsWith('/\\')) {
+    return stored
+  }
+  return '/'
 }
 
 /**

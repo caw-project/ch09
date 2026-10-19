@@ -20,6 +20,7 @@ import { useChannelSocket } from '../../lib/realtime/useChannelSocket'
 import { useAttachmentStore } from '../../stores/attachments'
 import { useChatStore } from '../../stores/chat'
 import { SearchBox } from '../search/SearchBox'
+import { usePreferences } from '../settings/usePreferences'
 import { cancelAll } from '../attachments/uploads'
 import { ChannelList } from './ChannelList'
 import { CreateChannelDialog } from './CreateChannelDialog'
@@ -52,9 +53,15 @@ export function ChatLayout({ current, children }: Props) {
     () => () => {
       cancelAll()
       useAttachmentStore.getState().reset()
+      // The channel "Back to chat" would return to belongs to the old workspace.
+      useChatStore.getState().setLastChannel(null)
     },
     [workspaceId],
   )
+
+  // Prime the preferences, so the clock is known before the first time is drawn.
+  // Every time formatter only reads it (`useClock`) and sends nothing itself.
+  usePreferences(current.accessToken)
 
   const socket = useChannelSocket(
     current.accessToken,

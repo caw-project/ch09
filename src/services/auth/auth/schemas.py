@@ -22,7 +22,7 @@ import uuid
 from datetime import datetime
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, model_validator
 from pydantic.alias_generators import to_camel
 
 
@@ -127,9 +127,15 @@ class PublicUserResponse(CamelModel):
 
 
 class UpdateUserRequest(CamelRequest):
-    """A profile edit. Absent fields are left alone; `null` clears the avatar."""
+    """A profile edit. Absent fields are left alone; `null` clears the avatar.
 
-    display_name: str | None = Field(default=None, min_length=1, max_length=100)
+    `display_name` carries no length constraint here: the route validates it
+    through `names.normalise_display_name`, which counts after trimming and NFC
+    and words the errors for the field. A Pydantic constraint would count the raw
+    input. An explicit `null` stays the route's 400.
+    """
+
+    display_name: str | None = None
     avatar_asset: uuid.UUID | None = None
 
 

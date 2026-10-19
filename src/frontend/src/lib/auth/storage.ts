@@ -19,9 +19,14 @@
  *   way the refresh token was not: it is single-use, lives for the seconds
  *   between leaving and returning, is useless without the matching authorization
  *   code, and is deleted before that code is spent.
+ * - **The return path** — the page a signed-out visitor was on — has the same
+ *   lifetime and the same reason: it must survive the redirect. It is not a
+ *   secret, but it is untrusted input on the way back, so `session.takeReturnPath`
+ *   decides whether it is safe to navigate to.
  */
 
 const VERIFIER_KEY = 'collabhub.pkceVerifier'
+const RETURN_PATH_KEY = 'collabhub.returnPath'
 
 function read(key: string): string | null {
   try {
@@ -58,4 +63,11 @@ export const pkceVerifier = {
   read: () => read(VERIFIER_KEY),
   write: (verifier: string) => write(VERIFIER_KEY, verifier),
   clear: () => clear(VERIFIER_KEY),
+}
+
+/** Where to go once signed in; held between leaving for the provider and coming back. */
+export const returnPath = {
+  read: () => read(RETURN_PATH_KEY),
+  write: (path: string) => write(RETURN_PATH_KEY, path),
+  clear: () => clear(RETURN_PATH_KEY),
 }
