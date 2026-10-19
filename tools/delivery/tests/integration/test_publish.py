@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -403,6 +404,29 @@ def test_with_slack_the_preview_deploy_is_announced_before_it_starts(repo, gh, d
     up = next(i for i, t in enumerate(texts) if "https://preview.example" in t)
     started = next(i for i, t in enumerate(texts) if t.startswith("▶ acceptance-reviewer"))
     assert deploying < up < started
+
+
+class SeesPassword(Accepting):
+    """Records, for each stage, the SMOKE_PASSWORD its agent would inherit."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.seen: dict[str, str | None] = {}
+
+    def __call__(self, args: list[str], cwd: Path) -> str:
+        self.seen[args[args.index("--agent") + 1]] = os.environ.get("SMOKE_PASSWORD")
+        return super().__call__(args, cwd)
+
+
+def test_only_the_acceptance_stage_is_given_the_preview_password(repo, gh, deploy):
+    """The code-writer's e2e signs in to the Compose test stack, whose Dex keeps `collabhub`:
+    the preview's password there fails every scenario at the login (gh-3, first real run)."""
+    agent = SeesPassword()
+
+    run(repo, gh, deploy, agent, env=SLACK, slack=FakeSlack())
+
+    assert agent.seen.pop("acceptance-reviewer")
+    assert agent.seen == dict.fromkeys(STAGES[:-1], None)
 
 
 def test_without_slack_the_preview_keeps_the_shared_password(repo, gh, deploy):

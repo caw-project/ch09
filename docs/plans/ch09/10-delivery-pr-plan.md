@@ -235,6 +235,13 @@ What each failed with, on 2026-10-19:
 - **The stub's 1×1 screenshot was invisible in the PR.** It copies
   `.claude/delivery/stub-screenshot.png`, 800×220, instead.
 
+- **The preview's password broke every e2e run.** The first real gh-3 run stopped at the
+  code-writer: every scenario failed at Dex's login. The runner had put `SMOKE_PASSWORD` in the
+  environment for the whole run, and `SignInPage` reads it, so the e2e layer signed in to the
+  Compose test stack with the preview's password. Only the acceptance stage gets it now.
+- **Stage links unfurled in Slack.** Each stage's file link became a GitHub card, burying the
+  thread. Every post sends `unfurl_links` and `unfurl_media` false.
+
 ## Verified
 
 - `scripts/test.sh lint unit` — green (1330 pytest, 503 Vitest; actionlint clean on both

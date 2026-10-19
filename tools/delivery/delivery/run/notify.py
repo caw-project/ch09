@@ -66,7 +66,13 @@ class SlackNotifier:
         self.log = log
 
     def post(self, text: str, *, thread: str = "", broadcast: bool = False) -> str:
-        payload: dict[str, object] = {"channel": self.channel, "text": text}
+        # No link previews: each stage links its file on GitHub, and a card apiece buries the thread.
+        payload: dict[str, object] = {
+            "channel": self.channel,
+            "text": text,
+            "unfurl_links": False,
+            "unfurl_media": False,
+        }
         if thread:
             payload["thread_ts"] = thread
             if broadcast:

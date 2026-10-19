@@ -75,6 +75,8 @@ def test_with_both_it_posts_to_slack(slack, said):
 
 # --- the requests ----------------------------------------------------------
 
+NO_PREVIEWS = {"unfurl_links": False, "unfurl_media": False}
+
 
 def test_a_post_goes_to_the_channel_with_the_bot_token_and_returns_its_ts(slack, said):
     ts = notifier(slack, said).post("gh-3 started")
@@ -83,8 +85,16 @@ def test_a_post_goes_to_the_channel_with_the_bot_token_and_returns_its_ts(slack,
     assert url == "https://slack.com/api/chat.postMessage"
     assert headers["Authorization"] == "Bearer xoxb-1"
     assert headers["Content-Type"].startswith("application/json")
-    assert payload == {"channel": "C0DELIVER", "text": "gh-3 started"}
+    assert payload == {"channel": "C0DELIVER", "text": "gh-3 started", **NO_PREVIEWS}
     assert ts == "1700000000.000100"
+
+
+def test_a_post_shows_no_link_previews(slack, said):
+    """Every stage links its file on GitHub: unfurled, each would be a card in the thread."""
+    notifier(slack, said).post("✔ plan-writer done · <https://github.com/o/r/blob/s/p.md|review>")
+
+    _, _, payload = slack.requests[0]
+    assert (payload["unfurl_links"], payload["unfurl_media"]) == (False, False)
 
 
 def test_a_reply_names_its_thread_and_is_broadcast_only_when_asked(slack, said):
@@ -93,12 +103,18 @@ def test_a_reply_names_its_thread_and_is_broadcast_only_when_asked(slack, said):
     n.post("a stage", thread="1.1")
     n.post("the PR", thread="1.1", broadcast=True)
 
-    assert slack.requests[0][2] == {"channel": "C0DELIVER", "text": "a stage", "thread_ts": "1.1"}
+    assert slack.requests[0][2] == {
+        "channel": "C0DELIVER",
+        "text": "a stage",
+        "thread_ts": "1.1",
+        **NO_PREVIEWS,
+    }
     assert slack.requests[1][2] == {
         "channel": "C0DELIVER",
         "text": "the PR",
         "thread_ts": "1.1",
         "reply_broadcast": True,
+        **NO_PREVIEWS,
     }
 
 

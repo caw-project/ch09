@@ -203,7 +203,14 @@ def test_notify_replies_in_the_thread_its_state_names(capsys, tmp_path):
 
     assert code == 0
     assert slack.payloads == [
-        {"channel": "C0DELIVER", "text": "Preview up", "thread_ts": "1.1", "reply_broadcast": True}
+        {
+            "channel": "C0DELIVER",
+            "text": "Preview up",
+            "thread_ts": "1.1",
+            "reply_broadcast": True,
+            "unfurl_links": False,
+            "unfurl_media": False,
+        }
     ]
 
 
@@ -217,7 +224,9 @@ def test_notify_with_no_thread_posts_to_the_channel(capsys, tmp_path, state):
     code, _, _ = notify(capsys, tmp_path, "--state", str(path), "--broadcast", "Up", slack=slack)
 
     assert code == 0
-    assert slack.payloads == [{"channel": "C0DELIVER", "text": "Up"}]
+    assert slack.payloads == [
+        {"channel": "C0DELIVER", "text": "Up", "unfurl_links": False, "unfurl_media": False}
+    ]
 
 
 def test_notify_without_slack_posts_nothing_and_says_so(capsys, tmp_path):

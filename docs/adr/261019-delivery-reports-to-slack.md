@@ -29,8 +29,9 @@ a resumed run on any machine replies in the same thread, and so does `preview.ym
 With `SLACK_BOT_TOKEN` and `SLACK_CHANNEL` set, each preview gets a random password. It is
 bcrypted into the deps chart's existing `dex.passwordHash` value by `deploy.sh preview up`,
 from `PREVIEW_PASSWORD`. It is posted in the delivery's thread and nowhere else: never on disk,
-in the state, the proof, the PR or a log. Agents get it as `SMOKE_PASSWORD`, which the smoke
-packs sign in with, and are told it is a credential. Without Slack — every laptop run, or a repo
+in the state, the proof, the PR or a log. The acceptance-reviewer gets it as `SMOKE_PASSWORD`,
+which the smoke packs sign in with, and is told it is a credential. No other stage does: their
+e2e runs sign in to the Compose test stack, whose Dex keeps `collabhub`. Without Slack — every laptop run, or a repo
 without the secrets — nothing is posted and previews keep `collabhub`. The Slack token stays
 with the runner and `main`'s code: agents' environments drop it, and `preview.yml` gives it only
 to the step that runs `main`'s `delivery notify`, never to the PR's deploy.

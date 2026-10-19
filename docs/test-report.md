@@ -1,14 +1,14 @@
 # Test report
 
-Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `8deb9bb78716-dirty`.
+Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `1accafe40fbf-dirty`.
 
 ## Layers
 
 | Layer | Result | Passed | Failed | Skipped | Revision |
 |---|---|--:|--:|--:|---|
-| Lint | ✅ passed | | | | `8deb9bb78716-dirty` |
-| Unit | ✅ passed | 1862 | 0 | 0 | `8deb9bb78716-dirty` |
-| Integration | ✅ passed | 46 | 0 | 0 | `8deb9bb78716-dirty` |
+| Lint | ✅ passed | | | | `1accafe40fbf-dirty` |
+| Unit | ✅ passed | 1863 | 0 | 0 | `1accafe40fbf-dirty` |
+| Integration | ✅ passed | 47 | 0 | 0 | `1accafe40fbf-dirty` |
 | End-to-end | ⚪ not run | | | | |
 
 > Integration ran with `tools/delivery`, so it is not the whole layer.
@@ -29,7 +29,7 @@ No journeys recorded.
 | auth | ✅ 59 passed | — |
 | canvas | ✅ 2 passed | — |
 | messaging | ✅ 136 passed | — |
-| other | ✅ 880 passed | ✅ 46 passed |
+| other | ✅ 881 passed | ✅ 47 passed |
 | shared | ✅ 94 passed | — |
 | testkit | ✅ 130 passed | — |
 | worker | ✅ 19 passed | — |

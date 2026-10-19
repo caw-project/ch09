@@ -51,7 +51,7 @@ approval. DELIVER_PR=0 opens none; a local issue never gets one.
 With SLACK_BOT_TOKEN and SLACK_CHANNEL the run reports to Slack — one thread per delivery,
 kept in the run's state, a reply as each stage starts and ends, at a stop, a failure, out of
 time and the PR — and each preview gets a random password for Dex, posted there and nowhere
-else; agents get it as SMOKE_PASSWORD, and never the Slack token. Without them nothing is
+else; the acceptance stage gets it as SMOKE_PASSWORD, no agent the Slack token. Without them nothing is
 posted and the password is the shared `collabhub`. A failed post never fails a run.
 
 A run can have a deadline, DELIVER_DEADLINE: no stage starts with less than
@@ -510,8 +510,7 @@ class Delivery:
         if self.slack.enabled:
             self.password = secrets.token_urlsafe(18)
         try:
-            with smoke_password(self.password):
-                stopped = self.loop(state, agent, sleep, clock)
+            stopped = self.loop(state, agent, sleep, clock)
         except PushRejectedError as e:
             self.tell_failure(state, str(e))
             raise
@@ -618,7 +617,12 @@ class Delivery:
         effort = effort_for(stage, state, self.settings)
         round_ = state.rounds[pair_of(stage)]
         self.tell(stage_started(stage, round_, self.ran_with(stage, model, effort)))
-        result = self.run_stage(stage, state, model, effort, preview, agent, sleep, proof_before)
+        # Only the stage with a preview signs in to it: every other stage's e2e signs in to
+        # the Compose test stack, whose Dex keeps `collabhub`.
+        with smoke_password("" if has_writer(stage) else self.password):
+            result = self.run_stage(
+                stage, state, model, effort, preview, agent, sleep, proof_before
+            )
         status, summary = str(result["status"]), str(result.get("summary", ""))
         minutes, _, cost = step_totals(
             sorted(self.transcripts.glob(f"{state.step:02d}-*.json"))
@@ -983,8 +987,8 @@ class Delivery:
 
 @contextlib.contextmanager
 def smoke_password(password: str):
-    """The smoke packs' password, in the environment every agent and script inherits, for
-    as long as the run lasts — never on disk."""
+    """The smoke packs' password, in the environment the acceptance stage's agent and its
+    scripts inherit, for as long as that stage lasts — never on disk."""
     if not password:
         yield
         return
