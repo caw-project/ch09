@@ -123,4 +123,10 @@ Plan-reviewer-2, *Left for later stages*: **(1)** the `skipToken` observer — t
 Round 2, answering `reviews/test-reviewer-1.md`:
 
 1. **Fixed.** `SettingsPage.test.tsx` gains *a saved rename reaches the session and the cached directory, and only the renamer*: a real `session.restore()`, `['workspace-members', ws]` seeded with Ada and Grace, the page saves "Ada L", then `session.snapshot()` profile and Ada's directory row read "Ada L" and Grace's is untouched. It fails a page-local mutation that writes only `['profile','me']`; like the rest of the file it is red by load failure (`Failed to resolve import "./SettingsPage"`) until the page exists. Typecheck adds only the same missing-module errors.
+Round 3, answering `reviews/code-writer-sendback-3.md`:
+
+1. **Fixed.** `SettingsPage.test.tsx` `renderWithClock` no longer spreads the patch: `{ ...stored, ...(body.clock ? { clock: body.clock } : {}) }`. Behaviour unchanged (the test only sends `12h`, `24h` or `null`). `npm --prefix src/frontend run typecheck` is clean; the file passes 24/24 against the built page.
+
+Round 2 notes, continued:
+
 2. Minors (left for later stages / done): `ChatLayout.test.tsx` new test now stubs `auth.members([])` — still red on `lastChannelId` (`expected 'c1' to be null` / vitest first failure), stderr clean. Decision 24 decomposed-form no-op, `{"theme": null}` case, and the `skipToken` / Decision 42 conflict (code-writer records the departure; `enabled: false` is not available to `useClock()`, the test stays) — left for a later stage. The `Automatic` test title's stored half is covered by *shows only what this visit fetched*; left.

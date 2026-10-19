@@ -259,7 +259,7 @@ describe('SettingsPage — the clock', () => {
     auth.me(PROFILE)
     auth.preferencesBy(() => ({ ...stored }))
     auth.updatePreferencesBy(async (_call, body) => {
-      stored = body.clock === null ? {} : { ...stored, ...body }
+      stored = body.clock === null ? {} : { ...stored, ...(body.clock ? { clock: body.clock } : {}) }
       return { ...stored }
     })
     return renderWithProviders(<SettingsPage accessToken="token" />, { route: '/settings' })
