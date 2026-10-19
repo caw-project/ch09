@@ -1,6 +1,6 @@
-# Green — gh-3, round 1
+# Green — gh-3, round 2
 
-Auth (names, key, migration 0002, preferences, rename and sign-in routes) and the SPA (Settings page, clock, return path) are built and the record is written. Auth's 280 tests and the 582 Vitest tests pass. **Not green end to end**: one type error in `SettingsPage.test.tsx:262` fails `tsc`, so `lint`, `build` and the frontend image fail and **the e2e journey has not run**. Sent back to the test-writer (`reviews/code-writer-sendback-3.md`).
+Auth (names, key, migration 0002, preferences, rename and sign-in routes) and the SPA (Settings page, clock, return path) are built and the record is written. After the test-writer fixed the type error in `SettingsPage.test.tsx` (`reviews/code-writer-sendback-3.md`), everything is green: typecheck, build, lint, unit (1993), integration (625) and the whole e2e layer (25). No code changed in this round.
 
 ## Baseline
 Before building: Auth unit/integration for the new files failed at load or as the red report says; Vitest had 24 failures and 4 load failures. I did not rerun the baseline separately; the first full runs after building were green except the type error below. (The red report's counts: 54 failing, 9 green by design.)
@@ -15,12 +15,12 @@ Before building: Auth unit/integration for the new files failed at load or as th
 | 9 | register D28/D46, Conventions §5.4, docs 01 and 06, 2 ADRs, vocabulary §35, two READMEs | — | |
 
 ## What ran
-- `uv run pytest src/services/auth` — 280 passed.
-- `npm --prefix src/frontend test` — 582 passed. `npm … run lint` — clean.
-- `npm --prefix src/frontend run typecheck` / `run build` — **fail**: `SettingsPage.test.tsx(262,7) TS2322` (a test file).
-- `scripts/test.sh lint unit` — lint **failed** on that error (so unit did not run in that call); `scripts/test.sh unit` — passed (pytest + Vitest 582, coverage 95% statements).
-- `conventions.py` over the changed Python — clean. `security.sh` — clean.
-- `scripts/test.sh e2e` — **not run** (the image build runs `npm run build`). Auth integration was not run through `scripts/test.sh integration` (the plan's verification names `integration`; I ran Auth's integration tests with `uv run pytest`, in the 280).
+Round 2, after the send-back fix:
+- `npm --prefix src/frontend run typecheck` — clean; `run build` — built.
+- `scripts/test.sh lint unit` — passed (Vitest 582 in 58 files, coverage 95% statements; unit total 1993).
+- `scripts/test.sh integration` — passed, 625.
+- `scripts/test.sh e2e` — passed, 25 scenarios, whole layer.
+- Round 1: `uv run pytest src/services/auth` 280 passed; `conventions.py` over the changed Python and `security.sh` — clean.
 
 ## Beyond the tests
 - Doc-comments for D46/D28 reasons in `names.py`, `models.py`, `routers/users.py`, `usePreferences.ts`, `useProfile.ts`, `SettingsPage.tsx`; stale D28 text removed from `MessageItem`, `ThreadSummary`, `SearchResult`, `schemas.py`, both READMEs, doc 06 §9.
@@ -34,4 +34,7 @@ Before building: Auth unit/integration for the new files failed at load or as th
 `skipToken` conflict — see 1. Minor test findings (decomposed-form no-op, `{"theme": null}`) concern tests; left.
 
 ## Left for the human
-First real run (`docker compose up -d --build`): rename Ada, try `GRACE` as Alan, choose 24-hour, reload and sign out on `/settings`. Check that "Back to chat" still returns to the channel after visiting Settings (relies on `ChatLayout` not remounting between routes; `App.test` covers it). Rerun e2e after the send-back.
+First real run (`docker compose up -d --build`): rename Ada, try `GRACE` as Alan, choose 24-hour, reload and sign out on `/settings`. Check that "Back to chat" still returns to the channel after visiting Settings (relies on `ChatLayout` not remounting between routes; `App.test` covers it). (The e2e rerun after the send-back is done and green.)
+
+## Found while building
+Round trip: a type error in a test file (`SettingsPage.test.tsx:262`) stopped `tsc` and the frontend image build; the test-writer fixed it and the journey now passes. No code change was needed.
