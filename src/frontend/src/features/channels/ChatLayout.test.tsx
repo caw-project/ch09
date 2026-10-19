@@ -14,6 +14,7 @@ import type { Profile, TokenPair, Workspace } from '../../lib/auth/api'
 import * as session from '../../lib/auth/session'
 import { useSession } from '../../lib/auth/useSession'
 import { auth, messaging } from '../../test/api'
+import { useChatStore } from '../../stores/chat'
 import { aChannel } from '../../test/factories'
 import { renderWithProviders } from '../../test/render'
 import { latestSocket, openedSockets } from '../../test/socket'
@@ -67,6 +68,7 @@ function SignedInShell() {
 beforeEach(async () => {
   auth.me(PROFILE)
   auth.workspaces(WORKSPACES)
+  auth.preferences({})
   auth.refresh(pair(HOME))
   await session.restore()
   auth.switchWorkspace(pair(AWAY))
@@ -111,5 +113,24 @@ describe('ChatLayout — switching workspace', () => {
     release()
     expect(await screen.findByRole('link', { name: 'design' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'general' })).not.toBeInTheDocument()
+  })
+
+  it('a workspace switch forgets the last channel, and a rerender in the same workspace keeps it', async () => {
+    messaging.get('/api/v1/channels', ({ request }) => ({
+      items: isAway(request) ? [awayChannel] : [homeChannel],
+      nextCursor: null,
+    }))
+    useChatStore.setState({ lastChannelId: 'c1' })
+    const { user, rerender } = renderWithProviders(<SignedInShell />)
+    await screen.findByRole('link', { name: 'general' })
+
+    // The positive half: nothing about the shell re-rendering clears it.
+    rerender(<SignedInShell />)
+    expect(useChatStore.getState().lastChannelId).toBe('c1')
+
+    await user.click(screen.getByRole('button', { name: 'Away' }))
+    await vi.waitFor(() => expect(latestSocket().accessToken).toBe(tokenFor(AWAY)))
+
+    await vi.waitFor(() => expect(useChatStore.getState().lastChannelId).toBeNull())
   })
 })

@@ -14,6 +14,7 @@ type SessionModule = typeof import('./session')
 const HOME = 'workspace-home'
 const AWAY = 'workspace-away'
 const VERIFIER_KEY = 'collabhub.pkceVerifier'
+const RETURN_KEY = 'collabhub.returnPath'
 
 const PROFILE: Profile = {
   id: 'user-ada',
@@ -323,5 +324,128 @@ describe('signIn', () => {
     expect(target.searchParams.get('codeChallengeMethod')).toBe('S256')
     expect(target.searchParams.get('codeChallenge')).toMatch(/^[A-Za-z0-9_-]{43}$/)
     vi.unstubAllGlobals()
+  })
+
+  it('remembers a return path and forgets an old one', async () => {
+    const assign = vi.fn()
+    vi.stubGlobal('location', { ...window.location, assign })
+    try {
+      await session.signIn('dex', '/settings')
+      expect(window.sessionStorage.getItem(RETURN_KEY)).toBe('/settings')
+      expect(assign).toHaveBeenCalledTimes(1)
+
+      // A later sign-in that names no path must not inherit the earlier one.
+      await session.signIn('dex')
+      expect(window.sessionStorage.getItem(RETURN_KEY)).toBeNull()
+      expect(assign).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})
+
+describe('takeReturnPath', () => {
+  it('hands back a stored path once', () => {
+    window.sessionStorage.setItem(RETURN_KEY, '/settings?tab=profile')
+
+    expect(session.takeReturnPath()).toBe('/settings?tab=profile')
+    expect(window.sessionStorage.getItem(RETURN_KEY)).toBeNull()
+    expect(session.takeReturnPath()).toBe('/')
+  })
+
+  it('is home when nothing was stored', () => {
+    expect(session.takeReturnPath()).toBe('/')
+  })
+
+  it.each([
+    ['a protocol-relative URL', '//evil.example'],
+    ['an absolute URL', 'https://evil.example'],
+    ['a backslash path', '/\\evil'],
+    ['a relative path', 'settings'],
+  ])('refuses %s, and still forgets it', (_, stored) => {
+    window.sessionStorage.setItem(RETURN_KEY, stored)
+
+    expect(session.takeReturnPath()).toBe('/')
+    expect(window.sessionStorage.getItem(RETURN_KEY)).toBeNull()
+  })
+})
+
+describe('updateProfile', () => {
+  const RENAMED: Profile = { ...PROFILE, displayName: 'Ada L' }
+
+  it('replaces the profile and notifies', async () => {
+    auth.refresh(pair(HOME))
+    await session.restore()
+    const listener = vi.fn()
+    session.subscribe(listener)
+
+    session.updateProfile(RENAMED)
+
+    expect(signedInSession(session).profile).toEqual(RENAMED)
+    expect(listener).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores another user’s profile and a signed-out state', async () => {
+    const listener = vi.fn()
+    session.subscribe(listener)
+
+    // Not signed in yet: the store is still loading.
+    session.updateProfile(RENAMED)
+    expect(session.snapshot()).toEqual({ status: 'loading' })
+
+    auth.refresh(pair(HOME))
+    await session.restore()
+    listener.mockClear()
+    session.updateProfile({ ...RENAMED, id: 'user-grace', displayName: 'Grace' })
+    expect(signedInSession(session).profile).toEqual(PROFILE)
+    expect(listener).not.toHaveBeenCalled()
+
+    // The positive: the same id, and it takes effect.
+    session.updateProfile(RENAMED)
+    expect(signedInSession(session).profile).toEqual(RENAMED)
+
+    auth.logout()
+    await session.signOut()
+    listener.mockClear()
+    session.updateProfile({ ...RENAMED, displayName: 'Too late' })
+    expect(session.snapshot()).toEqual({ status: 'signedOut', error: undefined })
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  it('a switch in flight over a rename keeps the new name, and one without adopts the fetched', async () => {
+    // Call 1 is the restore. Call 2 — the switch's own read — is held, and answers
+    // with the name as it was before the rename. Call 3 is a second switch.
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    auth.meBy(async (call) => {
+      if (call === 2) {
+        await held
+        return PROFILE
+      }
+      return call === 1 ? PROFILE : { ...PROFILE, displayName: 'Ada Elsewhere' }
+    })
+    auth.refresh(pair(HOME))
+    await session.restore()
+    auth.switchWorkspace(pair(AWAY))
+
+    const switching = session.changeWorkspace(AWAY)
+    await vi.waitFor(() =>
+      expect(requests().filter((r) => r.url.pathname === '/api/v1/users/me')).toHaveLength(2),
+    )
+    session.updateProfile(RENAMED)
+    release()
+    await switching
+
+    expect(signedInSession(session).activeWorkspaceId).toBe(AWAY)
+    expect(signedInSession(session).profile.displayName).toBe('Ada L')
+
+    // The other side: a switch during which nobody renamed takes what it fetched.
+    auth.switchWorkspace(pair(HOME))
+    await session.changeWorkspace(HOME)
+
+    expect(signedInSession(session).activeWorkspaceId).toBe(HOME)
+    expect(signedInSession(session).profile.displayName).toBe('Ada Elsewhere')
   })
 })

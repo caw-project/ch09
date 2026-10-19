@@ -9,7 +9,7 @@
 
 import { screen } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Profile, TokenPair, Workspace } from './lib/auth/api'
 import { auth, AUTH_URL, messaging, server } from './test/api'
@@ -43,6 +43,8 @@ function aReturningUser() {
   auth.refresh(PAIR)
   auth.me(PROFILE)
   auth.workspaces(WORKSPACES)
+  auth.preferences({})
+  auth.members([aWorkspaceMember({ id: PROFILE.id, displayName: 'Ada Lovelace' })])
   messaging.get('/api/v1/channels', { items: [], nextCursor: null })
 }
 
@@ -138,5 +140,111 @@ describe('App routes', () => {
     renderWithProviders(<App />, { route: '/no/such/page' })
 
     expect(await screen.findByText('No such page.')).toBeInTheDocument()
+  })
+})
+
+describe('App — the Settings page', () => {
+  const RETURN_KEY = 'collabhub.returnPath'
+  const VERIFIER_KEY = 'collabhub.pkceVerifier'
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    window.sessionStorage.clear()
+  })
+
+  it('shows Settings on a signed-in direct load of /settings, from the server’s profile', async () => {
+    aReturningUser()
+
+    const { location } = renderWithProviders(<App />, { route: '/settings' })
+
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
+    expect(await screen.findByRole('textbox', { name: 'Display name' })).toHaveValue('Ada Lovelace')
+    expect(location().pathname).toBe('/settings')
+  })
+
+  it('links the current user’s name to /settings, and the link opens it', async () => {
+    aReturningUser()
+    const { user, location } = renderWithProviders(<App />, { route: '/' })
+
+    const link = await screen.findByRole('link', { name: 'Ada Lovelace' })
+    expect(link).toHaveAttribute('href', '/settings')
+    await user.click(link)
+
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
+    expect(location().pathname).toBe('/settings')
+    // Still inside the shell: the sidebar is on the page beside it.
+    expect(screen.getByRole('search', { name: 'Search messages' })).toBeInTheDocument()
+  })
+
+  it.each([['/settings'], ['/search?q=zeppelin']])(
+    'a signed-out visit to %s asks for sign-in and remembers where it was going',
+    async (route) => {
+      aFirstVisit()
+      const assign = vi.fn()
+      vi.stubGlobal('location', { ...window.location, assign })
+      const { user } = renderWithProviders(<App />, { route })
+
+      await user.click(await screen.findByRole('button', { name: 'Sign in' }))
+
+      await vi.waitFor(() => expect(assign).toHaveBeenCalledTimes(1))
+      expect(window.sessionStorage.getItem(RETURN_KEY)).toBe(route)
+    },
+  )
+
+  it('a plain sign-in from the sign-in page remembers no path', async () => {
+    aFirstVisit()
+    const assign = vi.fn()
+    vi.stubGlobal('location', { ...window.location, assign })
+    window.sessionStorage.setItem(RETURN_KEY, '/settings')
+    const { user } = renderWithProviders(<App />, { route: '/sign-in' })
+
+    await user.click(await screen.findByRole('button', { name: 'Sign in' }))
+
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledTimes(1))
+    expect(window.sessionStorage.getItem(RETURN_KEY)).toBeNull()
+  })
+
+  it('the callback returns to the remembered path', async () => {
+    aReturningUser()
+    auth.exchange(PAIR)
+    window.sessionStorage.setItem(VERIFIER_KEY, 'the-verifier')
+    window.sessionStorage.setItem(RETURN_KEY, '/settings')
+
+    const { location } = renderWithProviders(<App />, { route: '/auth/callback?code=the-code' })
+
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
+    expect(location().pathname).toBe('/settings')
+  })
+
+  it('…and goes home when none was remembered', async () => {
+    aReturningUser()
+    auth.exchange(PAIR)
+    window.sessionStorage.setItem(VERIFIER_KEY, 'the-verifier')
+
+    const { location } = renderWithProviders(<App />, { route: '/auth/callback?code=the-code' })
+
+    expect(await screen.findByText('Pick a channel, or create one.')).toBeInTheDocument()
+    expect(location().pathname).toBe('/')
+  })
+
+  it('Back to chat returns to the channel visited before', async () => {
+    aReturningUser()
+    messaging.get('/api/v1/channels', {
+      items: [aChannel({ id: CHANNEL_ID, name: 'general' })],
+      nextCursor: null,
+    })
+    messaging.get('/api/v1/channels/{channel_id}', aChannel({ id: CHANNEL_ID, name: 'general' }))
+    messaging.get('/api/v1/channels/{channel_id}/messages', { items: [], nextCursor: null })
+    messaging.get('/api/v1/channels/{channel_id}/members', { items: [], nextCursor: null })
+    auth.members([aWorkspaceMember({ id: PROFILE.id, displayName: 'Ada Lovelace' })])
+    const { user } = renderWithProviders(<App />, { route: `/c/${CHANNEL_ID}` })
+    expect(await screen.findByRole('heading', { name: /general/ })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('link', { name: 'Ada Lovelace' }))
+
+    expect(await screen.findByRole('link', { name: 'Back to chat' })).toHaveAttribute(
+      'href',
+      `/c/${CHANNEL_ID}`,
+    )
   })
 })

@@ -17,7 +17,14 @@
 import { http, HttpResponse, type DefaultBodyType } from 'msw'
 import { setupServer } from 'msw/node'
 
-import type { Profile, TokenPair, Workspace, WorkspaceMember } from '../lib/auth/api'
+import type {
+  Preferences,
+  PreferencesPatch,
+  Profile,
+  TokenPair,
+  Workspace,
+  WorkspaceMember,
+} from '../lib/auth/api'
 import { ASSET_URL, AUTH_URL, MESSAGING_URL } from '../lib/config'
 import type { components as AssetComponents } from '../types/asset'
 import type { paths } from '../types/messaging'
@@ -309,7 +316,91 @@ function authJson<T extends DefaultBodyType>(method: Method, path: string, reply
   )
 }
 
+/** A call that a scripted stub answers with a Problem rather than a body. */
+export class Refusal {
+  constructor(
+    readonly status = 500,
+    readonly body: ProblemBody = { title: 'Internal error' },
+  ) {}
+}
+
+/**
+ * An answer that may depend on what was sent, and may be a promise — which is how
+ * a test holds a request in flight. The request is recorded on arrival, before the
+ * reply is awaited.
+ */
+function authAnswer<Sent, Answer extends DefaultBodyType>(
+  method: Method,
+  path: string,
+  reply: Answer | ((body: Sent) => Answer | Promise<Answer>),
+) {
+  server.use(
+    http[method](AUTH_URL + path, async ({ request }) => {
+      const body = (await record(request)) as Sent
+      const payload =
+        typeof reply === 'function'
+          ? await (reply as (sent: Sent) => Answer | Promise<Answer>)(body)
+          : reply
+      return HttpResponse.json(payload)
+    }),
+  )
+}
+
+/** A GET answered per call — `call` counts from 1, restarting when this is called again. */
+function authByCall<Answer extends DefaultBodyType>(
+  path: string,
+  reply: (call: number) => Answer | Promise<Answer>,
+) {
+  let calls = 0
+  server.use(
+    http.get(AUTH_URL + path, async ({ request }) => {
+      await record(request)
+      calls += 1
+      return HttpResponse.json(await reply(calls))
+    }),
+  )
+}
+
 export const auth = {
+  /** `PATCH /users/me`: the new profile, or a function of the body (it may be a promise). */
+  updateMe: (reply: Profile | ((body: { displayName?: string }) => Profile | Promise<Profile>)) =>
+    authAnswer<{ displayName?: string }, Profile>('patch', '/api/v1/users/me', reply),
+  /** `GET /users/me/preferences`. Every signed-in `ChatLayout` mount sends it. */
+  preferences: (prefs: Preferences) =>
+    authJson('get', '/api/v1/users/me/preferences', { ...prefs }),
+  /** `GET /users/me/preferences`, answered per call; a promise holds the reply. */
+  preferencesBy: (reply: (call: number) => Preferences | Promise<Preferences>) =>
+    authByCall<Preferences>('/api/v1/users/me/preferences', reply),
+  /** `PATCH /users/me/preferences`: the merged object, or a function of the patch. */
+  updatePreferences: (
+    reply: Preferences | ((body: PreferencesPatch) => Preferences | Promise<Preferences>),
+  ) => authAnswer<PreferencesPatch, Preferences>('patch', '/api/v1/users/me/preferences', reply),
+  /**
+   * `PATCH /users/me/preferences`, answered per call (`call` counts from 1, restarting
+   * when this is called again). A promise holds the reply; returning a `Refusal` makes
+   * that call fail with a Problem — how a test fails one save and not the next.
+   */
+  updatePreferencesBy(
+    reply: (
+      call: number,
+      body: PreferencesPatch,
+    ) => Preferences | Refusal | Promise<Preferences | Refusal>,
+  ): void {
+    let calls = 0
+    server.use(
+      http.patch(AUTH_URL + '/api/v1/users/me/preferences', async ({ request }) => {
+        const body = (await record(request)) as PreferencesPatch
+        calls += 1
+        const answer = await reply(calls, body)
+        return answer instanceof Refusal
+          ? problemResponse(answer.status, answer.body)
+          : HttpResponse.json({ ...answer })
+      }),
+    )
+  },
+  /** `GET /users/me`, answered per call; a promise holds the reply. */
+  meBy: (reply: (call: number) => Profile | Promise<Profile>) =>
+    authByCall<Profile>('/api/v1/users/me', reply),
   /** The workspace directory `useWorkspaceMembers` reads, as one page. */
   members(members: WorkspaceMember[]): void {
     authJson('get', '/api/v1/workspaces/:workspaceId/members', { items: members, nextCursor: null })

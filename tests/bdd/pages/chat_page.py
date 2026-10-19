@@ -76,6 +76,23 @@ class ChatPage:
         self.page.get_by_test_id("sign-out").click()
         expect(self.page.get_by_test_id("sign-in")).to_be_visible()
 
+    def open_settings(self) -> None:
+        """Click the signed-in user's name, which is the way into Settings."""
+        self.page.get_by_test_id("current-user").click()
+
+    def own_name(self) -> str:
+        """The name the sidebar shows for the signed-in user — a single read, for failure messages."""
+        return self.page.get_by_test_id("current-user").inner_text().strip()
+
+    def has_own_name(self, name: str) -> bool:
+        """Whether the sidebar shows `name` for the signed-in user, waiting for it.
+
+        A rename shows in the renamer's own window at once, so this is the SPA writing
+        the session's profile, not a refetch: the retrying expectation covers the PATCH
+        answering and the write landing.
+        """
+        return _holds(lambda: expect(self.page.get_by_test_id("current-user")).to_have_text(name))
+
     def switch_workspace(self, name: str) -> None:
         """Move to another workspace and wait until the shell says so.
 
