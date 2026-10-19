@@ -21,9 +21,9 @@ def jq_round(value: float, places: int) -> str:
     return str(int(rounded)) if rounded.is_integer() else repr(rounded)
 
 
-def step_stats(transcripts: Iterable[Path]) -> str:
+def step_totals(transcripts: Iterable[Path]) -> tuple[float, int, float] | None:
     """A step's minutes, turns and cost, over every run it took — a retry and a resume each
-    leave a transcript of their own beside the result."""
+    leave a transcript of their own beside the result. None when one can't be read."""
     runs = []
     try:
         for path in transcripts:
@@ -31,10 +31,18 @@ def step_stats(transcripts: Iterable[Path]) -> str:
             # An empty transcript is a crash that printed nothing: no run to count.
             runs += [json.loads(line) for line in text.splitlines() if line.strip()]
     except (OSError, json.JSONDecodeError):
-        return "no stats"
+        return None
     minutes = sum(r.get("duration_ms") or 0 for r in runs) / 60000
     turns = sum(r.get("num_turns") or 0 for r in runs)
     cost = sum(r.get("total_cost_usd") or 0 for r in runs)
+    return minutes, turns, cost
+
+
+def step_stats(transcripts: Iterable[Path]) -> str:
+    totals = step_totals(transcripts)
+    if totals is None:
+        return "no stats"
+    minutes, turns, cost = totals
     return f"{jq_round(minutes, 1)}m {turns} turns ${jq_round(cost, 2)}"
 
 

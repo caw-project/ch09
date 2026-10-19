@@ -1,19 +1,15 @@
 # Test report
 
-Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `04ab9e368ab2-dirty`.
+Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `e1bb28310ce2-dirty`.
 
 ## Layers
 
 | Layer | Result | Passed | Failed | Skipped | Revision |
 |---|---|--:|--:|--:|---|
-| Lint | ✅ passed | | | | `04ab9e368ab2-dirty` |
-| Unit | ✅ passed | 1751 | 0 | 0 | ⚠️ `3daf13ab38e2-dirty` |
-| Integration | ✅ passed | 26 | 0 | 0 | ⚠️ `3daf13ab38e2-dirty` |
+| Lint | ✅ passed | | | | `e1bb28310ce2-dirty` |
+| Unit | ✅ passed | 1833 | 0 | 0 | `e1bb28310ce2-dirty` |
+| Integration | ✅ passed | 45 | 0 | 0 | `e1bb28310ce2-dirty` |
 | End-to-end | ⚪ not run | | | | |
-
-> ⚠️ Unit was recorded at another revision.
-
-> ⚠️ Integration was recorded at another revision.
 
 > Integration ran with `tools/delivery`, so it is not the whole layer.
 
@@ -33,9 +29,9 @@ No journeys recorded.
 | auth | ✅ 59 passed | — |
 | canvas | ✅ 2 passed | — |
 | messaging | ✅ 136 passed | — |
-| other | ✅ 780 passed | ✅ 26 passed |
+| other | ✅ 851 passed | ✅ 45 passed |
 | shared | ✅ 94 passed | — |
-| testkit | ✅ 119 passed | — |
+| testkit | ✅ 130 passed | — |
 | worker | ✅ 19 passed | — |
 | frontend | ✅ 503 passed | — |
 
