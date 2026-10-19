@@ -38,7 +38,7 @@ After every change it makes to the PR, the runner dispatches `.github/workflows/
 That workflow deploys the PR's branch with `scripts/deploy.sh preview up` on a hosted runner,
 keeps one comment on the PR with the origin, and holds until the PR is approved or closed, or
 for about 5¾ hours. It previews only an open, non-draft PR whose head is a `feature/gh-N`
-branch in this repo. A person's push to the PR starts it through `pull_request` and replaces
+branch in this repo. A person's push to the branch starts it through `push` and replaces
 the running preview.
 
 Opening the PR can fail without failing the delivery. The branch is accepted and pushed, so

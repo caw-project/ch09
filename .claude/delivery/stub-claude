@@ -70,8 +70,7 @@ case "$verdict" in
         if [ -z "${FAKE_SCRIPT:-}" ] && [ "$f" = "$(field Proof)" ] && [ -n "$f" ]; then
             evidence="$(field Evidence)"
             mkdir -p "${evidence}stub"
-            printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=' \
-                | base64 --decode >"${evidence}stub/screenshot.png"
+            cp "$(dirname "$0")/stub-screenshot.png" "${evidence}stub/screenshot.png"
             printf '\n![the stub'"'"'s screenshot](../../../%sstub/screenshot.png)\n' "$evidence" >>"$f"
         fi
         ;;

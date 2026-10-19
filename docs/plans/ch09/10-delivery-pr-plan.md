@@ -83,8 +83,8 @@ and `<✔|↩|✋|✗> <stage> <status> · <minutes> · $<cost> — <summary, �
 checkpoint's link to the stage's own file; the preview's origin and password; *out of time*;
 the PR, broadcast. Every post goes through one wrapper that logs a failure and returns.
 
-`preview.yml`: `workflow_dispatch` (`pr`) and `pull_request` (`opened`, `synchronize`,
-`reopened`, `ready_for_review`, `closed`); `concurrency: preview-<n>`, cancel in progress;
+`preview.yml`: `workflow_dispatch` (`pr`) and `push` to `feature/gh-*` — `pull_request` until
+the stub run, see *Found while building*; `concurrency: preview-<n>`, cancel in progress;
 `permissions: contents: read, pull-requests: write`. A guard job reads the PR and goes on only
 for an open, ready, same-repo `feature/gh-*` head — a `closed` event only marks the comment
 down. Then: free disk, checkout the head, uv, k3d, cloudflared, htpasswd; a random
@@ -218,6 +218,22 @@ What each failed with, on 2026-10-19:
   checkbox is greyed out. An org owner allows it first. `ch09` is now squash-only with
   `delete_branch_on_merge` (set by `gh api`, at the user's word), and has `SLACK_BOT_TOKEN` and
   `SLACK_CHANNEL`.
+
+- **A bot-opened PR's `pull_request` run waits for approval.** The stub run's PR #6 showed
+  "1 check awaiting approval": GitHub made a `pull_request` run for the PR the Actions bot
+  opened and held it for a maintainer. Approving it would have replaced the working preview
+  and its password. `preview.yml` triggers on `push` to `feature/gh-*` instead and finds the
+  branch's open PR; the runner's own pushes start nothing. Concurrency moved onto the job,
+  keyed by the PR the guard found, and the `closed` job went: the holding preview sees a
+  close within a minute.
+- **A dispatched run isn't among a PR's checks.** The preview was up and the PR showed no sign
+  of it until the comment landed. `preview.yml` sets a `preview` commit status on the head:
+  deploying, up at the origin, down, or failed (`statuses: write`).
+- **The deploy was silent in Slack.** The runner deployed before posting the stage's start, so
+  the thread went quiet for the longest wait. It posts `⏳ acceptance-reviewer · deploying the
+  preview` first.
+- **The stub's 1×1 screenshot was invisible in the PR.** It copies
+  `.claude/delivery/stub-screenshot.png`, 800×220, instead.
 
 ## Verified
 

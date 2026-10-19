@@ -392,6 +392,19 @@ def test_with_slack_the_preview_gets_a_random_password_posted_only_to_slack(
     assert password not in calls(gh, "pr create")[0][1]
 
 
+def test_with_slack_the_preview_deploy_is_announced_before_it_starts(repo, gh, deploy):
+    """The deploy is the longest wait in a stub run and a long one in any: never silent."""
+    slack = FakeSlack()
+
+    run(repo, gh, deploy, env=SLACK, slack=slack)
+
+    texts = slack.texts()
+    deploying = texts.index("⏳ acceptance-reviewer · deploying the preview")
+    up = next(i for i, t in enumerate(texts) if "https://preview.example" in t)
+    started = next(i for i, t in enumerate(texts) if t.startswith("▶ acceptance-reviewer"))
+    assert deploying < up < started
+
+
 def test_without_slack_the_preview_keeps_the_shared_password(repo, gh, deploy):
     _, seen = deploy
 

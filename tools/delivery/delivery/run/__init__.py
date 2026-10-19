@@ -594,6 +594,8 @@ class Delivery:
         state.step += 1
         preview, proof_before = "", ""
         if not has_writer(stage):
+            # The longest wait in a run: say so before it, not after.
+            self.tell(f"⏳ {stage} · deploying the preview")
             preview = deploy_preview(
                 self.worktree,
                 evidence=self.paths.evidence,

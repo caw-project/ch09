@@ -139,6 +139,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/stub"
           cp .claude/delivery/stub-claude "$RUNNER_TEMP/stub/claude"
+          cp .claude/delivery/stub-screenshot.png "$RUNNER_TEMP/stub/"
           echo "$RUNNER_TEMP/stub" >>"$GITHUB_PATH"
 
       - name: Commit as github-actions[bot]
