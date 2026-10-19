@@ -1,0 +1,7 @@
+01 plan-writer done [11.6m 102 turns $4.22 · opus · default]: I've written the plan for gh-3 (about 580 lines, 10 tasks). It covers self-rename on a new /settings page, display names unique across all workspaces, migration 0002 (normalise and de-duplicate stored names, add the user_preferences table) and the 12/24-hour clock (D28 and the new D46).
+
+Uniqueness uses a name key computed in Python under one unique index that includes deleted accounts, rather than Postgres lower(), whose behaviour depends on the database's locale. That index is also what keeps concurrent renames and first sign-ins safe: the loser gets a 409 or the next suffix.
+
+Recommended test approach is BDD with one journey (Alan renames himself, Grace reloads and sees the new name), as the issue asks. Everything else is unit, integration or Vitest, and the expected red failure is worked out for each test.
+
+The plan makes two corrections to the issue: a lower()-based index isn't reliable, and the SPA doesn't currently return to the page you started from after sign-in, so the plan builds that. 12 decisions are marked assumed.
