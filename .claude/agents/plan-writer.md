@@ -105,11 +105,21 @@ for, and a round saved if you find it first:
 - every function, hook and event in *Interfaces* has a test that names it;
 - every planned test holds to the shared context's *Tests that prove something*: a guard
   carries its positive in the same test, a fixture tells the two readings apart, both
-  sides of each boundary, races in both orders — and its expected red is what the runtime
-  will really print;
+  sides of each boundary, races in both orders, and it names the wrong build it fails;
+- every expected red is worked out, not guessed: find the first thing the test touches
+  that doesn't exist yet. A module GREEN creates is a load error for the whole file, or a
+  setup error for every test using that fixture; a missing export is "… is not a
+  function"; a missing route is a 404. If that hides tests that would otherwise run, move
+  the import or the test;
+- every *Paths* row is traced through the real tree — what mounts, unmounts or is
+  re-keyed, what outlives it, what refetches — and its test drives that path through the
+  real parent, not the piece alone;
+- a rule that applies to a family (every handler, every call site, every comparison)
+  lists each member and tests each, or routes them all through one function; a rule
+  computed in two places (the app and the database) is computed in one;
+- every task is in the write scope of the stage it belongs to (the shared context's
+  table): an existing test the change breaks or weakens is a RED task;
 - markup, selectors and step phrases the plan gives are ones its own tests' queries match;
-- every write the plan adds is answered against every other writer of the same state, and
-  against events arriving in either order;
 - behaviour taken from a library is checked in the installed source, with the file and
   line in the plan;
 - the verification task names the `scripts/test.sh` layers the change can reach, each run

@@ -82,7 +82,8 @@ each one asked, with your recommendation, and answered by the user.
 - **Conventions** — each rule in `CLAUDE.md`'s *Conventions that are easy to get wrong* the
   requirement touches: what it reveals across workspaces or to a non-member, what it does when
   R1 is down, what it keys on. A rule that crosses one is a decision to put, not a detail for
-  the plan — a name unique across every workspace tells one tenant what another holds.
+  the plan — a name unique across every workspace tells one tenant what another holds — and,
+  once made, an exception to record in the conventions doc, so no reviewer reads it as a breach.
 
 **And for the issue as a whole:** what is decided already, what is left to the plan on
 purpose, what is not in this issue, and the acceptance checks — the ones the
@@ -164,8 +165,15 @@ it is what the agents will get.
   earlier check has already used;
 - every decision the issue makes or changes is recorded everywhere it is stated today —
   search for its register number and its subject, and put each place in *Record in this
-  slice*. `CLAUDE.md` restates several register entries in its own words, and an agent
-  believes it over a register it hasn't opened;
+  slice* — the register, the design docs, the conventions doc, READMEs. Never `CLAUDE.md`
+  or anything under `.claude/`: they state how to work, not what is decided, and no
+  delivery stage may write them. A decision that crosses a convention is recorded as an
+  exception in the conventions doc and the register, where every reviewer looks. If
+  `CLAUDE.md` does restate a decision, tell the user — it is theirs to fix, outside the issue;
+- a rule over a class named by example ("X and the like", "such as") has a closed
+  definition — a standard, a list, or a check the plan can run — and examples on both sides
+  that look alike; a rule over free-form input says what it compares or stores after (trim,
+  case, normalisation);
 - no sentence two plan runs could read two ways. Each one you find goes back to the user as
   a question, and the issue is rewritten with the answer — through `issue edit`, then `issue
   verify` again.

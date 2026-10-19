@@ -167,6 +167,34 @@ def advance(
     return moved
 
 
+def missing_outputs(
+    state: State,
+    stage: str,
+    result: Mapping[str, object],
+    paths: Paths,
+    *,
+    exists: Callable[[str], bool],
+    proof_rewritten: bool,
+) -> list[str]:
+    """The files `stage`'s verdict owes that aren't there — asked before `advance`, which
+    fails on the same, so the runner can ask the agent for them first. Changes nothing."""
+    status = str(result["status"])
+    owed: list[str] = []
+    if (role_of(stage), status) == ("writer", "done"):
+        owed = [o for o in [writer_output(stage, paths)] if o]
+    elif status in ("approved", "changes_requested") and has_writer(stage):
+        owed = [review_path(stage, state, paths)]
+    elif status == "approved":
+        if exists(paths.proof) and not proof_rewritten:
+            return [paths.proof]
+        owed = [paths.proof]
+    elif status == "send_back" and earlier_pair(stage):
+        owed = [sendback_path(stage, state, paths)]
+        if role_of(stage) == "reviewer" and has_writer(stage):
+            owed.append(review_path(stage, state, paths))
+    return [path for path in owed if not exists(path)]
+
+
 def writer_done(state: State, stage: str, paths: Paths, exists: Callable[[str], bool]) -> None:
     output = writer_output(stage, paths)
     if output and not exists(output):

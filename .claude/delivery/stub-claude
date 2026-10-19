@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# A stand-in for `claude` that runs no model: it answers each delivery stage with a
+# verdict and writes the file the workflow expects that verdict to leave.
+#
+# With FAKE_SCRIPT set — the loop test — it takes the next verdict from that file, one
+# a line, and records each call under FAKE_LOG. Without it — the GitHub Actions
+# workflow's `stub` input — every writer is done and every reviewer approves, so a run
+# goes straight through and proves the plumbing (checkout, tools, commits, pushes, the
+# preview deploy) before any model spend.
+#
+# The verdicts: done, approved, changes_requested, send_back, needs_human, and two that
+# aren't an agent's: max_turns (the turn cap) and crash (no result at all). approved_bare
+# approves without writing a proof; stray writes outside the stage's scope.
+set -uo pipefail
+
+prompt="" agent="" resumed="" model="" effort=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -p) prompt="$2"; shift ;;
+        --agent) agent="$2"; shift ;;
+        --resume) resumed=" resumed"; shift ;;
+        --model) model="$2"; shift ;;
+        --effort) effort="$2"; shift ;;
+    esac
+    shift
+done
+
+if [ -n "${FAKE_SCRIPT:-}" ]; then
+    verdict="$(head -n 1 "$FAKE_SCRIPT")"
+    # Not `sed -i`: BSD and GNU sed disagree on its argument.
+    tail -n +2 "$FAKE_SCRIPT" >"$FAKE_SCRIPT.next" && mv "$FAKE_SCRIPT.next" "$FAKE_SCRIPT"
+else
+    case "$agent" in *-writer) verdict=done ;; *) verdict=approved ;; esac
+fi
+
+if [ -n "${FAKE_LOG:-}" ]; then
+    n=$(($(ls "$FAKE_LOG" | wc -l) + 1))
+    printf '%s\n' "$prompt" >"$FAKE_LOG/$(printf '%02d' "$n")-$agent-$verdict${resumed:+-resumed}.txt"
+    printf '%s%s %s\n' "$agent" "$resumed" "$verdict" >>"$FAKE_LOG.calls"
+    printf 'model=%s effort=%s\n' "$model" "$effort" >>"$FAKE_LOG.flags"
+    # A resumed session still has its context block: the one its first run was given.
+    [ -z "$resumed" ] || prompt="$(cat "$(ls "$FAKE_LOG"/*-"$agent"-*.txt | grep -v -- '-resumed.txt$' | tail -n 1)")"
+fi
+
+field() { printf '%s\n' "$prompt" | sed -n "s/^$1: //p" | head -n 1; }
+leave() { mkdir -p "$(dirname "$1")" && printf '%s by %s\n' "$verdict" "$agent" >>"$1"; }
+result() {
+    printf '{"subtype":"%s","is_error":%s,"num_turns":3,"total_cost_usd":0.5,"duration_ms":60000,"session_id":"fake-session","structured_output":%s}\n' "$1" "$2" "$3"
+}
+status="$verdict"
+case "$verdict" in approved_bare | stray) status=approved ;; esac
+out='{"status":"'"$status"'","summary":"fake","files":[],"questions":["what?"]}'
+case "$verdict" in
+    crash) exit 1 ;;
+    max_turns) result error_max_turns true null; exit 1 ;;
+    done)
+        case "$agent" in
+            plan-writer) leave "$(field Plan)" ;;
+            test-writer) leave "$(field 'Red report')" ;;
+            code-writer) leave "$(field 'Green report')" ;;
+        esac
+        ;;
+    approved | changes_requested)
+        # A reviewer with no writer of its own writes a proof, not a review.
+        f="$(field 'Write your review to')"
+        [ -n "$f" ] || f="$(field Proof)"
+        [ -z "$f" ] || leave "$f"
+        ;;
+    approved_bare) ;;
+    stray) leave src/stray.txt && leave "$(field Proof)" ;;
+    send_back)
+        leave "$(field 'Send-back file, if you send work back')"
+        [ -z "$(field 'Write your review to')" ] || leave "$(field 'Write your review to')"
+        [ -z "$(field Proof)" ] || leave "$(field Proof)"
+        ;;
+esac
+result success false "$out"

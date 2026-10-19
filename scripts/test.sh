@@ -7,7 +7,7 @@
 #   scripts/test.sh all                every layer, e2e included — what CI runs
 #   scripts/test.sh e2e -- --headed -k channels
 #
-#   lint         ruff, the CollabHub convention checks, eslint, tsc, helm lint
+#   lint         ruff, the CollabHub convention checks, actionlint, eslint, tsc, helm lint
 #   unit         pytest, then Vitest for the SPA — no Docker, no network
 #                (arguments after -- go to pytest only)
 #   integration  pytest against real containers — needs Docker
@@ -100,6 +100,11 @@ layer_lint() {
     # With no arguments conventions.py checks only what differs from HEAD, which
     # in a CI checkout is nothing — so hand it every tracked Python file.
     git ls-files -z '*.py' | xargs -0 python3 .claude/hooks/checks/conventions.py
+
+    log "lint: workflows"
+    # actionlint runs shellcheck over every `run:` block when it finds it on PATH. Both
+    # come from PyPI wheels through uvx, so nothing is installed for them.
+    uvx --quiet --from actionlint-py==1.7.12.25 --with shellcheck-py==0.11.0.1 actionlint
 
     log "lint: frontend"
     ensure_node_modules

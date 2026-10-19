@@ -15,7 +15,8 @@
 #   .claude/delivery/sketch.sh clean             remove it — nothing built from this reaches the branch
 #
 # The copies live in build/sketch/, which git ignores and scripts/deliver.sh's
-# write check skips, so a sketch never reaches the branch. Edit them with the
+# write check skips, so a sketch never reaches the branch; the workflow removes
+# it when each stage ends, so no stage reads another's. Edit them with the
 # Write and Edit tools under build/sketch/frontend/src/ and
 # build/sketch/services/<name>/. `frontend` or `service <name>` again starts
 # that copy over. node_modules is the worktree's own, linked, never copied.
@@ -120,7 +121,7 @@ case "${1:-}" in
         rm -rf build/sketch
         ;;
     *)
-        sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
         exit 1
         ;;
 esac

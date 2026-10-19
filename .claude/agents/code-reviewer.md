@@ -85,7 +85,8 @@ The green report is a claim. Check it by running, as *Running tests* says:
 
 You can't run `scripts/test.sh` — it rewrites the committed report. For the layers only it
 runs, check its evidence: `docs/test-report.md` shows each layer the plan's verification
-names, passed, at this tree's revision with `-dirty`, and its counts match the report's
+names, passed, at this tree's revision with `-dirty` — or, after a rework, at an earlier one
+with nothing since that is that layer's input (*A rework pass*) — and its counts match the report's
 *What ran*; `build/test-results/e2e.xml` names the plan's journey among the passed. A
 journey the plan asks for that has not passed is critical, whoever's fault it is. A layer
 the plan's verification doesn't name may show as not run, or as an older revision's: that

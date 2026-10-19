@@ -16,6 +16,7 @@ from delivery.run.keys import (
     check_key,
     guard_source,
     paths_for,
+    remote_for,
     render_issue,
     worktree_for,
 )
@@ -69,6 +70,24 @@ def test_every_path_an_agent_sees_is_under_the_keys_plan_folder():
     assert paths.reviews == "docs/plans/gh-3/reviews"
     assert paths.source == "docs/plans/gh-3/source.json"
     assert paths.evidence == "build/acceptance"
+
+
+def test_the_run_state_is_kept_with_the_plan_so_it_is_committed():
+    assert paths_for("gh-3").run_dir == "docs/plans/gh-3/run"
+
+
+@pytest.mark.parametrize(
+    ("key", "override", "remote"),
+    [
+        # A GitHub issue's branch goes where the issue is, so its stop can be answered there.
+        ("gh-3", "", "origin"),
+        ("issue-8", "", "forge"),
+        ("gh-3", "upstream", "upstream"),
+        ("issue-8", "origin", "origin"),
+    ],
+)
+def test_the_remote_follows_the_backend_unless_one_is_named(key, override, remote):
+    assert remote_for(key, override) == remote
 
 
 def test_the_issue_copy_is_the_same_shape_whatever_the_backend():

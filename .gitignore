@@ -82,6 +82,8 @@ yarn-error.log*
 # Logs
 *.log
 logs/
+# ...except a delivery's history, which the runner commits with its state.
+!docs/plans/*/run/history.log
 
 # Jupyter
 .ipynb_checkpoints/

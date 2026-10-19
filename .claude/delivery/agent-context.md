@@ -17,9 +17,14 @@ code, then the acceptance-reviewer:
 | **plan-reviewer** | checks the plan against the issue, the exemplar and the code | its review |
 | **test-writer** | builds the plan's RED tasks: the failing tests | tests, and `docs/plans/<key>/02-red-tests.md` |
 | **test-reviewer** | checks the tests fail for the reasons the plan gives — the red gate | its review |
-| **code-writer** | builds the GREEN tasks until the tests pass, then the record and the verification | code, the docs the plan records, the plan's *Found while building*, `docs/test-report.md`, and `docs/plans/<key>/03-green-report.md` |
+| **code-writer** | builds the GREEN tasks until the tests pass, then the record and the verification | code, the docs the plan records, the plan's *Found while building*, `docs/test-report.md`, and `docs/plans/<key>/03-green-report.md` — never a test file or test helper |
 | **code-reviewer** | checks the code against the plan, the tests and the conventions | its review |
 | **acceptance-reviewer** | deploys the branch's preview, runs the smoke packs, checks the issue's criteria and the record | `docs/plans/<key>/04-proof.md`, and its evidence under the ignored `build/acceptance/` |
+
+The runner checks these after every stage and fails the run on a write outside them, so a
+plan gives each piece of work to a stage that may write it: an existing test the change
+breaks or weakens is RED work, never GREEN. Nothing in a delivery writes `CLAUDE.md` or
+`.claude/`; a plan that finds either needs changing names it under *Left for the human*.
 
 Each stage sees the issue, the plan, the reviews and the repo — **never another agent's
 conversation**. Write everything the next stage needs into the files, because nothing
@@ -118,8 +123,10 @@ takes one tool call a turn takes three times as long as it needs to.
   test or review asks for one. If the issue seems to need a workflow change, plan and build
   everything else, and name the change in your output file as work left for a person —
   it is not a reason to stop.
-- **Never commit**, and never tell anyone to. The workflow checks HEAD after every stage
-  and stops if it moved. Committing is the human's, always.
+- **Never commit**, and never tell anyone to. The workflow — the runner, never an agent —
+  commits and pushes the branch itself after every stage, at a stop and at the approval;
+  it checks HEAD after every stage and stops if an agent moved it. The plan dir's `run/`
+  is the workflow's own: never write there.
 
 ## Running tests
 
@@ -147,8 +154,9 @@ layer and as few files as prove the point.
   for a human. (BDD before the code-writer is different: it never runs there, by design.)
 - **Leave nothing behind.** A run that writes files — `--coverage`, a reporter's output —
   is `scripts/test.sh`'s, which writes under the ignored `build/`. A writer removes
-  anything else a run or a probe left (`rm`); a reviewer has nothing to remove but its
-  sketch. `git status --short` before you return shows what the branch would keep.
+  anything else a run or a probe left (`rm`). A sketch under `build/sketch/` goes when
+  your stage ends — the workflow removes it, so no stage ever reads another's.
+  `git status --short` before you return shows what the branch would keep.
 - **A failure your work can't have caused** — a test in a file you didn't touch, on a path
   your change doesn't reach — is rerun once, that file alone. Passing then, it is flaky:
   record the test and what it printed in your output, and carry on. Failing again, it was
@@ -196,9 +204,11 @@ every test, name the wrong build it must fail, and check that it would:
   `undefined` at red: a clock advanced by an imported constant advances by `NaN`, and the
   half that expects nothing to happen passes for that reason alone. Use the plan's value
   as a literal.
-- **Events where the library listens.** Check the installed source for the target and
-  whether it expects the event to bubble; an event it never hears makes a "reacts to X"
-  half pass or fail for the wrong reason.
+- **What the harness really does.** Every double, driver and tool a test sees through — a
+  request stub, a user-event helper, fake timers with a wait helper, a database driver's
+  types, a server's error responses, where a library listens for an event — is checked in
+  the installed source or with a probe before an assertion relies on it. Assert only what
+  it can see.
 - **Races in both orders.** An event arriving during an in-flight fetch is held with a
   deferred response (`holdHistoryFetch()` in `useMessages.test.ts`) and proven to survive;
   a response and its echo give the same state either way round; a path that spends a
@@ -283,7 +293,14 @@ or is checked again. Keep the pass to that part:
 - **Read** the review or the send-back file, your own last output, and the files under
   `Changed since the send-back` — not every source again.
 - **A writer** changes what the findings name and what follows from the change, reruns
-  what it touched, and brings its output up to date. Nothing else is rewritten.
+  what it touched, and brings its output up to date. Nothing else is rewritten. The
+  exception is the code-writer's verification: a rework reruns each of the plan's
+  `scripts/test.sh` layers whose inputs it changed — code, a test, config, a migration,
+  anything an image or the SPA builds from — so the committed `docs/test-report.md` holds
+  each layer's result for the tree it last depended on. A change to Markdown alone, or to
+  comments alone, reruns lint and nothing else. A reviewing code-reviewer checks with
+  `git diff --name-only <the report's revision>` that nothing changed since is an input
+  to a layer that wasn't rerun.
 - **A reviewer** checks each fix is there and that it broke nothing beside it: the changed
   files, the tests that cover them, the Review responses. It doesn't review untouched
   work again, form new expectations, or rerun a sketch or a mutant the change can't reach.
@@ -323,7 +340,7 @@ blocks the first, and the second hides the fault from the pair that owns it.
   one pass, not a rebuild.
 - **Write the file** at the `Send-back file` path: what is wrong and where, what you ran
   and what it printed, why nothing in your own stage fixes it, and the smallest fix you'd
-  expect. The writer answers it as a review; its reviewer checks the answer against it.
+  expect. A test you propose must go green against the fix you name — check the two agree. The writer answers it as a review; its reviewer checks the answer against it.
 - **Return `send_back`**, with your work left in place.
 
 The earlier pair takes a new round, and it counts: its writer answers the file in its
@@ -365,8 +382,9 @@ Then **record it**, because an assumption nobody can see is a silent departure:
 - the acceptance-reviewer, under *For the human* in its proof.
 
 Every later stage builds on a recorded assumption as settled. A reviewer that would have
-chosen the other reading accepts one that is recorded and defensible; it is a finding only
-when it contradicts something written, or was taken silently. The human reads every
+chosen the other reading accepts one that is recorded and defensible — it covers every
+example and phrase the issue gives; it is a finding only when it contradicts something
+written, covers less than the issue's words, or was taken silently. The human reads every
 assumption at the end, when changing one is a small, well-described piece of work.
 
 ## Stopping for a human — `needs_human`

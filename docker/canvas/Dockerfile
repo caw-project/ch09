@@ -14,6 +14,9 @@ ENV UV_COMPILE_BYTECODE=1 \
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY src/services/ src/services/
+# tools/ holds workspace members too (the delivery tooling). None is installed here,
+# but `uv sync --locked` fails on a member the root pyproject names and can't find.
+COPY tools/ tools/
 
 # --no-editable so the venv is self-contained and the source tree can be dropped.
 RUN --mount=type=cache,target=/root/.cache/uv \

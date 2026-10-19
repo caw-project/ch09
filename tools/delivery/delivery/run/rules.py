@@ -159,7 +159,9 @@ TOOLS: dict[str, tuple[str, ...]] = {
     "plan-reviewer": (*BASE, *READ_ONLY_BASH),
     # The first stage that runs anything, so the first that installs: a worktree has no
     # node_modules/ or .venv/ until it does (both ignored, so the write check never sees
-    # them). `npm ci`, never `npm install`, which rewrites the lockfile.
+    # them). `npm ci`, never `npm install`, which rewrites the lockfile. No sketch: proving
+    # a test against a throwaway build is the test-reviewer's, which found the gaps anyway
+    # and cost the writer ten minutes a run when it did it too.
     "test-writer": (
         *BASE,
         "Bash(npm --prefix src/frontend ci*)",
@@ -263,7 +265,7 @@ def write_scope(stage: str, paths: Paths) -> str | None:
         return f"^{plans}/(04-proof\\.md$|reviews/acceptance-reviewer-sendback-)"
     if stage == "code-writer":
         # Production code, config and docs anywhere — then write_denied takes the tests
-        # back out.
+        # back out. Not CLAUDE.md: it records no decision, and is a person's, like .claude/.
         return (
             r"^(src/|docs/|charts/|docker/|scripts/|\.github/|\.env\.example$|docker-compose|"
             r"(pyproject\.toml|uv\.lock|ruff\.toml|README\.md)$)"

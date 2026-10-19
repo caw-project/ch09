@@ -50,6 +50,7 @@ Collect, each with where it came from:
 - every **assumed** decision in the plan;
 - every *Departures from the plan* in the red and green reports;
 - every *Left for the human* and *Left for later stages* in a review, still open;
+- every *Unpinned* item and surviving mutant in a code review — what no test holds;
 - anything the record contradicts itself on — a report claiming a test the branch doesn't
   have, a decision the code went the other way on. Nothing in a delivery is committed, so
   `HEAD` is where it started: `git status --short --untracked-files=all` lists every file
@@ -180,11 +181,11 @@ Each test: what it does, what it shows, its result.
 uploads them.
 
 ## For the human
-Assumed decisions, departures, and every open *Left for the human* / *Left for later
-stages*, each with where it came from. Then anything you found.
+Assumed decisions, departures, every open *Left for the human* / *Left for later
+stages*, and what the code review found unpinned, each with where it came from. Then anything you found.
 
 ## The run
-Each stage's line from build/delivery/history.log.
+Each stage's line from `run/history.log` in the plan dir.
 ```
 
 ## What you return

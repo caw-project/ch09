@@ -8,7 +8,14 @@ import re
 
 import pytest
 from delivery.errors import RunError
-from delivery.run.invoke import RESULT_SCHEMA, Pass, claude_args, result_of, run_agent
+from delivery.run.invoke import (
+    RESULT_SCHEMA,
+    Pass,
+    claude_args,
+    finish_outputs,
+    result_of,
+    run_agent,
+)
 
 TOOLS = ["Read", "Bash(git log *)"]
 
@@ -193,3 +200,42 @@ def test_a_pass_that_ended_in_error_is_an_error(tmp_path):
 
     with pytest.raises(RunError, match=re.escape("ended in error (error_during_execution)")):
         result_of(ran, stage="plan-writer", turns=150, round_=1, transcript="t")
+
+
+# --- a verdict returned without its file ----------------------------------------
+
+
+def test_a_missing_file_is_asked_for_in_the_same_session(tmp_path):
+    claude = FakeClaude(output(structured=DONE))
+
+    ran = finish_outputs(
+        a_pass(stage="test-reviewer", model="sonnet"),
+        session="s-7",
+        status="approved",
+        missing=["docs/plans/gh-3/reviews/test-reviewer-2.md"],
+        cwd=tmp_path,
+        base=tmp_path / "08-test-reviewer",
+        run=claude,
+    )
+
+    asked = claude.calls[0]
+    assert ran.subtype == "success"
+    assert asked[asked.index("--resume") + 1] == "s-7"
+    assert asked[asked.index("--agent") + 1] == "test-reviewer"
+    assert asked[asked.index("--max-turns") + 1] == "20"
+    assert "returned approved" in asked[1]
+    assert "docs/plans/gh-3/reviews/test-reviewer-2.md" in asked[1]
+    assert (tmp_path / "08-test-reviewer.missing.json").exists()
+
+
+def test_asking_for_a_missing_file_with_no_answer_stops_the_run(tmp_path):
+    with pytest.raises(RunError, match="test-reviewer failed when asked for"):
+        finish_outputs(
+            a_pass(stage="test-reviewer"),
+            session="s-7",
+            status="approved",
+            missing=["x.md"],
+            cwd=tmp_path,
+            base=tmp_path / "08-test-reviewer",
+            run=FakeClaude(""),
+        )

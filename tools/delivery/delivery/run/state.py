@@ -1,4 +1,5 @@
-"""Run state: where a delivery is, saved to `build/delivery/state.json` after every step."""
+"""Run state: where a delivery is, saved to `docs/plans/<key>/run/state.json` after every step
+and committed with the checkpoint that follows it."""
 
 from __future__ import annotations
 

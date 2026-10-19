@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Take one issue to a tested feature ready for review, with the delivery agents in
-# .claude/agents/ doing the work. Nothing is committed.
+# .claude/agents/ doing the work. The runner commits and pushes its branch after
+# every stage; no agent commits.
 #
 #   scripts/deliver.sh issue-8                   start, or carry on from where it stopped
 #   scripts/deliver.sh issue-8 --restart         forget progress and start at plan-writer
@@ -11,7 +12,7 @@
 # runs it from the repo root; the workflow is the Python package delivery.run,
 # whose docstring is the reference: stages, rounds, send-backs, every DELIVER_*
 # setting, and the exit status (0 done · 1 error · 2 needs a human, or bad
-# configuration · 3 paused at an unbuilt stage).
+# configuration · 3 paused at an unbuilt stage · 4 out of time — run it again).
 set -euo pipefail
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
