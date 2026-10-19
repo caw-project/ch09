@@ -120,6 +120,7 @@ describe('ChatLayout — switching workspace', () => {
       items: isAway(request) ? [awayChannel] : [homeChannel],
       nextCursor: null,
     }))
+    auth.members([])
     useChatStore.setState({ lastChannelId: 'c1' })
     const { user, rerender } = renderWithProviders(<SignedInShell />)
     await screen.findByRole('link', { name: 'general' })

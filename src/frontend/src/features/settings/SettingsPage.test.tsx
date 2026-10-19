@@ -12,9 +12,11 @@
 import { fireEvent, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { Preferences, Profile } from '../../lib/auth/api'
+import type { Preferences, Profile, WorkspaceMember } from '../../lib/auth/api'
+import * as session from '../../lib/auth/session'
 import { useChatStore } from '../../stores/chat'
 import { auth, Refusal, requests } from '../../test/api'
+import { aWorkspaceMember } from '../../test/factories'
 import { createTestQueryClient, renderWithProviders } from '../../test/render'
 import { SettingsPage } from './SettingsPage'
 
@@ -198,6 +200,46 @@ describe('SettingsPage — saving the name', () => {
 
     typeName(field, 'Ada Lo')
     expect(screen.queryByText('Saved')).not.toBeInTheDocument()
+  })
+
+  it('a saved rename reaches the session and the cached directory, and only the renamer', async () => {
+    // Req 5: the page must save through the rename that writes the session profile and
+    // the directories. A page with a mutation of its own that writes only the profile
+    // query passes every other test here and leaves the sidebar and the renamer's own
+    // message authors showing different names.
+    const WS = '0199a000-0000-7000-8000-00000000aaa0'
+    const token = 'header.' + btoa(JSON.stringify({ wsp: WS })).replace(/=+$/, '') + '.signature'
+    auth.me(PROFILE)
+    auth.workspaces([{ id: WS, name: 'A', role: 'owner' }])
+    auth.refresh({ accessToken: token, tokenType: 'Bearer', expiresIn: 900 })
+    await session.restore()
+    auth.updateMe((body) => ({ ...PROFILE, displayName: body.displayName ?? '' }))
+    const grace = aWorkspaceMember({
+      id: '0199a000-0000-7000-8000-000000000002',
+      displayName: 'Grace Hopper',
+    })
+    const queryClient = createTestQueryClient()
+    queryClient.setQueryData(
+      ['workspace-members', WS],
+      [aWorkspaceMember({ id: PROFILE.id, displayName: 'ada' }), grace],
+    )
+    auth.preferencesBy(() => ({}))
+    const { user } = renderWithProviders(<SettingsPage accessToken={token} />, {
+      route: '/settings',
+      queryClient,
+    })
+    typeName(await nameField(), 'Ada L')
+
+    await user.click(save())
+
+    expect(await screen.findByText('Saved')).toBeInTheDocument()
+    const state = session.snapshot()
+    expect(state.status === 'signedIn' ? state.session.profile.displayName : undefined).toBe('Ada L')
+    const members = queryClient.getQueryData<WorkspaceMember[]>(['workspace-members', WS]) ?? []
+    expect(Object.fromEntries(members.map((m) => [m.user.id, m.user.displayName]))).toEqual({
+      [PROFILE.id]: 'Ada L',
+      [grace.user.id]: 'Grace Hopper',
+    })
   })
 
   it('shows no error and no Saved before anything is done', async () => {
