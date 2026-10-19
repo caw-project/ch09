@@ -146,9 +146,17 @@ jobs:
               password="$(openssl rand -base64 24 | tr -d '/+=\n' | cut -c1-24)"
               echo "::add-mask::$password"
           fi
-          # The deploy never sees the Slack token.
-          (cd pr && env -u SLACK_BOT_TOKEN -u SLACK_CHANNEL PREVIEW_PASSWORD="$password" \
-              scripts/deploy.sh preview up) | tee "$RUNNER_TEMP/preview-up.log"
+          # The deploy never sees the Slack token. Tried twice, as the runner's own preview is:
+          # a quick tunnel's hostname sometimes never resolves, and a new tunnel gets another.
+          for attempt in 1 2; do
+              if (cd pr && env -u SLACK_BOT_TOKEN -u SLACK_CHANNEL PREVIEW_PASSWORD="$password" \
+                  scripts/deploy.sh preview up) | tee "$RUNNER_TEMP/preview-up.log"; then
+                  break
+              fi
+              [ "$attempt" = 1 ] || exit 1
+              echo "::warning::preview up failed — trying once more"
+              sleep 30
+          done
           origin="$(sed -n 's/^APP_ORIGIN=//p' "$RUNNER_TEMP/preview-up.log" | tail -n 1)"
           [ -n "$origin" ] || { echo "::error::preview up printed no APP_ORIGIN"; exit 1; }
           echo "origin=$origin" >>"$GITHUB_OUTPUT"
