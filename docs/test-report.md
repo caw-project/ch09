@@ -1,15 +1,19 @@
 # Test report
 
-Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `94bb82771969`.
+Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `f145a55a0954-dirty`.
 
 ## Layers
 
 | Layer | Result | Passed | Failed | Skipped | Revision |
 |---|---|--:|--:|--:|---|
-| Lint | ✅ passed | | | | `94bb82771969` |
-| Unit | ✅ passed | 1973 | 0 | 0 | `94bb82771969` |
-| Integration | ✅ passed | 616 | 0 | 0 | `94bb82771969` |
+| Lint | ✅ passed | | | | `f145a55a0954-dirty` |
+| Unit | ✅ passed | 1973 | 0 | 0 | ⚠️ `94bb82771969` |
+| Integration | ✅ passed | 616 | 0 | 0 | ⚠️ `94bb82771969` |
 | End-to-end | ✅ passed | 25 | 0 | 0 | ⚠️ `08552a6835c7-dirty` |
+
+> ⚠️ Unit was recorded at another revision.
+
+> ⚠️ Integration was recorded at another revision.
 
 > ⚠️ End-to-end was recorded at another revision.
 

@@ -98,3 +98,11 @@ code changed. Rerun after it:
   the SPA builds from. The report keeps that run's result (marked as another revision).
 
 The "Send-back" section and every "3 failed" line above are superseded by this one.
+
+## Review responses (round 2, code-reviewer-1)
+
+1. **Fixed.** Reworded the three stale D28 statements: `docs/design/06-frontend-spa.md` (Styling row), `src/frontend/src/index.css` (the light-only comment) and `README.md` (the open-decisions line). Each now says preferences exist in Auth (D28), a theme is not one of their keys, and the palette stays light-only. The two older ADRs are history and are left alone.
+2. **Left for a later stage.** A code change that needs a red test from the test pair first (D32); the reviewer left it for the human.
+3. **Left for a later stage.** Same: the failed-refetch path on Settings is untested, and a fix wants a red test first.
+
+Rerun: `scripts/test.sh lint` → passed. The changes are Markdown and a CSS comment only, so unit, integration and e2e were not rerun; their results in `docs/test-report.md` stand for the tree's inputs.
