@@ -95,6 +95,61 @@ def test_any_other_link_into_build_acceptance_becomes_its_path_since_nothing_ser
     assert "../../../build/acceptance" not in text
 
 
+LINKED_ONLY = """\
+## Acceptance criteria
+| # | Criterion | Proven by | Result | Screenshot |
+|---|---|---|---|---|
+| 1 | Unique | test_a | proven | [taken](../../../build/acceptance/feature/taken.png) · [shown](../../../build/acceptance/feature/shown.png) |
+
+## Screenshots
+[build/acceptance/](../../../build/acceptance/) — listed by test.
+
+## For the human
+Nothing open.
+"""
+
+
+def section(text: str, heading: str) -> str:
+    start = text.index(f"## {heading}\n")
+    end = text.find("\n## ", start + 1)
+    return text[start : end if end != -1 else len(text)]
+
+
+def test_a_screenshot_the_proof_only_links_is_shown_under_screenshots():
+    # A reviewer reads the PR, not the proof's links: every screenshot is on the page.
+    shots = section(body(LINKED_ONLY), "Screenshots")
+    taken = f"**taken** · `feature/taken.png`\n\n![taken]({LINKS['feature/taken.png']})"
+    shown = f"**shown** · `feature/shown.png`\n\n![shown]({LINKS['feature/shown.png']})"
+
+    assert shots.index("listed by test.") < shots.index(taken) < shots.index(shown)
+
+
+def test_a_screenshot_the_proof_already_shows_is_not_shown_again():
+    text = body()
+
+    assert text.count(f"![taken again]({LINKS['feature/taken.png']})") == 1
+    assert f"![taken]({LINKS['feature/taken.png']})" not in text
+    assert text.count(f"![shown]({LINKS['feature/shown.png']})") == 1
+
+
+def test_without_a_screenshots_section_one_is_added_before_for_the_human():
+    proof = LINKED_ONLY.replace(
+        "## Screenshots\n[build/acceptance/](../../../build/acceptance/) — listed by test.\n\n",
+        "",
+    )
+
+    text = body(proof)
+
+    assert text.index("## Screenshots\n") < text.index("## For the human")
+    assert f"![taken]({LINKS['feature/taken.png']})" in section(text, "Screenshots")
+
+
+def test_a_proof_with_no_screenshots_gets_no_screenshots_section():
+    proof = "## Summary\n- x\n\n## For the human\nNothing.\n"
+
+    assert "## Screenshots" not in body(proof, links={})
+
+
 def test_a_link_that_is_not_into_build_acceptance_is_left_alone():
     assert "[the plan](01-implementation-plan.md)" in body()
 

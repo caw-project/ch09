@@ -178,8 +178,10 @@ Passed / failed / skipped; each failure and what it printed.
 Each test: what it does, what it shows, its result.
 
 ## Screenshots
-[build/acceptance/](../../../build/acceptance/) — listed by test. Disposable: the PR
-uploads them.
+Every screenshot cited above, shown — a reviewer reads them on the PR, not by link. One
+per criterion in table order: a bold line naming the criterion's number and what the
+screenshot shows, then the image on its own line,
+`![<what it shows>](../../../build/acceptance/…)`. In the table they stay links.
 
 ## For the human
 Assumed decisions, departures, every open *Left for the human* / *Left for later

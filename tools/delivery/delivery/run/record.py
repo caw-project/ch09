@@ -38,6 +38,37 @@ def step_totals(transcripts: Iterable[Path]) -> tuple[float, int, float] | None:
     return minutes, turns, cost
 
 
+#: How much of a refused command the record keeps: enough to see why it was refused.
+REFUSAL_WIDTH = 160
+
+
+def step_refusals(transcripts: Iterable[Path], *, hide: str = "") -> list[str]:
+    """What a step was refused, over every run it took, one short line each — the command
+    for Bash, the tool and its path for anything else. `hide` (the preview password) is
+    masked: the record is committed. A transcript that can't be read refused nothing."""
+    refused = []
+    for path in transcripts:
+        try:
+            found = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        denials = found.get("permission_denials") if isinstance(found, dict) else None
+        for denial in denials or []:
+            given = denial.get("tool_input") or {}
+            text = str(given.get("command") or "").strip() or " ".join(
+                part for part in (denial.get("tool_name"), given.get("file_path")) if part
+            )
+            if hide:
+                text = text.replace(hide, "***")
+            first, *rest = text.splitlines() or [""]
+            if rest:
+                first += " …"
+            if len(first) > REFUSAL_WIDTH:
+                first = first[: REFUSAL_WIDTH - 2] + " …"
+            refused.append(first)
+    return refused
+
+
 def step_stats(transcripts: Iterable[Path]) -> str:
     totals = step_totals(transcripts)
     if totals is None:

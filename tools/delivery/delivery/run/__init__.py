@@ -148,11 +148,12 @@ the agent exists.
                            reports to Slack and previews get their own password
   SLACK_CHANNEL            the channel's ID, C…
   DELIVER_PERMISSION_MODE  default: dontAsk — anything a stage is not allowed (rules.TOOLS)
-                           is refused, never prompted for
+                           is refused, never prompted for; each refusal is counted in its
+                           history.log line and written out in run/refused.log
 
 Exit status: 0 done · 1 error · 2 needs a human, or bad configuration · 3 paused at an
 unbuilt stage · 4 out of time. Progress (state.json), history.log — each stage's verdict,
-time, turns and cost — and the send-back snapshots are in docs/plans/<key>/run/, committed
+time, turns and cost — refused.log, and the send-back snapshots are in docs/plans/<key>/run/, committed
 with the branch; every agent's full JSON result is in build/delivery/ in the worktree,
 never committed. The proof is in docs/plans/<key>/04-proof.md, its evidence in build/acceptance/, and what
 became of the PR in build/delivery/publish.json.
@@ -238,6 +239,7 @@ from delivery.run.record import (
     ran_with,
     save_snapshot,
     snapshot,
+    step_refusals,
     step_stats,
     step_totals,
     touched_between,
@@ -630,6 +632,15 @@ class Delivery:
         own = self.own_file(stage, status, state)
         self.last = Ran(stage, status, round_, summary, own, minutes, cost)
         stats = f"{self.stats(state.step)} · {self.ran_with(stage, model, effort)}"
+        # What a stage was refused is the one clue to why it went without a tool: a public
+        # repo's transcripts aren't kept.
+        refused = step_refusals(
+            sorted(self.transcripts.glob(f"{state.step:02d}-*.json")), hide=self.password
+        )
+        if refused:
+            stats += f" · {len(refused)} refused"
+            with (self.run_dir / "refused.log").open("a") as log_file:
+                log_file.writelines(f"{state.step:02d} {stage}: {r}\n" for r in refused)
         with (self.run_dir / "history.log").open("a") as history:
             history.write(f"{state.step:02d} {stage} {status} [{stats}]: {summary}\n")
         log(f"{stage}: {status} [{stats}] — {summary}")

@@ -241,6 +241,16 @@ What each failed with, on 2026-10-19:
   Compose test stack with the preview's password. Only the acceptance stage gets it now.
 - **Stage links unfurled in Slack.** Each stage's file link became a GitHub card, burying the
   thread. Every post sends `unfurl_links` and `unfurl_media` false.
+- **Screenshots as links.** gh-3's proof linked its screenshots from the criteria table, so
+  the PR showed none. The template now shows each under *Screenshots*, and the runner shows
+  any the proof only links to there, captioned with its link's label.
+- **A reviewer approved without running anything.** gh-3's round-2 test-reviewer read a
+  refusal as "Bash was denied" and approved by reading. The guide said a pipe into `grep`
+  was fine; in dontAsk mode a `$` anywhere (`grep -v "^$"`, `echo $?`) or a `;` is refused,
+  while a plain pipe into `tail`, `head`, `grep` or `sed -n` runs. The guide says so now,
+  and to rerun bare and stop for a human rather than approve on reading. A public repo's
+  transcripts aren't kept, so each stage's refusals are counted in `history.log` and
+  written to the committed `run/refused.log`, the preview password masked.
 
 ## Verified
 

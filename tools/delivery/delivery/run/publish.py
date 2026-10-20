@@ -52,8 +52,39 @@ def pr_body(proof: str, *, issue_number: int, links: Mapping[str, str]) -> str:
         lines = lines[1:]
     text = "\n".join(lines).strip("\n")
     text = LINK.sub(lambda m: relink(m, links), text)
+    text = show_screenshots(text, unshown(proof, text, links))
     text = collapse_run(text)
     return f"{text.rstrip()}\n\n---\n\nCloses #{issue_number}\n\n{SQUASH_NOTE}\n"
+
+
+def unshown(proof: str, body: str, links: Mapping[str, str]) -> list[tuple[str, str, str]]:
+    """(label, path, url) for each screenshot the proof only links to — a reviewer reads the
+    PR, so each is shown as well, labelled as the proof first linked it."""
+    found = []
+    for match in LINK.finditer(proof):
+        path = evidence_path(match.group(3))
+        url = links.get(path)
+        shown = url and re.search(rf"!\[[^\]]*\]\({re.escape(url)}\)", body)
+        if url and not shown and all(seen != path for _, seen, _ in found):
+            found.append((match.group(2), path, url))
+    return found
+
+
+def show_screenshots(text: str, shots: list[tuple[str, str, str]]) -> str:
+    """Appends `shots` to the Screenshots section, or adds that section before For the human
+    — or at the end, without one."""
+    if not shots:
+        return text
+    shown = "\n\n".join(
+        f"**{label}** · `{path}`\n\n![{label}]({url})" for label, path, url in shots
+    )
+    section = re.search(r"^## Screenshots[ \t]*\n(.*?)(?=^## |\Z)", text, re.MULTILINE | re.DOTALL)
+    if section:
+        at = section.end()
+        return f"{text[:at].rstrip()}\n\n{shown}\n\n{text[at:].lstrip()}".rstrip()
+    human = re.search(r"^## For the human", text, re.MULTILINE)
+    at = human.start() if human else len(text)
+    return f"{text[:at].rstrip()}\n\n## Screenshots\n\n{shown}\n\n{text[at:]}".rstrip()
 
 
 def relink(match: re.Match[str], links: Mapping[str, str]) -> str:
