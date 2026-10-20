@@ -17,7 +17,13 @@
 import { http, HttpResponse, type DefaultBodyType } from 'msw'
 import { setupServer } from 'msw/node'
 
-import type { Profile, TokenPair, Workspace, WorkspaceMember } from '../lib/auth/api'
+import type {
+  Preferences,
+  Profile,
+  TokenPair,
+  Workspace,
+  WorkspaceMember,
+} from '../lib/auth/api'
 import { ASSET_URL, AUTH_URL, MESSAGING_URL } from '../lib/config'
 import type { components as AssetComponents } from '../types/asset'
 import type { paths } from '../types/messaging'
@@ -28,7 +34,14 @@ export { ASSET_URL, AUTH_URL, MESSAGING_URL }
 /** Where the presigned PUT of the tests goes: Garage, as the browser reaches it. */
 export const GARAGE_URL = 'http://garage.test'
 
-export const server = setupServer()
+/**
+ * `ChatLayout` reads the user's preferences on every screen, so any test that
+ * renders it needs an answer. This default is "the user has chosen nothing"; a
+ * test that cares installs its own with `auth.preferences(...)`, which records.
+ */
+export const server = setupServer(
+  http.get(`${AUTH_URL}/api/v1/users/me/preferences`, () => HttpResponse.json({})),
+)
 
 type Method = 'get' | 'post' | 'patch' | 'delete'
 
@@ -309,6 +322,41 @@ function authJson<T extends DefaultBodyType>(method: Method, path: string, reply
   )
 }
 
+/** A Problem Details answer from inside a reply function: `return failWith(500, {...})`. */
+export class ProblemReply {
+  constructor(
+    readonly status: number,
+    readonly body: ProblemBody,
+  ) {}
+}
+
+export function failWith(status: number, body: ProblemBody = { title: 'Failed' }): ProblemReply {
+  return new ProblemReply(status, body)
+}
+
+/**
+ * What an Auth stub may answer: a body, or a function of the request that may
+ * return one, a `failWith(...)`, or a promise of either. A promise is how a test
+ * holds a request in flight; the request is recorded on arrival, before the
+ * reply is awaited.
+ */
+type AuthReply<T> =
+  | T
+  | ProblemReply
+  | ((request: { body: unknown; request: Request }) => T | ProblemReply | Promise<T | ProblemReply>)
+
+function authReply<T extends DefaultBodyType>(method: Method, path: string, reply: AuthReply<T>) {
+  server.use(
+    http[method](AUTH_URL + path, async ({ request }) => {
+      const body = await record(request)
+      const answer = typeof reply === 'function' ? await reply({ body, request }) : reply
+      return answer instanceof ProblemReply
+        ? problemResponse(answer.status, answer.body)
+        : HttpResponse.json(answer)
+    }),
+  )
+}
+
 export const auth = {
   /** The workspace directory `useWorkspaceMembers` reads, as one page. */
   members(members: WorkspaceMember[]): void {
@@ -339,7 +387,14 @@ export const auth = {
   exchange: (pair: TokenPair) => authJson('post', '/api/v1/auth/token', { ...pair }),
   switchWorkspace: (pair: TokenPair) =>
     authJson('post', '/api/v1/auth/switch-workspace', { ...pair }),
-  me: (profile: Profile) => authJson('get', '/api/v1/users/me', { ...profile }),
+  me: (profile: AuthReply<Profile>) => authReply('get', '/api/v1/users/me', profile),
+  /** `PATCH /users/me`; the body is what the SPA sent, as `{ displayName }`. */
+  updateMe: (reply: AuthReply<Profile>) => authReply('patch', '/api/v1/users/me', reply),
+  preferences: (reply: AuthReply<Preferences>) =>
+    authReply('get', '/api/v1/users/me/preferences', reply),
+  /** `PATCH /users/me/preferences`; the body is the patch, e.g. `{ clock: '24h' }`. */
+  updatePreferences: (reply: AuthReply<Preferences>) =>
+    authReply('patch', '/api/v1/users/me/preferences', reply),
   workspaces: (items: Workspace[]) => authJson('get', '/api/v1/workspaces', { items }),
   logout(): void {
     server.use(

@@ -309,6 +309,135 @@ describe('concurrent renewal', () => {
   })
 })
 
+describe('updateProfile', () => {
+  const RENAMED: Profile = { ...PROFILE, displayName: 'Ada L.' }
+
+  it('replaces the signed-in profile and notifies', async () => {
+    auth.refresh(pair(HOME))
+    await session.restore()
+    const listener = vi.fn()
+    session.subscribe(listener)
+
+    session.updateProfile(RENAMED)
+
+    expect(signedInSession(session).profile).toEqual(RENAMED)
+    expect(signedInSession(session).accessToken).toBe(tokenFor(HOME))
+    expect(listener).toHaveBeenCalledTimes(1)
+  })
+
+  it('does nothing when signed out', async () => {
+    auth.problem('post', '/api/v1/auth/refresh', 401, { title: 'Unauthorized' })
+    await session.restore()
+    const before = session.snapshot()
+    const listener = vi.fn()
+    session.subscribe(listener)
+
+    session.updateProfile(RENAMED)
+
+    expect(before).toEqual({ status: 'signedOut', error: undefined })
+    expect(session.snapshot()).toBe(before)
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  describe('against a renewal or switch that read the profile first (a rename in between)', () => {
+    /** `GET /users/me` that is reached, then held until `release`, answering the old name. */
+    function holdProfile() {
+      const held = { reached: false }
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      server.use(
+        http.get(`${AUTH_URL}/api/v1/users/me`, async () => {
+          held.reached = true
+          await gate
+          return HttpResponse.json(PROFILE)
+        }),
+      )
+      return { held, release }
+    }
+
+    beforeEach(async () => {
+      auth.refresh(pair(HOME))
+      await session.restore()
+    })
+
+    it('a renewal that read the profile before a rename keeps the renamed one', async () => {
+      const { held, release } = holdProfile()
+      auth.refresh(pair(HOME, 900, 'renewed'))
+
+      const renewing = session.restore()
+      await vi.waitFor(() => expect(held.reached).toBe(true))
+      session.updateProfile(RENAMED)
+      release()
+      await renewing
+
+      expect(signedInSession(session).profile.displayName).toBe('Ada L.')
+      // The renewal was still adopted: only the profile is protected from the stale read.
+      expect(signedInSession(session).accessToken).toBe(tokenFor(HOME, 'renewed'))
+    })
+
+    it('a renewal that read the profile after a rename takes the server’s', async () => {
+      session.updateProfile(RENAMED)
+      auth.me({ ...PROFILE, displayName: 'Ada M.' })
+      auth.refresh(pair(HOME, 900, 'renewed'))
+
+      await session.restore()
+
+      expect(signedInSession(session).profile.displayName).toBe('Ada M.')
+      expect(signedInSession(session).accessToken).toBe(tokenFor(HOME, 'renewed'))
+    })
+
+    it('a workspace switch that read the profile before a rename keeps the renamed one', async () => {
+      const { held, release } = holdProfile()
+      auth.switchWorkspace(pair(AWAY))
+
+      const switching = session.changeWorkspace(AWAY)
+      await vi.waitFor(() => expect(held.reached).toBe(true))
+      session.updateProfile(RENAMED)
+      release()
+      await switching
+
+      expect(signedInSession(session).profile.displayName).toBe('Ada L.')
+      expect(signedInSession(session).activeWorkspaceId).toBe(AWAY)
+    })
+  })
+})
+
+describe('the route a sign-in returns to', () => {
+  const RETURN_KEY = 'collabhub.returnTo'
+
+  it('signIn keeps a return path across the redirect, and clears an old one without it', async () => {
+    const assign = vi.fn()
+    vi.stubGlobal('location', { ...window.location, assign })
+
+    await session.signIn('dex', '/settings?tab=profile')
+    expect(window.sessionStorage.getItem(RETURN_KEY)).toBe('/settings?tab=profile')
+
+    await session.signIn('dex')
+    expect(window.sessionStorage.getItem(RETURN_KEY)).toBeNull()
+    expect(assign).toHaveBeenCalledTimes(2)
+    vi.unstubAllGlobals()
+  })
+
+  it('takeReturnTo gives the path once, then "/"', () => {
+    window.sessionStorage.setItem(RETURN_KEY, '/settings')
+
+    expect(session.takeReturnTo()).toBe('/settings')
+    expect(window.sessionStorage.getItem(RETURN_KEY)).toBeNull()
+    expect(session.takeReturnTo()).toBe('/')
+  })
+
+  it.each(['//evil.example', 'https://evil.example', 'javascript:alert(1)', 'settings'])(
+    'takeReturnTo refuses %s: only a same-origin path is followed',
+    (stored) => {
+      window.sessionStorage.setItem(RETURN_KEY, stored)
+
+      expect(session.takeReturnTo()).toBe('/')
+    },
+  )
+})
+
 describe('signIn', () => {
   it('keeps the verifier and sends the browser to Auth with its challenge', async () => {
     const assign = vi.fn()
