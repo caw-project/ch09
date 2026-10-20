@@ -59,7 +59,7 @@ def user(n: int, name: str, *, age: int, email: str | None = None, deleted: bool
         "id": uuid.UUID(int=n),
         "email": email or f"user{n}@example.com",
         "name": name,
-        "created": T0 + timedelta(days=100 - age),
+        "created": T0 + timedelta(days=age),
         "deleted": T0 if deleted else None,
     }
 
