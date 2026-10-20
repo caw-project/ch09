@@ -85,6 +85,34 @@ class ChatPage:
         self.page.locator(f'[data-testid="workspace-option"][data-workspace-name="{name}"]').click()
         expect(self.page.get_by_test_id("workspace-name")).to_have_text(name)
 
+    # --- profile ----------------------------------------------------------
+
+    def change_display_name(self, name: str) -> None:
+        """Rename yourself on Settings, and wait until the server has said yes.
+
+        Clicking your name opens the page; the field is read only once it is
+        visible, because the form waits for this visit's fetch. When it already
+        holds `name` there is nothing to save - Save is disabled for an unchanged
+        name - which is what lets a rerun against a kept stack pass.
+        """
+        self.page.get_by_test_id("current-user").click()
+        expect(self.page.get_by_test_id("settings-page")).to_be_visible()
+        field = self.page.get_by_test_id("profile-name-input")
+        expect(field).to_be_visible()
+        if field.input_value() == name:
+            return
+        field.fill(name)
+        self.page.get_by_test_id("profile-save").click()
+        expect(self.page.get_by_test_id("profile-saved")).to_be_visible()
+
+    def own_name(self) -> str:
+        """The name the sidebar shows right now - for failure messages."""
+        return self.page.get_by_test_id("current-user").inner_text().strip()
+
+    def has_own_name(self, name: str) -> bool:
+        """Whether the sidebar shows `name`, waiting for it."""
+        return _holds(lambda: expect(self.page.get_by_test_id("current-user")).to_have_text(name))
+
     # --- reading ----------------------------------------------------------
 
     def workspace_name(self) -> str:

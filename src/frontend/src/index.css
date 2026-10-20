@@ -7,11 +7,11 @@
    **Light only.** There is no dark palette here and no `prefers-color-scheme`
    block, because honouring the OS setting is the half of a theme feature that
    is easy: the moment anyone wants to *override* it, they need somewhere to
-   store the choice, and there is no user-preferences feature in the design at
-   all — `users` carries a display name, an avatar and a status (doc 01 §4), and
-   `PATCH /users/me` updates the first two. Shipping a palette that follows the
-   OS would mean two colour schemes to keep correct in every new component, for
-   a setting nobody can actually change. Revisit when preferences exist. */
+   store the choice. Preferences now exist in Auth (register D28, doc 01 §3), but
+   a theme is not one of their keys — only `clock` is. Shipping a palette that
+   follows the OS would mean two colour schemes to keep correct in every new
+   component, for a setting nobody can actually change. Revisit when a theme
+   key is added. */
 @theme {
   --color-surface: #ffffff;
   --color-surface-sunken: #f6f7f9;

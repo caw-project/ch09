@@ -110,6 +110,29 @@ async def test_signing_out_still_ends_the_session_when_r1_is_unreachable(
 
 
 # --------------------------------------------------------------------------
+# Profile and preference writes fail open (issue gh-3 DA 9)
+# --------------------------------------------------------------------------
+
+
+async def test_a_rename_and_a_preference_write_fail_open(
+    reachable: httpx.AsyncClient, r1_down: httpx.AsyncClient
+) -> None:
+    """Neither is in Conventions §5.2's sensitive set, so a dead R1 must not refuse them."""
+    ada = await sign_in(reachable, ADA)
+
+    renamed = await r1_down.patch(
+        "/api/v1/users/me", headers=bearer(ada), json={"displayName": "Ada Lovelace"}
+    )
+    saved = await r1_down.patch(
+        "/api/v1/users/me/preferences", headers=bearer(ada), json={"clock": "24h"}
+    )
+
+    assert renamed.status_code == 200
+    assert saved.status_code == 200
+    assert saved.json() == {"clock": "24h"}
+
+
+# --------------------------------------------------------------------------
 # Member writes fail closed (Conventions §5.2, doc 01 §3)
 # --------------------------------------------------------------------------
 

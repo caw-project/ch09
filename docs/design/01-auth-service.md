@@ -59,7 +59,9 @@ Base path `/api/v1`. Token endpoints and JWKS are unauthenticated; all others re
 | POST | `/auth/logout` | Bearer | Revoke the `jti` and the cookie's refresh token; clear the cookie. |
 | GET | `/auth/userinfo` | Bearer | Claims for the current token. |
 | GET | `/users/me` | Bearer | Current user profile. |
-| PATCH | `/users/me` | Bearer | Update own profile (display name, avatar ref). |
+| PATCH | `/users/me` | Bearer | Update own profile (display name, avatar ref). The name is stored trimmed and NFC; `400` with `errors.displayName` for a length or character rule (control, format, separator and default-ignorable characters are refused), `409` `"That name is already taken."` when any account — deleted ones too — holds it (D46). Saving the name you have changes nothing. |
+| GET | `/users/me/preferences` | Bearer | The caller's preferences map; `{}` for a user with none (never creates a row). `404` for a deleted account. |
+| PATCH | `/users/me/preferences` | Bearer | Merge the keys sent; `null` removes one. An unknown key or bad value is a `400` with `errors.<key>` and nothing is written. The only key is `clock`: `"12h"`, `"24h"` or absent (D28). |
 | GET | `/users/{id}` | Bearer | Public profile of a user (name, avatar). |
 | GET | `/workspaces/{id}/members` | Bearer (member) | List members + roles. |
 | POST | `/workspaces/{id}/members` | Bearer (admin) | Invite/add member. |
@@ -160,7 +162,8 @@ Access-token claims follow Conventions §5.1. The Auth Service is the only issue
 CREATE TABLE users (
     id            uuid PRIMARY KEY,
     email         citext NOT NULL UNIQUE,
-    display_name  text NOT NULL,
+    display_name  text NOT NULL,             -- stored trimmed + NFC, 1-100 code points
+    display_name_key text NOT NULL,          -- names.name_key(display_name); set by the model
     avatar_asset  uuid NULL,                 -- references Asset service id (no FK, cross-service)
     status        text NOT NULL DEFAULT 'active',  -- active | suspended | deactivated
     created_at    timestamptz NOT NULL DEFAULT now(),
@@ -205,9 +208,28 @@ CREATE TABLE refresh_tokens (
     revoked_at    timestamptz NULL
 );
 CREATE INDEX ix_refresh_user ON refresh_tokens (user_id) WHERE revoked_at IS NULL;
+
+-- Unique across the installation (register D46). No `WHERE deleted_at IS NULL`, on purpose:
+-- a deleted account keeps holding its name (Conventions §3 lists the soft-delete exceptions).
+CREATE UNIQUE INDEX uq_users_display_name_key ON users (display_name_key);
+
+-- Per-user preferences (register D28): one row once a preference is written.
+CREATE TABLE user_preferences (
+    user_id       uuid PRIMARY KEY REFERENCES users(id),
+    prefs         jsonb NOT NULL DEFAULT '{}',   -- keys validated by auth.preferences.KEYS
+    version       integer NOT NULL DEFAULT 0,
+    updated_at    timestamptz NOT NULL DEFAULT now()
+);
 ```
 
 SQLAlchemy models map one-to-one to these tables; Alembic owns the migration history.
+
+`display_name_key` is `NFC(casefold(NFC(name)))`, computed by `auth/names.py` — the one module
+that owns every name rule — and set by the `User` model on every assignment, so the index
+compares bytes and never Postgres's own `lower()` (which follows `LC_CTYPE` and is not full
+case folding). Migration 0002 added it: it trims and NFC-normalises every stored name, renames
+every duplicate but the oldest account with the first-sign-in suffix rule, then builds the
+index. That data change is one-way.
 
 `refresh_tokens.workspace_id` was added during implementation and is not in the original
 table above. Refresh tokens are not workspace-*scoped* — the holder may switch at any time
@@ -239,6 +261,13 @@ elsewhere.
    expiry, and `nonce`. It upserts `users` + `external_identities`, writes
    `auth:code:{code}` to R1, and redirects to `SPA_REDIRECT_URI?code=…`.
 3. SPA calls `/auth/token` with the code + its `codeVerifier` → access + refresh tokens.
+
+**A new account's display name** is the IdP's `name` (else `preferred_username`, else the
+email's local part), cleaned: refused characters dropped and cut to 100 — a sign-in never
+refuses over a name. If that name is taken (D46, case- and normalisation-insensitively) the
+account gets the first free `X 2`, `X 3`, …, and its own workspace is named from the result.
+Each attempt is a SAVEPOINT, because two first sign-ins racing for one name are decided by
+the unique index, not a pre-check. A returning sign-in never overwrites the name.
 
 **Two independent PKCE exchanges**, and they must not be conflated: Auth↔provider, and
 SPA↔Auth. The second is what makes the CollabHub authorization code safe to carry in a

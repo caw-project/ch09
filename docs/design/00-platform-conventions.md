@@ -223,6 +223,13 @@ Users belong to many workspaces, but **an access token is scoped to exactly one*
 may therefore assume a single unambiguous workspace and must never accept a workspace
 identifier from the request in place of the claim.
 
+**One deliberate exception (register D46).** Display names are unique across the whole
+installation, so a `409` on `PATCH /users/me` can reveal that a name exists in a workspace the
+caller cannot see. That is decided, not a leak to fix: revealing that a name exists was judged
+better than allowing impersonation. The response names nobody and no workspace — the same
+type, title, `detail` and `errors.displayName` text whether the holder is in the caller's
+workspace or not — and a reviewer reads it as an accepted exception, not a tenancy breach.
+
 Refresh tokens are **not** workspace-scoped. Switching workspaces exchanges the refresh
 token plus a target workspace ID for a new access token, reusing the rotating-refresh
 machinery in §5.1.

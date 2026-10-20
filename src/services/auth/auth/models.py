@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     ForeignKey,
@@ -24,8 +25,10 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import CITEXT, TIMESTAMP, UUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import CITEXT, JSONB, TIMESTAMP, UUID
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, validates
+
+from auth import names
 
 # Every timestamp on the platform is UTC `timestamptz` (Conventions §3).
 Timestamp = TIMESTAMP(timezone=True)
@@ -36,11 +39,22 @@ class Base(DeclarativeBase):
 
 
 class User(Base):
+    """An account.
+
+    `display_name_key` is `names.name_key(display_name)`, set by the model on
+    every assignment so no write path can forget it, under a plain unique index:
+    Postgres compares bytes and never applies its own `lower()` (register D46).
+    The index counts deleted accounts on purpose — a deleted user still holds
+    their name.
+    """
+
     __tablename__ = "users"
+    __table_args__ = (Index("uq_users_display_name_key", "display_name_key", unique=True),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     email: Mapped[str] = mapped_column(CITEXT, nullable=False, unique=True)
     display_name: Mapped[str] = mapped_column(String, nullable=False)
+    display_name_key: Mapped[str] = mapped_column(String, nullable=False)
     avatar_asset: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="active")
     created_at: Mapped[datetime] = mapped_column(
@@ -51,6 +65,30 @@ class User(Base):
     )
     deleted_at: Mapped[datetime | None] = mapped_column(Timestamp, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+
+    @validates("display_name")
+    def _set_name_key(self, _attribute: str, value: str) -> str:
+        self.display_name_key = names.name_key(value)
+        return value
+
+
+class UserPreferences(Base):
+    """A user's settings as one JSON map (register D28), merged by one upsert.
+
+    Per user, not per workspace. A row exists only once a preference has been
+    written; reading with no row gives `{}`.
+    """
+
+    __tablename__ = "user_preferences"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True
+    )
+    prefs: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default="{}")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    updated_at: Mapped[datetime] = mapped_column(
+        Timestamp, nullable=False, server_default=func.now()
+    )
 
 
 class ExternalIdentity(Base):

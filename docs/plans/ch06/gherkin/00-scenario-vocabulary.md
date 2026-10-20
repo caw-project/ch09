@@ -700,3 +700,20 @@ verbatim: `Ada is signed in`, `Ada has created a public channel named`, `Grace i
 - `When Grace opens her direct message with Ada`
 - `When Grace sends "{body}"`
 - `Then Ada sees "{body}" in the channel without reloading`
+
+## 35. 🟢 Alan — a third persona, for display names (gh-3)
+
+Ruling 1 gave the suite Ada and Grace, and no one else. `profile.feature` adds **Alan**
+(`alan@collabhub.dev`, already in all three Dex configs): a rename is a change to the
+user's own row, and Auth's tables survive between scenarios, so renaming Ada or Grace would
+leave the next scenario reading "Alan Turing" where it expects "Ada". Alan is used by no
+other scenario, and renaming to the name he already has is a no-op, so a `KEEP_STACK`
+rerun still passes. The harness gains the `alan` context and fixture beside `ada` and
+`grace`. Reused verbatim: `Ada is signed in`, `Ada has created a public channel named`,
+`Grace reloads CollabHub`, `Grace opens the "{name}" channel`. New:
+
+- `Given Alan has sent "{body}" in "{channel}"`
+- `When Alan changes his display name to "{name}"`
+- `Then Alan's own name reads "{name}"`
+- `Then Grace sees "{body}" written by "{name}"` — the quotes keep it from matching ruling
+  18's `written by Ada`, and that phrase from matching this one.

@@ -52,7 +52,16 @@ interface ChatState {
    * badge while it holds.
    */
   readingChannelId: string | null
+  /**
+   * The last channel opened and the workspace it belongs to, for "Back to chat"
+   * from Settings. `activeChannelId` is cleared when a channel unmounts, so it
+   * cannot say where the user came from; this is never cleared on unmount, and
+   * carries its workspace because after a switch the old channel is another
+   * tenant's.
+   */
+  lastChannel: { workspaceId: string; channelId: string } | null
   setActiveChannel: (channelId: string | null) => void
+  setLastChannel: (value: { workspaceId: string; channelId: string }) => void
   setReadingChannel: (channelId: string | null) => void
   setDraft: (channelId: string, text: string) => void
   clearDraft: (channelId: string) => void
@@ -72,7 +81,9 @@ export const useChatStore = create<ChatState>((set) => ({
   connectionStatus: 'disconnected',
   joinedChannelId: null,
   readingChannelId: null,
+  lastChannel: null,
   setActiveChannel: (channelId) => set({ activeChannelId: channelId }),
+  setLastChannel: (value) => set({ lastChannel: value }),
   setReadingChannel: (channelId) => set({ readingChannelId: channelId }),
   setConnectionStatus: (status) => set({ connectionStatus: status }),
   setJoinedChannel: (channelId) => set({ joinedChannelId: channelId }),
