@@ -55,7 +55,7 @@ Taken in this plan — each needs the plan-reviewer's yes or no:
 | 14 | First-sign-in race | `provision_user` tries `names.candidates(base)` in order, each insert in `session.begin_nested()`; the name-key violation rolls back the SAVEPOINT and tries the next | The index blocks the second insert until the first commits, then fails it: the retry is the only way "never refuses" holds |
 | 15 | Preferences write | One `INSERT … ON CONFLICT (user_id) DO UPDATE SET prefs = (user_preferences.prefs \|\| :set) - :remove` | Row-locked, merges into the latest committed row, so two tabs on different keys keep both (*Where the rules meet*, two tabs) |
 | 16 | Own-tab update on rename | In `useMutation({ onSuccess })` — not `mutate(…, { onSuccess })`: cancel in-flight directory fetches, write the new name into every cached `['workspace-members', *]` that has data, refetch any that has none; `session.updateProfile(profile)`; set `['profile','me']` | `@tanstack/query-core` 5.101.4: hook-level callbacks run from the `Mutation` (`build/modern/mutation.js:123`), per-`mutate` ones only while the observer has listeners (`mutationObserver.js:77`) — the *Paths* row "leaving mid-save". Cancel, because a directory fetch answered before the commit would land the old name after the write |
-| 17 | Clock writes | Optimistic: `onMutate` cancels the query, snapshots, writes; `onSuccess`/`onError` write the response / restore the snapshot **only when no other preferences mutation is pending** (`isMutating({ mutationKey })`) | Two quick choices answered out of order must end on the last choice (races in both orders) |
+| 17 | Clock writes | **Serial and optimistic.** `useMutation({ scope: { id: 'preferences' } })`: each `onMutate` runs at the click (`mutation.js:94-105`, before `retryer.start()` at `:115`), but the PATCHes go one at a time in click order (`canRun`, `mutationCache.js:60-70`, `mutation.js:86`), so the server's last write is the last choice. Bookkeeping per `QueryClient` (a `WeakMap` in `usePreferences.ts`, so it outlives an unmount): `inFlight`, `latest` (a sequence number), `confirmed`. `onMutate`: cancel the query; if `inFlight === 0`, `confirmed = ` the cached map; `inFlight++`; write the choice; context `{ seq: ++latest }`. `onSuccess`: `confirmed = data`; write `data` only if `seq === latest`. `onError`: only if `seq === latest`, write `confirmed` and show the error. `onSettled`: `inFlight--`. Because the saves settle in order, when the latest settles `confirmed` is the server's last saved map. `isMutating` is not used (it counts the mutation itself inside its own callbacks, `mutation.js:123` before `:144`) | Ends on the last choice in every outcome: A ok + B ok → B; A ok + B fails → A (saved) + error; A fails + B ok → B, no error (**assumed** — the last choice was saved; showing A's error is one branch); both fail → the choice before either + error. A focus refetch landing mid-save can show the old value for a moment; the latest save's response puts it right. The alternative — let them run in parallel and have the last to settle refetch — costs a GET after every choice and can still end on a server order the user didn't choose |
 | 18 | Preferences cache key | `['preferences', 'me']`, not per workspace | Per user and global (DA 3, DA 7); a different user means a full sign-in navigation, so a fresh `QueryClient` |
 | 19 | How formatters get the clock | `useClock()` observes `['preferences','me']` with `queryFn: skipToken` (exported by query-core 5.101, `build/modern/index.d.ts:34`); `ChatLayout` and `/settings` fetch it | No prop threaded through `MessageList`, `ThreadPanel`, `SearchPage`; one fetcher per screen |
 | 20 | 12/24-hour option | `hourCycle: 'h12'` / `'h23'`, never `hour12` | `hour12: true` is `h11` in `ja-JP`; `hour12: false` rendered "24:05" in older Chrome. `hourCycle` is allowed beside `timeStyle` (ECMA-402 forbids only component fields there) |
@@ -73,12 +73,13 @@ Taken in this plan — each needs the plan-reviewer's yes or no:
 | 32 | "Back to chat" — **assumed** | `/c/<id>` of the last channel opened **in the active workspace** (a new `lastChannel {workspaceId, channelId}` in the chat store, never cleared on unmount); otherwise `/` | `activeChannelId` is cleared on unmount (`ChannelView.tsx:38`), and after a workspace switch the old channel is another tenant's |
 | 33 | Workspace switch on `/settings` — **assumed** | The page stays mounted; an unsaved edit survives | *Paths*: "nothing changes" |
 | 34 | Return to the route after sign-in — **assumed** | For every protected route, not only `/settings` (see *Corrections* 1) | One guard (`App.tsx:10-16` says protected routes share it). Narrowing to `/settings` is one condition |
-| 35 | A renewal racing a rename — **assumed**, not handled | A renewal whose `GET /users/me` was answered before the rename committed can put the old name back in the sidebar until the next renewal (~14 min) | Window is milliseconds every 14 minutes. Fixing it means ordering `adopt()` against `updateProfile`; D38 territory |
+| 35 | A renewal or workspace switch racing a rename | `session.ts` keeps `profileEpoch`, bumped by `updateProfile`. `adopt()` captures it before `api.me()`; when it sets the session, it uses the fetched profile only if the epoch is unchanged, and otherwise keeps the current session's profile, which is newer. The token, workspaces and `wsp` are always the fetched ones | The issue: the sidebar and the user's own messages "never disagree" (*Where the rules meet*, row 3). A `me()` answered before the PATCH committed would otherwise put the old name back for up to ~14 minutes. A `me()` answered after the commit already carries the new name, so either result is right. The epoch is per call, not a sticky flag, so a later rename from another device still arrives at the next renewal. Renewal's retry and sign-out-on-failure (D38) are untouched |
+| 36 | The name field on a revisit — **assumed** | The Profile form renders only once this visit's fetch has landed (`useProfile(...).isFetchedAfterMount`), and seeds the field from it once. Until then the section shows `Loading…` | Req 8: "reads … from the server on every visit". Showing the cached name and then following the fetch until the user edits is the alternative: one more state, and the risk of overwriting what they typed |
 
 Nothing here builds on a 🔴 entry. **D28** was 🔴 and the issue decides it (DA 7); this slice records
 it 🟢. The nearest still-open entries are **D37/D38** (what the SPA does on a 401 and on a renewal
-network failure): `session.ts` gains `updateProfile` and a return path, and neither touches renewal,
-retry or sign-out-on-failure. **D18** (notifications) is not a preference here (DA 8); **D13**
+network failure): `session.ts` gains `updateProfile`, a return path and `adopt()`'s epoch check
+(decision 35). None of these touches renewal's timing, retry or sign-out-on-failure. **D18** (notifications) is not a preference here (DA 8); **D13**
 (avatar buckets) is untouched — `avatarAsset` keeps today's behaviour.
 
 ## Corrections to the issue
@@ -127,7 +128,8 @@ reload (issue *Tests*). Write the journey first; everything under it goes down t
 table (it is checked against `unicodedata.unidata_version` by reading, Task 5); every locale's
 12/24-hour rendering (the suite runs in one ICU locale; the acceptance check on the preview is the
 browser's); *Paths* "Grace … until her directory refetches" — existing behaviour, already pinned by
-`useWorkspaceMembers.test.tsx` and doc 06 §5.2, and the journey's reload; decision 35's race.
+`useWorkspaceMembers.test.tsx` and doc 06 §5.2, and the journey's reload; the rolling-deploy window
+in which an old Auth pod meets the 0002 schema (Task 6).
 
 **Baseline**, from `docs/test-report.md` at `1accafe`: unit 1863 passed (Auth 59, frontend 503);
 integration 47 passed, `tools/delivery` only — Auth's integration count is not in the report; end-to-end
@@ -189,8 +191,7 @@ docstring — all Task 8/9.
 | GREEN — SPA | 8 | code-writer | Task 3 passes; `tsc` clean |
 | Finish | 9–10 | code-writer | the record, then verification (the journey runs there) |
 
-One RED phase: Auth's client is hand-typed, so Task 3's stubs are typed from Task 3's interfaces,
-not from a generated schema. `tsc` is red until Task 8 for the same reason as the tests.
+One RED phase: Auth's client is hand-typed, so Task 3's stubs follow Task 3's interfaces; `tsc` is red until Task 8.
 
 ---
 
@@ -242,7 +243,9 @@ not from a generated schema. `tsc` is red until Task 8 for the same reason as th
 | `test_every_bad_key_is_reported_at_once` — `{"clock": "x", "theme": 1}` | decision 30 | same |
 | `test_an_empty_patch_is_empty` | decision 30 | same |
 
-House docstrings (one line on what breaks without the rule). Leave uncommitted.
+Every invisible character in these rows (U+200B, U+3164, U+034F, U+00A0) is written in the test as a
+`\u` escape, so a reader can see it. House docstrings (one line on what breaks without the rule).
+Leave uncommitted.
 
 ## Task 2: Auth over REST, SQL and the migration (RED)
 
@@ -332,7 +335,7 @@ export function updateMe(accessToken: string, body: { displayName: string }): Pr
 export function preferences(accessToken: string): Promise<Preferences>
 export function updatePreferences(accessToken: string, patch: { clock?: Clock | null }): Promise<Preferences>
 // lib/auth/session.ts
-export function updateProfile(profile: api.Profile): void   // signedIn only; notifies subscribers
+export function updateProfile(profile: api.Profile): void   // signedIn only; bumps profileEpoch; notifies
 export function signIn(provider?: string, returnTo?: string): Promise<void>  // stores or clears it
 export function takeReturnTo(): string   // once; '/' if none, or not a same-origin path ('//…', 'http…')
 // lib/time.ts
@@ -341,7 +344,7 @@ export function dateAndTime(iso: string, clock: Clock | null | undefined): strin
 // features/settings/usePreferences.ts
 export const preferenceKeys: { mine: readonly ['preferences', 'me'] }
 export function usePreferences(accessToken: string, opts?: { refetchOnMount?: 'always' }): UseQueryResult<Preferences>
-export function useUpdatePreferences(accessToken: string): UseMutationResult<Preferences, Error, { clock: Clock | null }>
+export function useUpdatePreferences(accessToken: string): UseMutationResult<Preferences, Error, { clock: Clock | null }>  // scope 'preferences'
 export function useClock(): Clock | null
 // features/settings/useProfile.ts
 export const profileKeys: { me: readonly ['profile', 'me'] }
@@ -371,6 +374,7 @@ and the component under test fresh, as `session.test.ts:50-52` and `App.test.tsx
 | `time.test.ts`: `Automatic follows the browser locale` · `24-hour shows 15:07 for a local 15:07` · `12-hour shows 3:07 and not 15:07` · `a morning time reads 9:05 either way` — each for both functions; dates built from **local** parts (`new Date(2026, 8, 15, 15, 7)`) so any TZ works | Req 7 formats, both sides of noon | `Failed to resolve import "./time"` |
 | `clockSites.test.tsx`: `a message time follows the stored clock` · `a thread summary time follows it` · `a search result time follows it` — `MessageItem` (with `replyCount`, `lastReplyAt`, `onOpenThread`) and `SearchResult`, cache seeded `{clock:'24h'}` then `{clock:'12h'}` | Req 7's three places | `Failed to resolve import "./usePreferences"` |
 | `ProfileSection.test.tsx`: `prefills from the server, not the session's copy` (session `Ada Lovelace`, server `Ada L.`) | Req 8, *Paths* reload | module not found |
+| · `on a revisit the field waits for this visit's fetch` — cache seeded `['profile','me']` = `Ada L.`, the GET held and answering `Ada M.`: no `Display name` textbox while it is held; then its value is `Ada M.` | decision 36; fails a build that seeds from the cache | same |
 | · `Save is off while unchanged, blank or over 100, and on otherwise` — unchanged; `"  Ada L.  "`; `"   "`; 101 and 100 code points | decision 28, both sides | same |
 | · `shows the 400 and the 409 on the field, and changes nothing` | Req 1, 2 | same |
 | · `says Saved after a success, until the next edit` | Req 8, decision 31 | same |
@@ -379,10 +383,16 @@ and the component under test fresh, as `session.test.ts:50-52` and `App.test.tsx
 | `PreferencesSection.test.tsx`: `shows the stored clock, read from the server` (cache seeded stale) | Req 8 | module not found |
 | · `choosing saves at once with only that key` — body exactly `{clock:'24h'}`; Automatic sends `{clock:null}` | Req 7, two tabs | same |
 | · `a failed save puts the previous choice back and shows the error` — PATCH held: radio is 24-hour while in flight; 500 → previous + alert | Req 7, *Timing* | same |
-| · `two choices answered in reverse order end on the last` — and in order | decision 17 | same |
+| · `a second choice waits for the first save, and the tab and the server end on the last` — both PATCHes held: 12-hour then 24-hour; `requests()` holds **one** PATCH and the radio reads 24-hour; release the first (it answers `{clock:'12h'}`) → the radio **still** reads 24-hour and the second PATCH is now recorded; release it → 24-hour; bodies in order `[12h, 24h]` | decision 17; fails a parallel build (two PATCHes while the first is held) and one where a non-latest response writes (12-hour after the first release) | same |
+| · `a failed second save goes back to the first, which was saved` — first 200, second 500 → 12-hour and the alert | decision 17 | same |
+| · `a failed first save under a successful second ends on the second, with no error` — first 500, second 200 → 24-hour, no alert | decision 17 (assumed half) | same |
+| · `two failed saves go back to the choice before either` — start Automatic; both 500 → Automatic and the alert | decision 17; fails a build restoring the snapshot (12-hour) | same |
 | · `choosing re-renders a time already on screen without refetching` — `MessageItem` beside the section; `requests()` holds only the PATCH | *Where the rules meet*, cached lists | same |
 | · `refetches on window focus` — `test/page.ts`'s focus helper | *Paths*, second tab | same |
 | `session.test.ts`: `updateProfile replaces the signed-in profile and notifies` · `updateProfile does nothing when signed out` | own view | `session.updateProfile is not a function` |
+| · `a renewal that read the profile before a rename keeps the renamed one` — after `restore()`, `server.use` a `GET /users/me` handler that sets a flag and awaits a deferred (built like `answerSlowly()`, `:270-285`), answering `PROFILE`; refresh answers marker `renewed`; start `restore()`, `vi.waitFor` the flag, `updateProfile({...PROFILE, displayName: 'Ada L.'})`, release, await → `Ada L.` **and** the `renewed` token | decision 35, order 1; the token half shows the renewal still adopted | same |
+| · `a renewal that read the profile after a rename takes the server's` — `updateProfile('Ada L.')`, then `auth.me({...PROFILE, displayName: 'Ada M.'})`, `restore()` → `Ada M.` | order 2; fails a sticky "renamed locally" flag | same |
+| · `a workspace switch that read the profile before a rename keeps the renamed one` — as the first, through `changeWorkspace(AWAY)` → `Ada L.`, `activeWorkspaceId === AWAY` | *Paths*: a switch on `/settings` | same |
 | · `signIn keeps a return path across the redirect, and clears an old one without it` | *Paths* | assertion: `sessionStorage` null |
 | · `takeReturnTo gives the path once, then '/'; refuses '//evil.example' and 'https://evil.example'` | open redirect | `takeReturnTo is not a function` |
 | `App.test.tsx` (each through the real `App`; red is `"No such page."` / a timeout unless said): `shows Settings on a direct load, from the server` · `clicking your name opens Settings` · `a signed-out visitor to /settings is asked to sign in, and the path is kept` (`location.assign` stubbed as `session.test.ts:315`) · `the callback lands on the kept path` (red: lands on `/`) · `Back to chat returns to the last channel in this workspace` · `…to the start after a workspace switch` · `…to the start when no channel was opened` · `a save still lands after leaving mid-save` (PATCH held, click Back to chat, release → sidebar link shows the new name) · `leaving with an unsaved edit drops it without asking` (`window.confirm` spy not called; reopening shows the stored name) · `a workspace switch on Settings changes nothing` (still `/settings`, same name, same clock, the unsaved edit kept) | Req 5, 8, every SPA *Paths* row | as said |
@@ -480,7 +490,10 @@ Leave uncommitted.
       op.create_table("user_preferences", …)  # as the model
   ```
   Bound parameters only (CH006). Downgrade drops the table, the index and the column; names stay
-  renamed (one-way, Req 4) — say so in its docstring.
+  renamed (one-way, Req 4) — say so in its docstring. Say there too that during a rolling deploy
+  (the chart's `pre-upgrade` migrate Job, `templates/auth/migrate-job.yaml:16`) an Auth pod still on
+  the old code fails a first sign-in (no `display_name_key`, NOT NULL) and could write a rename
+  without its key, until it is replaced; the SPA on `main` never renames.
 - [ ] Task 2's `test_schema.py` and `test_name_migration.py` pass. Leave uncommitted.
 
 ## Task 7: Provisioning, rename, preferences routes (GREEN)
@@ -513,7 +526,7 @@ Leave uncommitted.
 ## Task 8: The SPA (GREEN)
 
 - [ ] `api.ts`, `storage.ts` (`returnTo` beside `pkceVerifier`), `session.ts` to Task 3's interface.
-  `completeSignIn`'s failure paths clear the return path.
+  `completeSignIn`'s failure paths clear the return path. `adopt()` takes the epoch check of decision 35.
 - [ ] `App.tsx`: `/settings` → `Protected` → `SettingsRoute`; `Protected` passes `state={{ from:
   pathname + search }}`; `SignIn` hands `from` to `signIn`; `Callback` → `takeReturnTo()`.
 - [ ] `stores/chat.ts` `lastChannel`; `ChannelView` sets it when both ids are known.
@@ -533,7 +546,8 @@ Leave uncommitted.
 - [ ] ADRs with the `adr-writer` skill: D28 (preferences in Auth, per user, validated keys, one upsert);
   D46 (global uniqueness over tenancy; the casefold key over `lower()`).
 - [ ] Doc 01: §3 table + the two preferences routes and the 409/400s on `PATCH /users/me`; §4
-  `display_name_key`, its index and `user_preferences`; §5.1 the first-sign-in suffix rule.
+  `display_name_key`, its index and `user_preferences`, and that the uniqueness counts deleted rows
+on purpose (no `deleted_at` filter, Conventions §3); §5.1 the first-sign-in suffix rule.
 - [ ] Doc 06: §3 `/features/settings`; §5.2 *Names* — the renamer's own tab updates at once; §9 D28
   decided; the return-to-route in §4.
 - [ ] Conventions §5.4: the D46 exception, worded as the issue's *Record* says.
@@ -562,18 +576,25 @@ found, each with the test that now pins it down. Empty until then.*
 ## Not in this plan
 
 - Everything in the issue's *Not in this issue*; a live rename broadcast; TR39 confusables.
-- Ordering `adopt()` against `updateProfile` (decision 35).
 - Generating Auth's OpenAPI types (DA 10).
 
 ## Self-review
 
-- **Issue coverage:** Req 1 → Tasks 1, 2, 5, 7 (`test_the_issues_*`, `test_a_refused_name_is_400…`);
-  Req 2 → 1, 2, 6, 7 (key, 409, NFC both ways, capitals, deleted, global, race); Req 3 → 1, 2, 7
-  (suffix, returning, two at once, both race orders); Req 4 → 1, 2, 6; Req 5 → 3, 4, 8; Req 6 → 1, 2,
-  7; Req 7 → 3, 8; Req 8 → 3, 4, 8. *Where the rules meet*: all seven rows named in Tasks 2–3. *Paths*:
-  rows 1–5 `App.test.tsx`/`ProfileSection`, 6 `PreferencesSection` focus, 7 existing tests + journey,
-  8 `test_a_deleted_*`. DA 9 → `test_r1_unreachable`; DA 11 → global constraints + CH008.
-- **Names:** `display_name_key`, `uq_users_display_name_key`, `['preferences','me']`,
-  `['profile','me']`, `takeReturnTo`, `updateProfile` — one spelling throughout.
-- **Known ripple:** `test_schema.py`'s `a_user`, and `test/api.ts`'s default preferences handler for
-  the four files rendering `ChatLayout` — both RED work, because no GREEN task writes a test.
+- **Issue coverage:** Req 1 → Tasks 1, 2, 5, 7; Req 2 → 1, 2, 6, 7; Req 3 → 1, 2, 7; Req 4 → 1, 2, 6;
+  Req 5 → 3, 4, 8; Req 6 → 1, 2, 7; Req 7 → 3, 8; Req 8 → 3, 4, 8. *Where the rules meet* and *Paths*:
+  every row named in Tasks 2–3. DA 9 → `test_r1_unreachable`; DA 11 → CH008.
+- **Names** spelled one way throughout. **Known ripple** (`a_user`, the default preferences handler)
+  is RED work, because no GREEN task writes a test.
+
+## Review responses
+
+Round 1 (`reviews/plan-reviewer-1.md`):
+
+1. **Fixed.** Decision 17: the saves share a mutation `scope`, so they go out serially in click
+   order, and only the latest choice's response writes. A failure of the latest restores
+   `confirmed`, not the snapshot. Each outcome pair has a Task 3 test; `isMutating` is not used.
+2. **Fixed.** Decision 35: `adopt()` keeps the newer profile through `profileEpoch`. Three
+   `session.test.ts` cases cover a renewal in both orders and a workspace switch.
+3. **Fixed.** Decision 36 (assumed): the form waits for this visit's fetch, with a new test.
+4. **Fixed.** The migration docstring and *What no test covers* name the rolling-deploy window.
+   The *Left for later stages* notes are taken up too: Task 1 asks for `\u` escapes, and Task 9 notes the deleted rows.
