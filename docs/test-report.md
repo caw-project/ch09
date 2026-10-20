@@ -1,59 +1,21 @@
 # Test report
 
-Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `08552a6835c7-dirty`.
+Written by `scripts/test.sh` after every layer it runs, so an edit by hand is lost. Revision `94bb82771969`.
 
 ## Layers
 
 | Layer | Result | Passed | Failed | Skipped | Revision |
 |---|---|--:|--:|--:|---|
-| Lint | ✅ passed | | | | `08552a6835c7-dirty` |
-| Unit | ✅ passed | 1973 | 0 | 0 | `08552a6835c7-dirty` |
-| Integration | ❌ failed | 613 | 3 | 0 | `08552a6835c7-dirty` |
-| End-to-end | ✅ passed | 25 | 0 | 0 | `08552a6835c7-dirty` |
+| Lint | ✅ passed | | | | `94bb82771969` |
+| Unit | ✅ passed | 1973 | 0 | 0 | `94bb82771969` |
+| Integration | ✅ passed | 616 | 0 | 0 | `94bb82771969` |
+| End-to-end | ✅ passed | 25 | 0 | 0 | ⚠️ `08552a6835c7-dirty` |
+
+> ⚠️ End-to-end was recorded at another revision.
 
 ## Failures
 
-### Integration · auth · `src.services.auth.tests.integration.test_name_migration::test_after_the_migration_every_key_is_set_and_unique`
-
-```text
-AssertionError: assert {1: 'sam 2', ...am', 3: 'ada'} == {1: 'sam', 2:... 2', 3: 'ada'}
-  
-  Omitting 1 identical items, use -vv to show
-  Differing items:
-  {1: 'sam 2'} != {1: 'sam'}
-  {2: 'sam'} != {2: 'sam 2'}
-  
-  Full diff:
-    {
-  -     1: 'sam',
-  -     2: 'sam 2',
-  ?     ^
-  +     1: 'sam 2',
-  ?     ^
-  +     2: 'sam',
-        3: 'ada',
-    }
-```
-
-### Integration · auth · `src.services.auth.tests.integration.test_name_migration::test_duplicates_only_normalising_reveals_are_renamed`
-
-```text
-AssertionError: assert 'José 2' == 'José'
-  
-  - José
-  + José 2
-  ?     ++
-```
-
-### Integration · auth · `src.services.auth.tests.integration.test_name_migration::test_every_duplicate_but_the_oldest_is_renamed`
-
-```text
-AssertionError: assert 'Sam 3' == 'Sam'
-  
-  - Sam
-  + Sam 3
-  ?    ++
-```
+None.
 
 ## Journeys
 
@@ -171,7 +133,7 @@ AssertionError: assert 'Sam 3' == 'Sam'
 | Service | Unit | Integration |
 |---|---|---|
 | asset | ✅ 39 passed | ✅ 34 passed |
-| auth | ✅ 108 passed | ❌ 3 of 160 failed |
+| auth | ✅ 108 passed | ✅ 160 passed |
 | canvas | ✅ 2 passed | — |
 | messaging | ✅ 136 passed | ✅ 325 passed |
 | other | ✅ 889 passed | ✅ 48 passed |

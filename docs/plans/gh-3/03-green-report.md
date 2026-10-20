@@ -85,8 +85,16 @@ tests) hold. No difference from the red report was seen in the files I ran.
 - The 12/24-hour rendering in other ICU locales (the suite runs in one).
 - The `.claude/hooks/security.sh` `mktemp` noise, if it appears outside this runner.
 
-## Send-back
+## Review responses (return from send-back 3)
 
-`reviews/code-writer-sendback-3.md` → test-writer: `test_name_migration.py`'s `user()` computes
-`created_at = T0 + (100 - age)` days, which makes a lower `age` the newer account; the oldest keeps its name,
-so three tests expect the opposite of Req 4. Fix: `T0 + timedelta(days=age)`.
+The test-writer fixed `user()` in `test_name_migration.py` (`created_at` now runs the right way round). No
+code changed. Rerun after it:
+
+- `uv run pytest src/services/auth` → **268 passed, 0 failed** (the three migration tests now pass against the
+  code as built).
+- `scripts/test.sh lint unit integration` → lint ✅, unit ✅ 1973 passed, integration ✅ **616 passed, 0 failed**.
+  `docs/test-report.md` now shows all three green.
+- e2e not rerun: the only file changed since its 25-pass run is a Python integration test, which no image or
+  the SPA builds from. The report keeps that run's result (marked as another revision).
+
+The "Send-back" section and every "3 failed" line above are superseded by this one.

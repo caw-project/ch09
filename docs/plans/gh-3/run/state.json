@@ -1,7 +1,7 @@
 {
-  "stage": "code-writer",
+  "stage": "code-reviewer",
   "status": "running",
-  "step": 11,
+  "step": 12,
   "review": "",
   "rounds": {
     "plan": 2,
@@ -20,9 +20,7 @@
     "test": 1,
     "code": 0
   },
-  "open_sendbacks": {
-    "code-writer": "docs/plans/gh-3/reviews/code-writer-sendback-3.md"
-  },
+  "open_sendbacks": {},
   "pending": {
     "test": "",
     "code": ""
