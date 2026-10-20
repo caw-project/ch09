@@ -26,9 +26,15 @@ function clientWith(clock: '12h' | '24h') {
   return queryClient
 }
 
-function choose(queryClient: ReturnType<typeof clientWith>, clock: '12h' | '24h') {
-  act(() => {
+/**
+ * TanStack tells its observers on a `setTimeout(0)` batch, which a synchronous `act`
+ * does not flush — so the change is made, then a macrotask is let through inside `act`
+ * before the test looks at the screen.
+ */
+async function choose(queryClient: ReturnType<typeof clientWith>, clock: '12h' | '24h') {
+  await act(async () => {
     queryClient.setQueryData(preferenceKeys.mine, { clock })
+    await new Promise<void>((resolve) => setTimeout(resolve, 20))
   })
 }
 
@@ -50,22 +56,22 @@ function row(message: ReturnType<typeof aMessage>, withThread = false) {
 }
 
 describe('the clock preference', () => {
-  it('a message time follows the stored clock', () => {
+  it('a message time follows the stored clock', async () => {
     const queryClient = clientWith('24h')
     renderWithProviders(row(aMessage({ createdAt: at(15, 7) })), { queryClient })
     const time = () => screen.getByText(/:07/)
 
     expect(time()).toHaveTextContent(/\b15:07\b/)
 
-    choose(queryClient, '12h')
+    await choose(queryClient, '12h')
     expect(time()).toHaveTextContent(/\b0?3:07\b/)
     expect(time()).not.toHaveTextContent(/15:07/)
 
-    choose(queryClient, '24h')
+    await choose(queryClient, '24h')
     expect(time()).toHaveTextContent(/\b15:07\b/)
   })
 
-  it('a thread summary time follows it', () => {
+  it('a thread summary time follows it', async () => {
     const queryClient = clientWith('24h')
     // The message's own time is the morning, so the afternoon digits are the summary's alone.
     renderWithProviders(
@@ -76,12 +82,12 @@ describe('the clock preference', () => {
 
     expect(within(summary()).getByText(/:07/)).toHaveTextContent(/\b15:07\b/)
 
-    choose(queryClient, '12h')
+    await choose(queryClient, '12h')
     expect(within(summary()).getByText(/:07/)).toHaveTextContent(/\b0?3:07\b/)
     expect(within(summary()).getByText(/:07/)).not.toHaveTextContent(/15:07/)
   })
 
-  it('a search result time follows it', () => {
+  it('a search result time follows it', async () => {
     const queryClient = clientWith('24h')
     renderWithProviders(
       <SearchResult
@@ -96,7 +102,7 @@ describe('the clock preference', () => {
     expect(time()).toHaveTextContent(/\b15:07\b/)
     expect(time()).toHaveTextContent(/2026/)
 
-    choose(queryClient, '12h')
+    await choose(queryClient, '12h')
     expect(time()).toHaveTextContent(/\b0?3:07\b/)
     expect(time()).not.toHaveTextContent(/15:07/)
   })

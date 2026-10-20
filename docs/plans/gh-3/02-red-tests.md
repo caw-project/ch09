@@ -62,7 +62,7 @@ Vitest (`npm --prefix src/frontend test`: **21 failed | 503 passed**, 4 files un
 | `lib/time.test.ts` (4 plan tests × 2 functions + 2) | file fails to load | `Failed to resolve import "./time"` |
 | `features/settings/clockSites.test.tsx` (4) | load failure | `Failed to resolve import "./usePreferences"` |
 | `features/settings/ProfileSection.test.tsx` (9) | load failure | `Failed to resolve import "./useProfile"` |
-| `features/settings/PreferencesSection.test.tsx` (10) | load failure | `Failed to resolve import "./PreferencesSection"` |
+| `features/settings/PreferencesSection.test.tsx` (9) | load failure | `Failed to resolve import "./PreferencesSection"` |
 | `lib/auth/session.test.ts` (+11, all fail) | run | `TypeError: session.updateProfile is not a function` (×5) · `takeReturnTo is not a function` (×5) · `signIn` test: `sessionStorage` null |
 | `App.test.tsx` (+10, all fail) | run | `Unable to find role="heading" and name "Settings"` and similar (the route is "No such page."); the callback test: `expected '/' to be '/settings'` |
 
@@ -120,3 +120,10 @@ Expected red at the e2e run: `change_display_name` clicks `current-user` (a `<p>
 - `session.test.ts` expects `adopt()` to capture the profile epoch **before** `api.me()` is sent.
 - `signIn(provider, returnTo)` stores under `collabhub.returnTo`; `takeReturnTo()` clears it and returns `/` for anything not starting with a single `/`.
 - The journey's `current-user` must also be clickable (a link) and keep its test id.
+
+## Review responses (round 2)
+
+1. Fixed. `choose()` in `clockSites.test.tsx` is now async: it sets the data and lets a 20 ms macrotask through inside `await act(async …)`, so TanStack's timer batch is delivered before the next assertion. All three tests await it; both directions and the "not 15:07" halves are kept. Still a load failure at red (`./usePreferences` missing), so not run against a build; the reviewer's sketch showed the pattern goes green.
+2. Fixed. The focus test waits for `gets()` to reach 1 before the radio check, and for `gets()` to reach 2 as well as the 24-hour radio after returning.
+3. Fixed. The report says 9 tests for `PreferencesSection.test.tsx`.
+4. Accepted, no change.

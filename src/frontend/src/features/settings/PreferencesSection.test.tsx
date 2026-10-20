@@ -72,15 +72,16 @@ describe('PreferencesSection — reading', () => {
     let call = 0
     auth.preferences(() => (++call === 1 ? {} : { clock: '24h' }))
     renderWithProviders(<PreferencesSection accessToken={TOKEN} />)
+    // "Automatic" is what a radio group shows before any answer, so wait on the request itself.
+    await vi.waitFor(() => expect(gets()).toHaveLength(1))
     await vi.waitFor(() => expect(checked('Automatic').checked).toBe(true))
-    expect(gets()).toHaveLength(1)
 
     // TanStack hears `visibilitychange` only, so the tab has to leave and come back.
     act(() => setPageAttention({ visible: false, focused: false }))
     act(() => setPageAttention({ visible: true, focused: true }))
 
+    await vi.waitFor(() => expect(gets()).toHaveLength(2))
     await vi.waitFor(() => expect(checked('24-hour').checked).toBe(true))
-    expect(gets()).toHaveLength(2)
   })
 })
 
