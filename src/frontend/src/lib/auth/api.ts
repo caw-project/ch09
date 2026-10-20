@@ -97,6 +97,45 @@ export function me(accessToken: string): Promise<Profile> {
   return request<Profile>('/api/v1/users/me', { headers: authorized(accessToken) })
 }
 
+/**
+ * Rename yourself. Display names are unique across CollabHub (register D46): a
+ * 409 means the name is taken, whoever holds it, and a 400 carries the rule that
+ * was broken under `errors.displayName`.
+ */
+export function updateMe(accessToken: string, body: { displayName: string }): Promise<Profile> {
+  return request<Profile>('/api/v1/users/me', {
+    method: 'PATCH',
+    headers: authorized(accessToken),
+    body: JSON.stringify(body),
+  })
+}
+
+/** The 12/24-hour clock a time is drawn with. Absent means the browser's own. */
+export type Clock = '12h' | '24h'
+
+/** Per-user settings (register D28). The server decides which keys exist. */
+export interface Preferences {
+  clock?: Clock
+}
+
+export function preferences(accessToken: string): Promise<Preferences> {
+  return request<Preferences>('/api/v1/users/me/preferences', {
+    headers: authorized(accessToken),
+  })
+}
+
+/** Merge a patch: only the keys named change, and `null` removes one. */
+export function updatePreferences(
+  accessToken: string,
+  patch: { clock?: Clock | null },
+): Promise<Preferences> {
+  return request<Preferences>('/api/v1/users/me/preferences', {
+    method: 'PATCH',
+    headers: authorized(accessToken),
+    body: JSON.stringify(patch),
+  })
+}
+
 export function workspaces(accessToken: string): Promise<{ items: Workspace[] }> {
   return request<{ items: Workspace[] }>('/api/v1/workspaces', { headers: authorized(accessToken) })
 }

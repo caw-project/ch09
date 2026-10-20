@@ -13,9 +13,10 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth import identities
+from auth import identities, names
 from auth.db import session as db_session
 from auth.schemas import PublicUserResponse, UpdateUserRequest, UserResponse
 from shared import ProblemException, UserPrincipal, require_user
@@ -51,28 +52,56 @@ async def update_me(
     A field left out is left alone; `avatarAsset: null` clears the avatar. The
     two are told apart by what the request actually carried rather than by
     treating None as "no change", or an avatar could be set but never removed.
+
+    Display names are unique across the whole installation, deleted accounts
+    included (register D46), so a 409 here can mean the holder is in another
+    workspace, and the body says nothing that tells the two apart. That leak —
+    that *a* name exists somewhere — is the accepted price of a global rule. No
+    pre-check: the unique index decides, so two renames racing for one name
+    cannot both win.
     """
     user = await identities.find_user(session, principal.user_id)
     if user is None:
         raise ProblemException.not_found("This account no longer exists.")
 
     supplied = body.model_fields_set
+    name_changes = False
     if "display_name" in supplied:
         if body.display_name is None:
             raise ProblemException.validation_error(
                 "displayName cannot be null.",
                 errors={"displayName": ["A display name is required"]},
             )
-        user.display_name = body.display_name
+        try:
+            new_name = names.validate(body.display_name)
+        except names.InvalidDisplayNameError as exc:
+            raise ProblemException.validation_error(
+                exc.messages[0], errors={"displayName": exc.messages}
+            ) from exc
+        name_changes = new_name != user.display_name
+        if name_changes:
+            user.display_name = new_name
     if "avatar_asset" in supplied:
         # No existence check against the Asset service: services do not read
         # each other's data, and a synchronous call here would put Asset on the
         # path of a profile edit. A dangling reference renders as no avatar.
         user.avatar_asset = body.avatar_asset
+    elif "display_name" in supplied and not name_changes:
+        # Saving the name you already have changes nothing: no version bump.
+        return UserResponse.model_validate(user, from_attributes=True)
 
     user.updated_at = datetime.now(UTC)
     user.version += 1
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        if not identities.is_display_name_conflict(exc):
+            raise
+        # Never log or return `exc`: its text carries the name's key.
+        raise ProblemException.conflict(
+            names.TAKEN, errors={"displayName": [names.TAKEN]}
+        ) from None
 
     return UserResponse.model_validate(user, from_attributes=True)
 

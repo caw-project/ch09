@@ -570,8 +570,25 @@ on purpose (no `deleted_at` filter, Conventions §3); §5.1 the first-sign-in su
 
 ## Found while building
 
-*Filled in by the code-writer: every deviation from this plan, and every bug the first real run
-found, each with the test that now pins it down. Empty until then.*
+Round 1, code-writer (details in `03-green-report.md`):
+
+1. **A test fault, sent back** (`reviews/code-writer-sendback-3.md`): `test_name_migration.py`'s
+   `user()` builds `created_at = T0 + (100 - age)` days, so a lower `age` is the *newer* account,
+   against its docstring; three migration tests (`…_but_the_oldest_is_renamed`,
+   `…_only_normalising_reveals…`, `…_every_key_is_set_and_unique`) expect the opposite of Req 4.
+   The code keeps the name on the oldest. Pinned by `names.deduplicate`'s unit tests; the fix is
+   `T0 + timedelta(days=age)`.
+2. **Imports the lint hook strips between edits.** Not a departure from the plan, but the Auth
+   edits had to be made so that an import and its first use landed together.
+3. **`update_me` with only an unchanged name returns early**; a PATCH that also carries
+   `avatarAsset` still writes and bumps. (Decision 23 speaks of a name-only PATCH.) No test for the
+   mixed case.
+4. **A failed profile fetch** (plan-reviewer 2, decision 36): `ProfileSection` shows a
+   `ProblemBanner` and no field, rather than seeding from a stale name. No test.
+5. **`/settings` first-run by hand** (Task 10's real run on the Compose stack) was not done by this
+   stage; see the green report's *Left for the human*.
+6. `scripts/test.sh` prints `mktemp: too few X's in template` from `.claude/hooks/security.sh` in this
+   environment (gitleaks and semgrep temp files); the script still reports clean. Not touched.
 
 ## Not in this plan
 

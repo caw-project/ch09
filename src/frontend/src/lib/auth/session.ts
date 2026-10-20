@@ -18,7 +18,7 @@
  */
 
 import * as api from './api'
-import { pkceVerifier } from './storage'
+import { pkceVerifier, returnTo } from './storage'
 import { challengeFor, createVerifier } from './pkce'
 
 /** Renew this long before expiry, so a slow request cannot straddle it. */
@@ -73,13 +73,38 @@ export function snapshot(): State {
   return state
 }
 
+/**
+ * Counts own-tab profile writes (`updateProfile`). `adopt` captures it before it
+ * asks for the profile: a profile read that was sent before a rename committed
+ * can come back after the rename was applied here, and must not put the old name
+ * back. Per call, not a sticky flag — a rename from another device still arrives
+ * at the next renewal.
+ */
+let profileEpoch = 0
+
+/**
+ * Replace the signed-in profile with one the server just returned (a rename).
+ * Does nothing when signed out. The token, workspaces and `wsp` are untouched.
+ */
+export function updateProfile(profile: api.Profile): void {
+  if (state.status !== 'signedIn') return
+  profileEpoch++
+  set({ status: 'signedIn', session: { ...state.session, profile } })
+}
+
 async function adopt(pair: api.TokenPair): Promise<void> {
+  const epoch = profileEpoch
   // Nothing to store: the refresh cookie was set by the response that carried
   // this access token, and the browser will send it back unprompted.
-  const [profile, workspaceList] = await Promise.all([
+  const [fetched, workspaceList] = await Promise.all([
     api.me(pair.accessToken),
     api.workspaces(pair.accessToken),
   ])
+
+  // A rename applied while the profile was in flight is newer than what came
+  // back; keep it. Everything else (token, workspaces, `wsp`) is the fetched.
+  const profile =
+    epoch !== profileEpoch && state.status === 'signedIn' ? state.session.profile : fetched
 
   set({
     status: 'signedIn',
@@ -155,11 +180,34 @@ export async function restore(): Promise<void> {
   await renew()
 }
 
-/** Begin a login. Navigates away, so nothing after this runs. */
-export async function signIn(provider = 'dex'): Promise<void> {
+/**
+ * Begin a login. Navigates away, so nothing after this runs.
+ *
+ * `returnTo` is the route the visitor started from; it is kept across the
+ * redirect and a login without one clears any left from an earlier attempt.
+ */
+export async function signIn(provider = 'dex', returnToPath?: string): Promise<void> {
   const verifier = createVerifier()
   pkceVerifier.write(verifier)
+  if (returnToPath) returnTo.write(returnToPath)
+  else returnTo.clear()
   window.location.assign(api.loginUrl(provider, await challengeFor(verifier)))
+}
+
+/**
+ * Where a finished sign-in goes: the kept route, once, else `/`.
+ *
+ * Only a same-origin path is followed. The value sits in `sessionStorage`, which
+ * any script on the origin can write, and `//evil.example` or `https:…` would
+ * make the callback an open redirect.
+ */
+export function takeReturnTo(): string {
+  const path = returnTo.read()
+  returnTo.clear()
+  if (path && path.startsWith('/') && !path.startsWith('//') && !path.startsWith('/\\')) {
+    return path
+  }
+  return '/'
 }
 
 /**
@@ -172,6 +220,7 @@ export async function completeSignIn(query: URLSearchParams): Promise<boolean> {
   const error = query.get('error')
   if (error) {
     pkceVerifier.clear()
+    returnTo.clear()
     signedOut(describe(error))
     return false
   }
@@ -179,6 +228,7 @@ export async function completeSignIn(query: URLSearchParams): Promise<boolean> {
   const code = query.get('code')
   const verifier = pkceVerifier.read()
   if (!code || !verifier) {
+    returnTo.clear()
     signedOut(code ? 'This sign-in was started in another tab.' : undefined)
     return false
   }
@@ -191,6 +241,7 @@ export async function completeSignIn(query: URLSearchParams): Promise<boolean> {
     await adopt(await api.exchangeCode(code, verifier))
     return true
   } catch (caught) {
+    returnTo.clear()
     signedOut(caught instanceof Error ? caught.message : 'Sign-in failed.')
     return false
   }

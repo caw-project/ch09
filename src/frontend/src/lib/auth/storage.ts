@@ -22,6 +22,7 @@
  */
 
 const VERIFIER_KEY = 'collabhub.pkceVerifier'
+const RETURN_KEY = 'collabhub.returnTo'
 
 function read(key: string): string | null {
   try {
@@ -47,6 +48,17 @@ function clear(key: string): void {
   } catch {
     /* see read() */
   }
+}
+
+/**
+ * Where to land after signing in: the route the visitor started from. Like the
+ * verifier it must survive the redirect to the identity provider, and it is a
+ * path only — `session.takeReturnTo` refuses anything that is not one.
+ */
+export const returnTo = {
+  read: () => read(RETURN_KEY),
+  write: (path: string) => write(RETURN_KEY, path),
+  clear: () => clear(RETURN_KEY),
 }
 
 /**

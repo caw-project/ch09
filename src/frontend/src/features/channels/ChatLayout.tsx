@@ -20,6 +20,7 @@ import { useChannelSocket } from '../../lib/realtime/useChannelSocket'
 import { useAttachmentStore } from '../../stores/attachments'
 import { useChatStore } from '../../stores/chat'
 import { SearchBox } from '../search/SearchBox'
+import { usePreferences } from '../settings/usePreferences'
 import { cancelAll } from '../attachments/uploads'
 import { ChannelList } from './ChannelList'
 import { CreateChannelDialog } from './CreateChannelDialog'
@@ -55,6 +56,10 @@ export function ChatLayout({ current, children }: Props) {
     },
     [workspaceId],
   )
+
+  // One fetcher for the whole shell: every formatter reads the clock from the
+  // cache through `useClock`, so nothing below is handed it as a prop.
+  usePreferences(current.accessToken)
 
   const socket = useChannelSocket(
     current.accessToken,

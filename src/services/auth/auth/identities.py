@@ -12,8 +12,10 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import Select, func, select, text, tuple_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from auth import names
 from auth.models import ExternalIdentity, User, Workspace, WorkspaceMember
 from shared import Page, PageRequest, build_page, uuid7
 
@@ -51,6 +53,19 @@ _DEMO_WORKSPACE_LOCK = 0x0C011AB1
 class Membership:
     workspace: Workspace
     role: str
+
+
+_NAME_KEY_INDEX = "uq_users_display_name_key"
+
+
+def is_display_name_conflict(exc: IntegrityError) -> bool:
+    """Whether an insert or update failed on the display-name key and nothing else.
+
+    Read from the driver's constraint name rather than the message: the message
+    carries the key, which is a display name and must not be logged or returned.
+    """
+    cause = exc.orig.__cause__ if exc.orig is not None else None
+    return getattr(cause, "constraint_name", None) == _NAME_KEY_INDEX
 
 
 async def find_user(session: AsyncSession, user_id: uuid.UUID) -> User | None:
@@ -98,11 +113,28 @@ async def provision_user(
     if user is not None:
         return user
 
-    user = User(id=uuid7(), email=email, display_name=display_name)
-    session.add(user)
-    await session.flush()
+    # An IdP name is cleaned, never refused (Req 3), and a taken one takes the
+    # first free suffix. Each attempt is its own SAVEPOINT: the unique index
+    # blocks a concurrent insert until the other transaction commits, then fails
+    # it, and that failure must not poison the outer transaction.
+    base = names.provisional(display_name, fallback=email.split("@")[0])
+    user: User | None = None
+    for candidate in names.candidates(base):
+        attempt = User(id=uuid7(), email=email, display_name=candidate)
+        try:
+            async with session.begin_nested():
+                session.add(attempt)
+                await session.flush()
+        except IntegrityError as exc:
+            if not is_display_name_conflict(exc):
+                raise
+            continue
+        user = attempt
+        break
+    if user is None:  # pragma: no cover — `candidates` never ends
+        raise RuntimeError("no free display name")
 
-    own = Workspace(id=uuid7(), name=f"{display_name}'s Workspace")
+    own = Workspace(id=uuid7(), name=f"{user.display_name}'s Workspace")
     session.add(own)
     await session.flush()
     session.add(WorkspaceMember(workspace_id=own.id, user_id=user.id, role=OWNER))

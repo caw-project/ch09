@@ -38,6 +38,13 @@ export function ChannelView({ accessToken, workspaceId, userId }: Props) {
     return () => setActiveChannel(null)
   }, [channelId, setActiveChannel])
 
+  // Remembered for "Back to chat" on Settings; unlike the active channel it
+  // survives this view unmounting, and it records the workspace it was opened in.
+  const setLastChannel = useChatStore((state) => state.setLastChannel)
+  useEffect(() => {
+    if (channelId && workspaceId) setLastChannel({ workspaceId, channelId })
+  }, [channelId, workspaceId, setLastChannel])
+
   const queryClient = useQueryClient()
   // Which thread is open lives in the URL. Switching channel drops it, since
   // the new channel's address carries no `?thread=`.
