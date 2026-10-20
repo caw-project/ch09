@@ -1,12 +1,12 @@
 {
-  "stage": "code-reviewer",
+  "stage": "code-writer",
   "status": "running",
-  "step": 12,
-  "review": "",
+  "step": 13,
+  "review": "docs/plans/gh-3/reviews/code-reviewer-1.md",
   "rounds": {
     "plan": 2,
     "test": 3,
-    "code": 1,
+    "code": 2,
     "acceptance": 1
   },
   "final": {
